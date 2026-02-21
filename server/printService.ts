@@ -133,7 +133,12 @@ export class ESCPOSBuilder {
   }
 
   openCashDrawer(pin: number = 0x00, pulseOn: number = 0x19, pulseOff: number = 0xFA): this {
-    this.buffer.push(Buffer.from([0x1B, 0x70, pin, pulseOn, pulseOff]));
+    // Robust drawer kick sequence:
+    // 1. ESC @ (0x1B 0x40) - Re-initialize printer, ensures clean state for drawer command
+    // 2. BEL (0x07) - Star Line Mode drawer kick (works on Star printers regardless of emulation)
+    // 3. ESC p pin pulseOn pulseOff - Standard ESC/POS drawer kick
+    // Both BEL and ESC p are sent so the drawer fires on Star printers in either mode
+    this.buffer.push(Buffer.from([0x1B, 0x40, 0x07, 0x1B, 0x70, pin, pulseOn, pulseOff]));
     return this;
   }
 

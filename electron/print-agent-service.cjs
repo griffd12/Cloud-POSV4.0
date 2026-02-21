@@ -340,21 +340,24 @@ class PrintAgentService {
 
     printLogger.info('Job', `Received job ${jobId}`, { printer: windowsPrinterName || printerIp || comPort || printerId || 'default', connectionType });
 
-    // Detect embedded ESC/POS drawer kick bytes (0x1B 0x70) in print data
+    // Detect embedded drawer kick bytes in print data
     try {
       const rawBuf = Buffer.from(printData, 'base64');
-      let kickCount = 0;
-      for (let i = 0; i < rawBuf.length - 1; i++) {
-        if (rawBuf[i] === 0x1B && rawBuf[i + 1] === 0x70) {
+      let escpKicks = 0;
+      let belKicks = 0;
+      for (let i = 0; i < rawBuf.length; i++) {
+        if (rawBuf[i] === 0x07) {
+          printLogger.info('Job', `BEL (Star drawer kick) DETECTED in job ${jobId} at offset ${i}`, { printer: windowsPrinterName || printerIp || comPort || 'default' });
+          belKicks++;
+        }
+        if (i < rawBuf.length - 1 && rawBuf[i] === 0x1B && rawBuf[i + 1] === 0x70) {
           const pinByte = i + 2 < rawBuf.length ? rawBuf[i + 2] : -1;
           const pinLabel = pinByte === 0x00 ? 'pin2' : pinByte === 0x01 ? 'pin5' : `0x${pinByte.toString(16)}`;
-          printLogger.info('Job', `DRAWER KICK BYTES DETECTED in job ${jobId} at offset ${i}: pin=${pinLabel}`, { printer: windowsPrinterName || printerIp || comPort || 'default' });
-          kickCount++;
+          printLogger.info('Job', `ESC p (drawer kick) DETECTED in job ${jobId} at offset ${i}: pin=${pinLabel}`, { printer: windowsPrinterName || printerIp || comPort || 'default' });
+          escpKicks++;
         }
       }
-      if (kickCount === 0 && rawBuf.length < 100) {
-        printLogger.info('Job', `No drawer kick bytes in job ${jobId} (${rawBuf.length} bytes)`);
-      }
+      printLogger.info('Job', `Drawer kick scan for job ${jobId}: ${escpKicks} ESC_p + ${belKicks} BEL kicks in ${rawBuf.length} bytes`);
     } catch (scanErr) {
       printLogger.warn('Job', `Could not scan job ${jobId} for drawer kick bytes: ${scanErr.message}`);
     }
@@ -483,9 +486,14 @@ class PrintAgentService {
     const pulseOff = pulseOn;
     const pinByte = pin === 'pin5' ? 0x01 : 0x00;
 
-    printLogger.info('DrawerKick', `Building ESC/POS command: pin=${pin} (byte=0x${pinByte.toString(16).padStart(2,'0')}), pulseOn=${pulseOn}, pulseOff=${pulseOff}, duration=${duration}ms`);
+    printLogger.info('DrawerKick', `Building drawer kick command: pin=${pin} (byte=0x${pinByte.toString(16).padStart(2,'0')}), pulseOn=${pulseOn}, pulseOff=${pulseOff}, duration=${duration}ms`);
 
-    return Buffer.from([0x1B, 0x70, pinByte, pulseOn, pulseOff]);
+    // Robust drawer kick sequence:
+    // 1. ESC @ (0x1B 0x40) - Initialize printer, ensures it's ready to accept commands
+    // 2. BEL (0x07) - Star Line Mode drawer kick (works on Star printers regardless of emulation mode)
+    // 3. ESC p pin pulseOn pulseOff - Standard ESC/POS drawer kick command
+    // Sending both BEL and ESC p ensures the drawer fires on Star printers in either mode
+    return Buffer.from([0x1B, 0x40, 0x07, 0x1B, 0x70, pinByte, pulseOn, pulseOff]);
   }
 
   async handleDrawerKick(msg) {
@@ -503,16 +511,18 @@ class PrintAgentService {
     printLogger.info('DrawerKick', `Received drawer kick ${kickId}`, { printer: windowsPrinterName || printerIp || comPort || printerId || 'default', pin, connectionType });
 
     const kickCommand = this.buildDrawerKickCommand(pin, pulseDuration);
+    printLogger.info('DrawerKick', `Kick command ${kickId}: ${kickCommand.length} bytes = [${Array.from(kickCommand).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' ')}]`);
 
     // Windows Print Spooler path for drawer kick
     if (connectionType === 'windows_printer' && windowsPrinterName) {
       try {
+        printLogger.info('DrawerKick', `Sending ${kickCommand.length}-byte kick to Windows printer "${windowsPrinterName}" via Print Spooler RAW...`);
         await this.sendToWindowsPrinter(windowsPrinterName, kickCommand);
         this.sendKickResult(kickId, true);
-        printLogger.info('DrawerKick', `Drawer kick ${kickId} sent via Windows printer`, { printer: windowsPrinterName, pin });
+        printLogger.info('DrawerKick', `Drawer kick ${kickId} COMPLETED via Windows printer "${windowsPrinterName}" pin=${pin}`);
       } catch (err) {
         this.sendKickResult(kickId, false, err.message);
-        printLogger.error('DrawerKick', `Drawer kick ${kickId} Windows printer failed: ${err.message}`);
+        printLogger.error('DrawerKick', `Drawer kick ${kickId} Windows printer FAILED: ${err.message}`);
       }
       return;
     }
