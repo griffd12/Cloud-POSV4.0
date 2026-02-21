@@ -693,24 +693,82 @@ class PrintAgentService {
           $ErrorActionPreference = 'Stop'
           try {
             $printerName = '${printerName.replace(/'/g, "''")}'
-            $printer = Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE Name='$($printerName.Replace("\\","\\\\"))'" -ErrorAction Stop
-            if (-not $printer) {
-              Write-Error "Printer '$printerName' not found in Windows"
-              exit 1
+
+            Add-Type -TypeDefinition @'
+            using System;
+            using System.Runtime.InteropServices;
+
+            public class RawPrinterHelper {
+              [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+              public struct DOCINFOW {
+                [MarshalAs(UnmanagedType.LPWStr)] public string pDocName;
+                [MarshalAs(UnmanagedType.LPWStr)] public string pOutputFile;
+                [MarshalAs(UnmanagedType.LPWStr)] public string pDataType;
+              }
+
+              [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+              public static extern bool OpenPrinter(string pPrinterName, out IntPtr phPrinter, IntPtr pDefault);
+
+              [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+              public static extern bool StartDocPrinter(IntPtr hPrinter, int level, ref DOCINFOW pDocInfo);
+
+              [DllImport("winspool.drv", SetLastError = true)]
+              public static extern bool StartPagePrinter(IntPtr hPrinter);
+
+              [DllImport("winspool.drv", SetLastError = true)]
+              public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
+
+              [DllImport("winspool.drv", SetLastError = true)]
+              public static extern bool EndPagePrinter(IntPtr hPrinter);
+
+              [DllImport("winspool.drv", SetLastError = true)]
+              public static extern bool EndDocPrinter(IntPtr hPrinter);
+
+              [DllImport("winspool.drv", SetLastError = true)]
+              public static extern bool ClosePrinter(IntPtr hPrinter);
+
+              public static bool SendBytesToPrinter(string printerName, byte[] data) {
+                IntPtr hPrinter;
+                if (!OpenPrinter(printerName, out hPrinter, IntPtr.Zero)) {
+                  throw new Exception("OpenPrinter failed for: " + printerName + " (error " + Marshal.GetLastWin32Error() + ")");
+                }
+                try {
+                  DOCINFOW di = new DOCINFOW();
+                  di.pDocName = "CloudPOS RAW Document";
+                  di.pDataType = "RAW";
+                  di.pOutputFile = null;
+                  if (!StartDocPrinter(hPrinter, 1, ref di)) {
+                    throw new Exception("StartDocPrinter failed (error " + Marshal.GetLastWin32Error() + ")");
+                  }
+                  try {
+                    if (!StartPagePrinter(hPrinter)) {
+                      throw new Exception("StartPagePrinter failed (error " + Marshal.GetLastWin32Error() + ")");
+                    }
+                    IntPtr pBytes = Marshal.AllocHGlobal(data.Length);
+                    try {
+                      Marshal.Copy(data, 0, pBytes, data.Length);
+                      int written;
+                      if (!WritePrinter(hPrinter, pBytes, data.Length, out written)) {
+                        throw new Exception("WritePrinter failed (error " + Marshal.GetLastWin32Error() + ")");
+                      }
+                    } finally {
+                      Marshal.FreeHGlobal(pBytes);
+                    }
+                    EndPagePrinter(hPrinter);
+                  } finally {
+                    EndDocPrinter(hPrinter);
+                  }
+                } finally {
+                  ClosePrinter(hPrinter);
+                }
+                return true;
+              }
             }
-            $portName = $printer.PortName
-            if (-not $portName) {
-              Write-Error "No port found for printer '$printerName'"
-              exit 1
-            }
-            Write-Host "PRINTER_PORT=$portName"
+'@
+
             $rawData = [System.IO.File]::ReadAllBytes('${tmpFile.replace(/\\/g, '\\\\')}')
-            Write-Host "Sending $($rawData.Length) bytes to port $portName"
-            $portPath = '\\\\.\\' + $portName
-            $fileStream = [System.IO.FileStream]::new($portPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-            $fileStream.Write($rawData, 0, $rawData.Length)
-            $fileStream.Flush()
-            $fileStream.Close()
+            Write-Host "Sending $($rawData.Length) bytes to printer '$printerName' via Windows Print Spooler"
+            [RawPrinterHelper]::SendBytesToPrinter($printerName, $rawData)
             Write-Host "SUCCESS"
           } catch {
             Write-Error $_.Exception.Message
