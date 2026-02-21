@@ -125,6 +125,13 @@ export default function PosPage() {
     logout,
   } = usePosContext();
 
+  const wsHeaders = (extra?: Record<string, string>): Record<string, string> => {
+    const h: Record<string, string> = {};
+    if (workstationId) h["x-workstation-id"] = workstationId;
+    if (extra) Object.assign(h, extra);
+    return h;
+  };
+
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 30000);
@@ -172,7 +179,7 @@ export default function PosPage() {
     if (!idToRelease || !workstationId) return;
     
     try {
-      await apiRequest("POST", `/api/checks/${idToRelease}/unlock`, { workstationId });
+      await apiRequest("POST", `/api/checks/${idToRelease}/unlock`, { workstationId }, wsHeaders());
     } catch (error) {
       console.error("Failed to release check lock:", error);
     }
@@ -310,7 +317,7 @@ export default function PosPage() {
   // Mutation to remove customer from check
   const removeCustomerMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("DELETE", `/api/pos/checks/${currentCheck?.id}/customer`);
+      const res = await apiRequest("DELETE", `/api/pos/checks/${currentCheck?.id}/customer`, undefined, wsHeaders());
       return res.json();
     },
     onSuccess: () => {
@@ -340,7 +347,7 @@ export default function PosPage() {
             try {
               await apiRequest("POST", `/api/checks/${pendingReopenCheckId}/reopen`, {
                 employeeId: currentEmployee?.id,
-              });
+              }, wsHeaders());
             } catch (reopenError: any) {
               throw new Error(`Failed to reopen check: ${reopenError.message}`);
             }
@@ -413,7 +420,7 @@ export default function PosPage() {
         checkPaymentId: tipCapturePayment.id,
         tipAmount: tipValue,
         employeeId: currentEmployee?.id,
-      });
+      }, wsHeaders());
       
       const result = await res.json();
       if (result.success) {
@@ -567,14 +574,12 @@ export default function PosPage() {
 
   const createCheckMutation = useMutation({
     mutationFn: async (orderType: OrderType) => {
-      const createHeaders: Record<string, string> = { "Idempotency-Key": crypto.randomUUID() };
-      if (workstationId) createHeaders["x-workstation-id"] = workstationId;
       logToElectron("DEBUG", "POS", "CreateCheck", `Creating check with workstationId: ${workstationId || 'NONE'}`);
       const response = await apiRequest("POST", "/api/checks", {
         rvcId: currentRvc?.id,
         employeeId: currentEmployee?.id,
         orderType,
-      }, createHeaders);
+      }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
       return response.json();
     },
     onSuccess: (check: Check) => {
@@ -611,8 +616,6 @@ export default function PosPage() {
       setItemModifierGroups([]);
       decrementQuantity(data.menuItem.id);
 
-      const wsHeaders: Record<string, string> = {};
-      if (workstationId) wsHeaders["x-workstation-id"] = workstationId;
       logToElectron("DEBUG", "POS", "AddItem", `Sending item with workstationId: ${workstationId || 'NONE'}`);
       const response = await apiRequest("POST", "/api/checks/" + currentCheck?.id + "/items", {
         menuItemId: data.menuItem.id,
@@ -620,7 +623,7 @@ export default function PosPage() {
         unitPrice: data.menuItem.price,
         modifiers: data.modifiers,
         quantity: 1,
-      }, wsHeaders);
+      }, wsHeaders());
       const newItem = await response.json();
       return { newItem, optimisticId };
     },
@@ -642,12 +645,10 @@ export default function PosPage() {
 
   const sendCheckMutation = useMutation({
     mutationFn: async () => {
-      const sendHeaders: Record<string, string> = { "Idempotency-Key": crypto.randomUUID() };
-      if (workstationId) sendHeaders["x-workstation-id"] = workstationId;
       logToElectron("DEBUG", "POS", "SendCheck", `Sending check with workstationId: ${workstationId || 'NONE'}`);
       const response = await apiRequest("POST", "/api/checks/" + currentCheck?.id + "/send", {
         employeeId: currentEmployee?.id,
-      }, sendHeaders);
+      }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
       return response.json();
     },
     onSuccess: (data: { round: any; updatedItems: CheckItem[] }) => {
@@ -674,7 +675,7 @@ export default function PosPage() {
       const response = await apiRequest("POST", "/api/checks/" + currentCheck?.id + "/cancel-transaction", {
         employeeId: currentEmployee?.id,
         reason: "Transaction cancelled by cashier",
-      });
+      }, wsHeaders());
       return response.json();
     },
     onSuccess: (data: { success: boolean; voidedCount: number; remainingActiveItems: number }) => {
@@ -708,7 +709,7 @@ export default function PosPage() {
         employeeId: currentEmployee?.id,
         reason: data.reason,
         managerPin: data.managerPin,
-      });
+      }, wsHeaders());
       return response.json();
     },
     onSuccess: (voidedItem: CheckItem) => {
@@ -744,7 +745,7 @@ export default function PosPage() {
         discountId: data.discountId,
         employeeId: currentEmployee?.id,
         managerPin: data.managerPin,
-      });
+      }, wsHeaders());
       return response.json();
     },
     onSuccess: (data: { item: CheckItem; check: Check }) => {
@@ -770,7 +771,7 @@ export default function PosPage() {
     mutationFn: async (itemId: string) => {
       const response = await apiRequest("DELETE", `/api/check-items/${itemId}/discount`, {
         employeeId: currentEmployee?.id,
-      });
+      }, wsHeaders());
       return response.json();
     },
     onSuccess: (data: { item: CheckItem; check: Check }) => {
@@ -791,8 +792,8 @@ export default function PosPage() {
       const response = await apiRequest("PATCH", "/api/check-items/" + data.itemId + "/modifiers", {
         employeeId: currentEmployee?.id,
         modifiers: data.modifiers,
-        itemStatus: data.finalize ? "active" : undefined, // Set to active when finalizing pending item
-      });
+        itemStatus: data.finalize ? "active" : undefined,
+      }, wsHeaders());
       return response.json();
     },
     onSuccess: (updatedItem: CheckItem) => {
@@ -825,7 +826,7 @@ export default function PosPage() {
     try {
       const ws = wsContext?.workstation;
       if (!ws?.cashDrawerEnabled) return;
-      await apiRequest("POST", "/api/cash-drawer-kick", { workstationId });
+      await apiRequest("POST", "/api/cash-drawer-kick", { workstationId }, wsHeaders());
     } catch (err) {
       console.error("Cash drawer kick failed:", err);
       toast({ title: "Cash Drawer", description: "Drawer kick failed — check printer connection", variant: "destructive" });
@@ -840,7 +841,7 @@ export default function PosPage() {
         tipAmount: data.tipAmount?.toString(),
         employeeId: currentEmployee?.id,
         paymentTransactionId: data.paymentTransactionId,
-      }, { "Idempotency-Key": crypto.randomUUID() });
+      }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
       const result = await response.json();
       return { ...result, isCashOverTender: data.isCashOverTender, tenderedAmount: data.amount, appliedTenderId: data.tenderId };
     },
@@ -875,7 +876,7 @@ export default function PosPage() {
               checkId: result.id,
               customerId: result.customerId,
               employeeId: currentEmployee?.id,
-            });
+            }, wsHeaders());
             const earnData = await earnRes.json();
             if (earnData.pointsEarned > 0) {
               toast({
@@ -979,7 +980,7 @@ export default function PosPage() {
           // Restore the voided payment using apiRequest
           const res = await apiRequest("PATCH", `/api/check-payments/${originalPaymentState.paymentId}/restore`, {
             employeeId: currentEmployee?.id,
-          });
+          }, wsHeaders());
           if (!res.ok) {
             const error = await res.json();
             throw new Error(error.message || "Failed to restore payment");
@@ -1010,7 +1011,7 @@ export default function PosPage() {
       try {
         await apiRequest("POST", `/api/checks/${pendingReopenCheckId}/reopen`, {
           employeeId: currentEmployee?.id,
-        });
+        }, wsHeaders());
         toast({ title: "Check Reopened", description: "Check has been reopened for editing" });
         setPendingReopenCheckId(null);
         queryClient.invalidateQueries({ queryKey: ["/api/rvcs", currentRvc?.id, "closed-checks"] });
@@ -1031,7 +1032,7 @@ export default function PosPage() {
       const response = await apiRequest("POST", `/api/checks/${currentCheck.id}/transfer`, {
         employeeId: currentEmployee?.id,
         toEmployeeId,
-      });
+      }, wsHeaders());
       return response.json();
     },
     onSuccess: (updatedCheck: Check) => {
@@ -1056,7 +1057,7 @@ export default function PosPage() {
       const response = await apiRequest("POST", `/api/checks/${currentCheck.id}/split`, {
         employeeId: currentEmployee?.id,
         operations,
-      });
+      }, wsHeaders());
       return response.json();
     },
     onSuccess: (result: any) => {
@@ -1087,7 +1088,7 @@ export default function PosPage() {
         targetCheckId: currentCheck.id,
         sourceCheckIds,
         employeeId: currentEmployee?.id,
-      });
+      }, wsHeaders());
       return response.json();
     },
     onSuccess: (result: any) => {
@@ -1114,7 +1115,7 @@ export default function PosPage() {
         reason,
         employeeId: currentEmployee?.id,
         managerPin,
-      });
+      }, wsHeaders());
       return response.json();
     },
     onSuccess: async () => {
@@ -1145,17 +1146,15 @@ export default function PosPage() {
     mutationFn: async (checkId: string) => {
       const unsentItems = checkItems.filter(item => !item.sent && !item.voided);
       if (unsentItems.length > 0) {
-        const printSendHeaders: Record<string, string> = { "Idempotency-Key": crypto.randomUUID() };
-        if (workstationId) printSendHeaders["x-workstation-id"] = workstationId;
         await apiRequest("POST", `/api/checks/${checkId}/send`, {
           employeeId: currentEmployee?.id,
-        }, printSendHeaders);
+        }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
       }
 
       const response = await apiRequest("POST", `/api/checks/${checkId}/print`, {
         employeeId: currentEmployee?.id,
         workstationId,
-      });
+      }, wsHeaders());
       return response.json();
     },
     onSuccess: () => {
@@ -1201,7 +1200,7 @@ export default function PosPage() {
           workstationId,
           employeeId: currentEmployee.id,
           lockMode: apiClient.getMode(),
-        });
+        }, wsHeaders());
         
         if (!lockRes.ok) {
           const errorData = await lockRes.json();
@@ -1373,8 +1372,6 @@ export default function PosPage() {
         setShowModifierModal(true);
         
         if (currentRvc?.dynamicOrderMode) {
-          const wsHdrs: Record<string, string> = {};
-          if (workstationId) wsHdrs["x-workstation-id"] = workstationId;
           apiRequest("POST", "/api/checks/" + checkToUse.id + "/items", {
             menuItemId: item.id,
             menuItemName: item.name,
@@ -1382,7 +1379,7 @@ export default function PosPage() {
             modifiers: [],
             quantity: 1,
             itemStatus: "pending",
-          }, wsHdrs).then(async (response) => {
+          }, wsHeaders()).then(async (response) => {
             const pendingCheckItem = await response.json();
             setCheckItems((prev) => [...prev, pendingCheckItem]);
             setEditingItem(pendingCheckItem);
@@ -1410,15 +1407,13 @@ export default function PosPage() {
         decrementQuantity(item.id);
 
         try {
-          const wsHdrs2: Record<string, string> = {};
-          if (workstationId) wsHdrs2["x-workstation-id"] = workstationId;
           const response = await apiRequest("POST", "/api/checks/" + checkToUse.id + "/items", {
             menuItemId: item.id,
             menuItemName: item.name,
             unitPrice: item.price,
             modifiers: [],
             quantity: 1,
-          }, wsHdrs2);
+          }, wsHeaders());
           const newItem = await response.json();
           setCheckItems((prev) => prev.map(ci => ci.id === optimisticId ? newItem : ci));
           queryClient.invalidateQueries({ queryKey: ["/api/checks", checkToUse.id] });
@@ -2524,7 +2519,7 @@ export default function PosPage() {
                 rvcId: currentRvc?.id,
                 employeeId: currentEmployee?.id,
                 orderType: "dine_in",
-              }, { "Idempotency-Key": crypto.randomUUID() });
+              }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
               const newCheck = await newCheckRes.json();
               checkToUse = newCheck;
               setCurrentCheck(newCheck);
@@ -2535,7 +2530,7 @@ export default function PosPage() {
               try {
                 await apiRequest("POST", `/api/pos/checks/${checkToUse?.id}/customer`, {
                   customerId: customer.id,
-                });
+                }, wsHeaders());
                 if (checkToUse) {
                   checkToUse = { ...checkToUse, customerId: customer.id };
                 }
@@ -2543,8 +2538,6 @@ export default function PosPage() {
               }
             }
             
-            const repeatHdrs: Record<string, string> = {};
-            if (workstationId) repeatHdrs["x-workstation-id"] = workstationId;
             for (const item of items) {
               await apiRequest("POST", `/api/checks/${checkToUse?.id}/items`, {
                 menuItemId: item.menuItemId,
@@ -2552,7 +2545,7 @@ export default function PosPage() {
                 unitPrice: item.unitPrice,
                 quantity: item.quantity,
                 modifiers: item.modifiers || [],
-              }, repeatHdrs);
+              }, wsHeaders());
             }
             
             const refreshRes = await fetchWithTimeout(`/api/checks/${checkToUse?.id}`, { credentials: "include", headers: getAuthHeaders() });
