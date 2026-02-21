@@ -1,6 +1,8 @@
 name: Build Electron (Windows)
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
 
 jobs:
@@ -45,7 +47,7 @@ jobs:
         shell: bash
         run: ls -la electron-dist/
 
-      - name: Create GitHub Release
+      - name: Upload assets to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
