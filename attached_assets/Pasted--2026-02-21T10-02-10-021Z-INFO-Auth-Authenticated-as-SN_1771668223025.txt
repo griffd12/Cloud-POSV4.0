@@ -1,0 +1,152 @@
+[2026-02-21T10:02:10.021Z] [INFO] [Auth] Authenticated as: SNS-001-WS01 (Embedded Agent) (58663b6c-dc06-4ec2-848f-dfd0c2dbdcf4)
+[2026-02-21T10:02:10.022Z] [INFO] [Status] connected=true, auth=true
+[2026-02-21T10:02:10.051Z] [INFO] [Job] Received job e5de9282-3432-47e0-a2f4-0e8b6dbb4cb4 | DATA: {"printer":"Star TSP100 CUTTER (TSP143)","connectionType":"windows_printer"}
+[2026-02-21T10:02:10.052Z] [INFO] [Job] Job e5de9282-3432-47e0-a2f4-0e8b6dbb4cb4 sending 625 bytes to Windows printer | DATA: {"printer":"Star TSP100 CUTTER (TSP143)"}
+[2026-02-21T10:02:10.053Z] [INFO] [WindowsPrint] Wrote 625 bytes to temp file C:\Users\SNS-001\AppData\Local\Temp\cloudpos_print_1771668130052.bin
+[2026-02-21T10:02:10.072Z] [INFO] [Job] Received job f9a85bd6-e78e-4138-8eec-3e651274e520 | DATA: {"printer":"Star TSP100 CUTTER (TSP143)","connectionType":"windows_printer"}
+[2026-02-21T10:02:10.073Z] [INFO] [Job] Job f9a85bd6-e78e-4138-8eec-3e651274e520 sending 1238 bytes to Windows printer | DATA: {"printer":"Star TSP100 CUTTER (TSP143)"}
+[2026-02-21T10:02:10.075Z] [INFO] [WindowsPrint] Wrote 1238 bytes to temp file C:\Users\SNS-001\AppData\Local\Temp\cloudpos_print_1771668130075.bin
+[2026-02-21T10:02:11.918Z] [ERROR] [WindowsPrint] PowerShell failed: $ErrorActionPreference = 'Stop'
+          try {
+            $printerName = 'Star TSP100 CUTTER (TSP143)'
+            $printer = Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE 
+Name='$($printerName.Replace("\","\\"))'" -ErrorAction Stop
+            if (-not $printer) {
+              Write-Error "Printer '$printerName' not found in Windows"
+              exit 1
+            }
+            $portName = $printer.PortName
+            if (-not $portName) {
+              Write-Error "No port found for printer '$printerName'"
+              exit 1
+            }
+            Write-Host "PRINTER_PORT=$portName"
+            $rawData = 
+[System.IO.File]::ReadAllBytes('C:\\Users\\SNS-001\\AppData\\Local\\Temp\\cloudpos_print_1771668130075.bin')
+            Write-Host "Sending $($rawData.Length) bytes to port $portName"
+            $portPath = '\\.\' + $portName
+            $fileStream = [System.IO.FileStream]::new($portPath, [System.IO.FileMode]::Open, 
+[System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $fileStream.Write($rawData, 0, $rawData.Length)
+            $fileStream.Flush()
+            $fileStream.Close()
+            Write-Host "SUCCESS"
+          } catch {
+            Write-Error $_.Exception.Message
+            exit 1
+          }
+         : Exception calling ".ctor" with "4" argument(s): "Could not find file '\\.\USB001'."
+At line:25 char:13
++             Write-Error $_.Exception.Message
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
+    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException
+[2026-02-21T10:02:11.919Z] [ERROR] [WindowsPrint] stdout: PRINTER_PORT=USB001
+Sending 1238 bytes to port USB001
+[2026-02-21T10:02:11.920Z] [ERROR] [Job] Job f9a85bd6-e78e-4138-8eec-3e651274e520 Windows printer failed: Windows printer "Star TSP100 CUTTER (TSP143)" failed: $ErrorActionPreference = 'Stop'
+          try {
+            $printerName = 'Star TSP100 CUTTER (TSP143)'
+            $printer = Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE 
+Name='$($printerName.Replace("\","\\"))'" -ErrorAction Stop
+            if (-not $printer) {
+              Write-Error "Printer '$printerName' not found in Windows"
+              exit 1
+            }
+            $portName = $printer.PortName
+            if (-not $portName) {
+              Write-Error "No port found for printer '$printerName'"
+              exit 1
+            }
+            Write-Host "PRINTER_PORT=$portName"
+            $rawData = 
+[System.IO.File]::ReadAllBytes('C:\\Users\\SNS-001\\AppData\\Local\\Temp\\cloudpos_print_1771668130075.bin')
+            Write-Host "Sending $($rawData.Length) bytes to port $portName"
+            $portPath = '\\.\' + $portName
+            $fileStream = [System.IO.FileStream]::new($portPath, [System.IO.FileMode]::Open, 
+[System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $fileStream.Write($rawData, 0, $rawData.Length)
+            $fileStream.Flush()
+            $fileStream.Close()
+            Write-Host "SUCCESS"
+          } catch {
+            Write-Error $_.Exception.Message
+            exit 1
+          }
+         : Exception calling ".ctor" with "4" argument(s): "Could not find file '\\.\USB001'."
+At line:25 char:13
++             Write-Error $_.Exception.Message
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
+    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException
+[2026-02-21T10:02:11.922Z] [ERROR] [WindowsPrint] PowerShell failed: $ErrorActionPreference = 'Stop'
+          try {
+            $printerName = 'Star TSP100 CUTTER (TSP143)'
+            $printer = Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE 
+Name='$($printerName.Replace("\","\\"))'" -ErrorAction Stop
+            if (-not $printer) {
+              Write-Error "Printer '$printerName' not found in Windows"
+              exit 1
+            }
+            $portName = $printer.PortName
+            if (-not $portName) {
+              Write-Error "No port found for printer '$printerName'"
+              exit 1
+            }
+            Write-Host "PRINTER_PORT=$portName"
+            $rawData = 
+[System.IO.File]::ReadAllBytes('C:\\Users\\SNS-001\\AppData\\Local\\Temp\\cloudpos_print_1771668130052.bin')
+            Write-Host "Sending $($rawData.Length) bytes to port $portName"
+            $portPath = '\\.\' + $portName
+            $fileStream = [System.IO.FileStream]::new($portPath, [System.IO.FileMode]::Open, 
+[System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $fileStream.Write($rawData, 0, $rawData.Length)
+            $fileStream.Flush()
+            $fileStream.Close()
+            Write-Host "SUCCESS"
+          } catch {
+            Write-Error $_.Exception.Message
+            exit 1
+          }
+         : Exception calling ".ctor" with "4" argument(s): "Could not find file '\\.\USB001'."
+At line:25 char:13
++             Write-Error $_.Exception.Message
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
+    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException
+[2026-02-21T10:02:11.923Z] [ERROR] [WindowsPrint] stdout: PRINTER_PORT=USB001
+Sending 625 bytes to port USB001
+[2026-02-21T10:02:11.924Z] [ERROR] [Job] Job e5de9282-3432-47e0-a2f4-0e8b6dbb4cb4 Windows printer failed: Windows printer "Star TSP100 CUTTER (TSP143)" failed: $ErrorActionPreference = 'Stop'
+          try {
+            $printerName = 'Star TSP100 CUTTER (TSP143)'
+            $printer = Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE 
+Name='$($printerName.Replace("\","\\"))'" -ErrorAction Stop
+            if (-not $printer) {
+              Write-Error "Printer '$printerName' not found in Windows"
+              exit 1
+            }
+            $portName = $printer.PortName
+            if (-not $portName) {
+              Write-Error "No port found for printer '$printerName'"
+              exit 1
+            }
+            Write-Host "PRINTER_PORT=$portName"
+            $rawData = 
+[System.IO.File]::ReadAllBytes('C:\\Users\\SNS-001\\AppData\\Local\\Temp\\cloudpos_print_1771668130052.bin')
+            Write-Host "Sending $($rawData.Length) bytes to port $portName"
+            $portPath = '\\.\' + $portName
+            $fileStream = [System.IO.FileStream]::new($portPath, [System.IO.FileMode]::Open, 
+[System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $fileStream.Write($rawData, 0, $rawData.Length)
+            $fileStream.Flush()
+            $fileStream.Close()
+            Write-Host "SUCCESS"
+          } catch {
+            Write-Error $_.Exception.Message
+            exit 1
+          }
+         : Exception calling ".ctor" with "4" argument(s): "Could not find file '\\.\USB001'."
+At line:25 char:13
++             Write-Error $_.Exception.Message
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
+    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException
