@@ -236,20 +236,27 @@ export async function buildCheckReceipt(checkId: string, charWidth: number = 42)
     trailerLines = descriptors.trailerLines || [];
   }
 
-  // Header - use custom descriptor lines if configured, otherwise fallback to property info
+  const tz = property?.timezone || "America/Los_Angeles";
+
+  // ── HEADER: Store name / branding ──
   builder.align("center");
-  
+
   if (headerLines.length > 0) {
-    // Use configured header lines - all lines uniform size
+    // First non-empty header line gets bold double-height (store name)
+    let firstLine = true;
     for (const line of headerLines) {
       if (line && line.trim()) {
-        builder.line(line);
+        if (firstLine) {
+          builder.bold().doubleHeight().line(line).doubleHeight(false).bold(false);
+          firstLine = false;
+        } else {
+          builder.line(line);
+        }
       }
     }
   } else {
-    // Fallback to property name/address if no descriptors configured
     if (property) {
-      builder.line(property.name);
+      builder.bold().doubleHeight().line(property.name).doubleHeight(false).bold(false);
     }
     if (property?.address) {
       builder.line(property.address);
@@ -257,49 +264,55 @@ export async function buildCheckReceipt(checkId: string, charWidth: number = 42)
   }
 
   builder.newLine();
+  builder.doubleSeparator();
+
+  // ── CHECK INFO: number, RVC, server, dates ──
+  builder.align("center");
   builder.bold().line(`Check #${check.checkNumber}`).bold(false);
 
   if (rvc) {
-    builder.line(`RVC: ${rvc.name}`);
+    builder.line(rvc.name);
   }
 
-  builder.line(`Order Type: ${check.orderType || "Dine In"}`);
-  if (check.tableNumber) {
-    builder.line(`Table: ${check.tableNumber}`);
-  }
-
-  builder.newLine();
   builder.align("left");
-  const tz = property?.timezone || "America/Los_Angeles";
+  if (employee) {
+    builder.line(`Server: ${employee.firstName} ${employee.lastName}`);
+  }
   builder.line(`Opened: ${formatDateTime(check.openedAt, tz)}`);
   if (check.closedAt) {
     builder.line(`Closed: ${formatDateTime(check.closedAt, tz)}`);
   }
-  if (employee) {
-    builder.line(`Server: ${employee.firstName} ${employee.lastName}`);
+  if (check.tableNumber) {
+    builder.line(`Table: ${check.tableNumber}`);
   }
+
+  builder.doubleSeparator();
+
+  // ── ORDER TYPE BANNER ──
+  const orderTypeLabel = (check.orderType || "dine_in").replace(/_/g, " ").toUpperCase();
+  builder.align("center").bold().line(orderTypeLabel).bold(false);
 
   builder.separator();
 
-  // Items
+  // ── ITEMS ──
+  builder.align("left");
   for (const item of items) {
     const qty = item.quantity || 1;
     const unitPrice = parseFloat(item.unitPrice || "0");
-    const total = qty * unitPrice;
-    
-    builder.leftRight(
-      `${qty} ${item.menuItemName}`.substring(0, charWidth - 10),
-      formatCurrency(total)
-    );
+    const lineTotal = qty * unitPrice;
 
-    // Modifiers
+    builder.bold().leftRight(
+      `${qty} ${item.menuItemName}`.substring(0, charWidth - 10),
+      formatCurrency(lineTotal)
+    ).bold(false);
+
     if (item.modifiers && Array.isArray(item.modifiers)) {
       for (const mod of item.modifiers as any[]) {
         const modPrice = parseFloat(mod.priceDelta || "0");
         if (modPrice !== 0) {
-          builder.leftRight(`   ${mod.name}`, formatCurrency(modPrice));
+          builder.leftRight(`  ${mod.name}`, formatCurrency(modPrice));
         } else {
-          builder.line(`   ${mod.name}`);
+          builder.line(`  ${mod.name}`);
         }
       }
     }
@@ -307,62 +320,74 @@ export async function buildCheckReceipt(checkId: string, charWidth: number = 42)
 
   builder.separator();
 
-  // Totals
+  // ── TOTALS ──
   const subtotal = parseFloat(check.subtotal || "0");
   const discountTotal = parseFloat(check.discountTotal || "0");
+  const serviceChargeTotal = parseFloat(check.serviceChargeTotal || "0");
   const taxTotal = parseFloat(check.taxTotal || "0");
+  const tipTotal = parseFloat(check.tipTotal || "0");
   const total = parseFloat(check.total || "0");
 
-  builder.leftRight("Subtotal:", formatCurrency(subtotal));
-  
-  if (discountTotal > 0) {
-    builder.leftRight("Discounts:", `-${formatCurrency(discountTotal)}`);
-  }
-  
-  builder.leftRight("Tax:", formatCurrency(taxTotal));
-  builder.separator();
-  builder.bold().leftRight("TOTAL:", formatCurrency(total)).bold(false);
+  builder.leftRight("Subtotal", formatCurrency(subtotal));
 
-  // Payments
+  if (discountTotal > 0) {
+    builder.leftRight("Discounts", `-${formatCurrency(discountTotal)}`);
+  }
+
+  if (serviceChargeTotal > 0) {
+    builder.leftRight("Service Charge", formatCurrency(serviceChargeTotal));
+  }
+
+  builder.leftRight("Tax", formatCurrency(taxTotal));
+
+  if (tipTotal > 0) {
+    builder.leftRight("Tip", formatCurrency(tipTotal));
+  }
+
+  builder.newLine();
+  builder.bold().doubleHeight();
+  builder.leftRight("Total", formatCurrency(total));
+  builder.doubleHeight(false).bold(false);
+
+  // ── PAYMENTS ──
   if (payments.length > 0) {
-    builder.newLine();
+    builder.separator();
     let totalTendered = 0;
     for (const payment of payments) {
       const amount = parseFloat(payment.amount || "0");
       const tip = parseFloat(payment.tipAmount || "0");
       totalTendered += amount;
-      let paymentLine = `${payment.tenderName}: ${formatCurrency(amount)}`;
+      builder.bold().leftRight(payment.tenderName || "Payment", formatCurrency(amount)).bold(false);
       if (tip > 0) {
-        paymentLine += ` (+${formatCurrency(tip)} tip)`;
+        builder.leftRight("  Tip", formatCurrency(tip));
       }
-      builder.line(paymentLine);
     }
 
-    // Calculate change due
     const changeDue = totalTendered - total;
     if (changeDue > 0.01) {
-      builder.leftRight("Change:", formatCurrency(changeDue));
+      builder.leftRight("Change", formatCurrency(changeDue));
     }
   }
 
-  // Footer / Trailer - use custom descriptor lines if configured
   builder.newLine();
+  builder.doubleSeparator();
+
+  // ── FOOTER / TRAILER ──
   builder.align("center");
-  
+
   if (trailerLines.length > 0) {
-    // Use configured trailer lines
     for (const line of trailerLines) {
       if (line && line.trim()) {
         builder.line(line);
       }
     }
   } else {
-    // Fallback to default message if no descriptors configured
     builder.line("Thank you for your visit!");
   }
-  
+
   builder.newLine();
   builder.line(formatDateTime(new Date(), tz));
+  builder.line(`#${check.checkNumber}`);
 
   return builder;
 }
