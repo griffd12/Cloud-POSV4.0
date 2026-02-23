@@ -1,0 +1,58 @@
+Implement OptionBits as a cached, batch-resolved layer, not per-flag DB calls.
+
+1) Create DB table emc_option_flags with:
+- id uuid pk
+- enterprise_id varchar not null
+- entity_type text not null
+- entity_id varchar not null
+- option_key text not null
+- value_text text null
+- scope_level text not null CHECK IN ('enterprise','property','rvc','workstation')
+- scope_id varchar not null
+- created_at, updated_at
+
+Constraints / indexes:
+- UNIQUE(enterprise_id, entity_type, entity_id, option_key, scope_level, scope_id)
+- INDEX(enterprise_id, entity_type, entity_id)
+- INDEX(enterprise_id, option_key)
+
+2) Implement server/config/optionBits.ts:
+- loadOptionBitsBatch({enterpriseId, propertyId, rvcId, workstationId}) => Map
+  Single SQL query that returns all rows matching:
+  enterprise_id = X AND (
+    (scope_level='workstation' AND scope_id=workstationId) OR
+    (scope_level='rvc' AND scope_id=rvcId) OR
+    (scope_level='property' AND scope_id=propertyId) OR
+    (scope_level='enterprise' AND scope_id=enterpriseId)
+  )
+
+- resolveOption(entityType, entityId, optionKey) applies precedence:
+  workstation > rvc > property > enterprise
+
+3) Integrate into resolveEffectiveConfig.ts:
+- EffectiveConfig must include an `options` accessor:
+  config.getBool(entityType, entityId, key, fallback?)
+  config.getText(...)
+  config.getInt(...)
+- It must not issue any DB queries after initial batch load.
+
+4) Add a simple in-memory cache:
+- Key: enterpriseId|propertyId|rvcId|workstationId
+- TTL 60 seconds
+- Bust cache whenever any EMC save occurs for options or core config.
+
+5) EMC UI:
+- Add an “Option Bits” tab to Tender and RVC pages only (for now)
+- Show current scope values and inherited values
+- Provide Set Override / Reset buttons
+- Persist overrides into emc_option_flags with the correct scope_level/scope_id
+
+6) Do NOT migrate existing tender/rvc column flags yet.
+- Keep hybrid: option bits layer exists but runtime falls back to column value if option not set.
+
+Deliver:
+- migrations
+- schema.ts updates
+- server optionBits module + caching
+- resolveEffectiveConfig integration
+- basic EMC Option Bits tab for Tender + RVC
