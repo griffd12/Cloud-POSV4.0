@@ -5351,6 +5351,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (availabilityRestored && propertyId) {
         broadcastAvailabilityUpdate(propertyId);
       }
+
+      // Auto-print void receipt if RVC config enables it (skip stress test checks)
+      if (check && !check.testMode) {
+        const voidRvc = await storage.getRvc(check.rvcId);
+        if (voidRvc?.voidReceiptPrint === true) {
+          try {
+            await printCheckReceipt(item.checkId, check.rvcId);
+            console.log(`[VoidPrint] Void receipt printed for check ${item.checkId}, voided item "${item.menuItemName}"`);
+          } catch (voidPrintErr: any) {
+            console.error(`[VoidPrint] Error printing void receipt:`, voidPrintErr.message);
+          }
+        }
+      }
       
       res.json(updated);
     } catch (error) {
@@ -5723,19 +5736,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         
         const hasCashPayment = tender?.popDrawer === true;
         let autoPrintStatus: { success: boolean; message?: string } = { success: false };
-        if (!check?.testMode) {
+        const closeRvc = check?.rvcId ? await storage.getRvc(check.rvcId) : null;
+        const shouldAutoPrint = !check?.testMode && (closeRvc?.receiptPrintMode ?? 'auto_on_close') === 'auto_on_close';
+        if (shouldAutoPrint) {
           try {
-            console.log(`[AutoPrint] Check #${check?.checkNumber} closing | tender="${tender?.name}" popDrawer=${tender?.popDrawer} | hasCash=${hasCashPayment} | wsHeader="${realWorkstationId}" | wsId="${workstationId}"`);
-            const printResult = await printCheckReceipt(checkId, check?.rvcId, {
-              workstationId: realWorkstationId || undefined,
-              isCashPayment: hasCashPayment,
-            });
-            if (printResult) {
-              autoPrintStatus = { success: true };
-              console.log(`[AutoPrint] Check #${check?.checkNumber} print result: ${printResult.status} via "${printResult.printer}"`);
-            } else {
-              autoPrintStatus = { success: false, message: "No receipt printer configured" };
-              console.log(`[AutoPrint] Check #${check?.checkNumber} no printer found`);
+            const copies = closeRvc?.receiptCopies ?? 1;
+            console.log(`[AutoPrint] Check #${check?.checkNumber} closing | tender="${tender?.name}" popDrawer=${tender?.popDrawer} | hasCash=${hasCashPayment} | wsHeader="${realWorkstationId}" | wsId="${workstationId}" | copies=${copies}`);
+            for (let copyIdx = 0; copyIdx < copies; copyIdx++) {
+              const printResult = await printCheckReceipt(checkId, check?.rvcId, {
+                workstationId: realWorkstationId || undefined,
+                isCashPayment: hasCashPayment,
+              });
+              if (copyIdx === 0) {
+                if (printResult) {
+                  autoPrintStatus = { success: true };
+                  console.log(`[AutoPrint] Check #${check?.checkNumber} print result: ${printResult.status} via "${printResult.printer}"`);
+                } else {
+                  autoPrintStatus = { success: false, message: "No receipt printer configured" };
+                  console.log(`[AutoPrint] Check #${check?.checkNumber} no printer found`);
+                  break;
+                }
+              }
             }
           } catch (printError: any) {
             console.error(`[AutoPrint] Check #${check?.checkNumber} print error:`, printError);
@@ -20330,14 +20351,22 @@ connect();
         broadcastCheckUpdate(checkId, "closed", check.rvcId);
         broadcastPaymentUpdate(checkId);
         
-        // Auto-print receipt on check close (skip for stress test checks)
-        if (!check.testMode) {
+        // Auto-print receipt on check close (gated by RVC config, skip for stress test checks)
+        const stripeCloseRvc = check.rvcId ? await storage.getRvc(check.rvcId) : null;
+        const stripeAutoPrint = !check.testMode && (stripeCloseRvc?.receiptPrintMode ?? 'auto_on_close') === 'auto_on_close';
+        if (stripeAutoPrint) {
           try {
-            const printResult = await printCheckReceipt(checkId, check.rvcId);
-            if (printResult) {
-              autoPrintStatus = { success: true };
-            } else {
-              autoPrintStatus = { success: false, message: "No receipt printer configured" };
+            const copies = stripeCloseRvc?.receiptCopies ?? 1;
+            for (let copyIdx = 0; copyIdx < copies; copyIdx++) {
+              const printResult = await printCheckReceipt(checkId, check.rvcId);
+              if (copyIdx === 0) {
+                if (printResult) {
+                  autoPrintStatus = { success: true };
+                } else {
+                  autoPrintStatus = { success: false, message: "No receipt printer configured" };
+                  break;
+                }
+              }
             }
           } catch (printError: any) {
             console.error("Auto-print receipt error:", printError);
@@ -23107,7 +23136,14 @@ connect();
   // Print kitchen ticket
   app.post("/api/print/kitchen-ticket", async (req, res) => {
     try {
-      const { orderNumber, items, orderType, tableNumber, printerId, charWidth } = req.body;
+      const { orderNumber, items, orderType, tableNumber, printerId, charWidth, rvcId } = req.body;
+
+      if (rvcId) {
+        const kitchenRvc = await storage.getRvc(rvcId);
+        if (kitchenRvc && (kitchenRvc.kitchenPrintMode ?? 'auto_on_send') !== 'auto_on_send') {
+          return res.json({ success: true, skipped: true, message: "Kitchen printing disabled for this RVC" });
+        }
+      }
 
       const ticketBuilder = buildKitchenTicket(
         orderNumber,
