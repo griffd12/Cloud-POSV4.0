@@ -591,6 +591,13 @@ export const tenders = pgTable("tenders", {
   paymentProcessorId: varchar("payment_processor_id").references(() => paymentProcessors.id),
   active: boolean("active").default(true),
   isSystem: boolean("is_system").default(false),
+  popDrawer: boolean("pop_drawer").default(false),
+  allowTips: boolean("allow_tips").default(false),
+  allowOverTender: boolean("allow_over_tender").default(false),
+  printCheckOnPayment: boolean("print_check_on_payment").default(true),
+  requireManagerApproval: boolean("require_manager_approval").default(false),
+  requiresPaymentProcessor: boolean("requires_payment_processor").default(false),
+  displayOrder: integer("display_order").default(0),
 });
 
 // Payment Transactions - tracks all gateway communications (NO card data stored)
