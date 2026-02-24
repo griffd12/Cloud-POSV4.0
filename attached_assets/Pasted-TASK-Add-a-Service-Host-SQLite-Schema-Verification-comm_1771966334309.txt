@@ -1,0 +1,62 @@
+TASK: Add a Service-Host SQLite Schema Verification command and provide runtime proof output.
+
+You cannot claim schema parity based on source code. I need runtime evidence from the actual SQLite file.
+
+Implement a new CLI command (or endpoint) in the Windows service-host that runs against the live SQLite DB and prints verification output.
+
+Requirements:
+
+1) Add script/command:
+- Name: service-host verify-schema
+- Runs locally on the service-host machine
+- Opens the same SQLite DB file the service-host uses in production
+- Outputs a clean, copy/paste-friendly report
+
+2) The report must include:
+
+A) tenders columns:
+- Run: PRAGMA table_info(tenders);
+- Confirm the following columns exist:
+  pop_drawer, allow_tips, allow_over_tender, print_check_on_payment,
+  require_manager_approval, requires_payment_processor, display_order,
+  is_cash_media, is_card_media, is_gift_media
+
+B) rvcs columns:
+- Run: PRAGMA table_info(rvcs);
+- Confirm:
+  receipt_print_mode, receipt_copies, kitchen_print_mode, void_receipt_print, require_guest_count
+
+C) emc_option_flags:
+- Confirm table exists:
+  SELECT name FROM sqlite_master WHERE type='table' AND name='emc_option_flags';
+- Print its columns via PRAGMA table_info(emc_option_flags);
+
+D) Index proof:
+- Run: PRAGMA index_list('emc_option_flags');
+- For each index from index_list, run: PRAGMA index_info('<index_name>');
+- Confirm UNIQUE composite index exists for:
+  (enterprise_id, entity_type, entity_id, option_key, scope_level, scope_id)
+
+E) Backfill proof:
+- Print counts:
+  SELECT COUNT(*) AS cash_media FROM tenders WHERE is_cash_media=1;
+  SELECT COUNT(*) AS card_media FROM tenders WHERE is_card_media=1;
+  SELECT COUNT(*) AS gift_media FROM tenders WHERE is_gift_media=1;
+  SELECT COUNT(*) AS pop_drawer_on FROM tenders WHERE pop_drawer=1;
+  SELECT COUNT(*) AS allow_tips_on FROM tenders WHERE allow_tips=1;
+
+F) Duplicate CREATE TABLE rvcs guard:
+- Search the schema initializer file list at runtime (the list of SQL statements applied) and confirm only one CREATE TABLE rvcs is applied.
+- Also output:
+  SELECT sql FROM sqlite_master WHERE type='table' AND name='rvcs';
+
+3) Output format:
+- A single text report with sections A–F.
+- Must be deterministic. No “I think” or “should”.
+
+Deliverables:
+- Code changes (file paths + snippet)
+- The exact command to run on Windows CMD
+- Example output format (even if you can’t execute it here)
+
+Important: The command must work in production with the existing DB file and not require wiping the DB.
