@@ -3,6 +3,10 @@
 ## Overview
 This project is an enterprise cloud-based Point of Sale (POS) system specifically designed for Quick Service Restaurants (QSRs) operating in high-volume environments. It delivers a scalable and robust solution with extensive administrative configuration capabilities and real-time operational features. The system supports a multi-property hierarchy, integrates with Kitchen Display Systems (KDS), and includes comprehensive enterprise functionalities such as fiscal close, cash management, gift cards, loyalty programs, inventory, forecasting, and online ordering integration. It employs a Simphony-class design for configuration inheritance with override capabilities and offers an optional Central Application Processing Service (CAPS) for hybrid cloud/on-premise offline resilience. The vision is to provide a highly flexible and reliable POS system deployable across various QSR operations, ensuring continuous service even in offline conditions, and supporting both web and native application environments (Android & Windows).
 
+## GitHub Repository
+- **URL**: https://github.com/griffd12/Cloud-pos-V3.0
+- All Cloud POS V3.0 files are uploaded and stored in this repository.
+
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 - **Release Notes Requirement**: Whenever a new Electron installer version is created (version bump in `electron/electron-builder.json`), always generate release notes summarizing all changes included in that version. Format them for use as GitHub Release descriptions.
