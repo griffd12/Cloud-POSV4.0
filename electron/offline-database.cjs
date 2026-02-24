@@ -401,8 +401,6 @@ class OfflineDatabase {
         cloud_id TEXT
       );
 
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_offline_checks_rvc_check_number ON offline_checks (rvc_id, check_number);
-
       -- Offline check items
       CREATE TABLE IF NOT EXISTS offline_check_items (
         id TEXT PRIMARY KEY,
@@ -577,6 +575,12 @@ class OfflineDatabase {
       } catch (e) {
         offlineDbLogger.warn('Migration', `Migration skipped for ${table}.${column}: ${e.message}`);
       }
+    }
+
+    try {
+      this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_offline_checks_rvc_check_number ON offline_checks (rvc_id, check_number)`);
+    } catch (e) {
+      offlineDbLogger.warn('Migration', `Index idx_offline_checks_rvc_check_number skipped: ${e.message}`);
     }
   }
 

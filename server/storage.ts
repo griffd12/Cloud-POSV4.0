@@ -978,6 +978,7 @@ export interface IStorage {
   deleteOptionFlag(id: string): Promise<boolean>;
   deleteOptionFlagByKey(enterpriseId: string, entityType: string, entityId: string, optionKey: string, scopeLevel: string, scopeId: string): Promise<boolean>;
   listOptionFlagsByScope(enterpriseId: string, scopeLevel: string, scopeId: string): Promise<EmcOptionFlag[]>;
+  listAllOptionFlagsByEnterprise(enterpriseId: string): Promise<EmcOptionFlag[]>;
 }
 
 function sanitizeDates<T extends Record<string, any>>(data: T): T {
@@ -6759,6 +6760,12 @@ export class DatabaseStorage implements IStorage {
         eq(emcOptionFlags.scopeLevel, scopeLevel),
         eq(emcOptionFlags.scopeId, scopeId)
       )
+    );
+  }
+
+  async listAllOptionFlagsByEnterprise(enterpriseId: string): Promise<EmcOptionFlag[]> {
+    return db.select().from(emcOptionFlags).where(
+      eq(emcOptionFlags.enterpriseId, enterpriseId)
     );
   }
 }

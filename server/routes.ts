@@ -25491,7 +25491,8 @@ connect();
         return res.json(flags);
       }
 
-      res.status(400).json({ message: "Provide entityType+entityId or scopeLevel+scopeId" });
+      const allFlags = await storage.listAllOptionFlagsByEnterprise(enterpriseId);
+      return res.json(allFlags);
     } catch (error: any) {
       console.error("Error fetching option flags:", error);
       res.status(500).json({ message: error.message || "Failed to fetch option flags" });
