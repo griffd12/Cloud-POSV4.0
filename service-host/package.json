@@ -17,7 +17,8 @@
     "service:install": "node scripts/service-wrappers/windows-service.js install",
     "service:start": "node scripts/service-wrappers/windows-service.js start",
     "service:stop": "node scripts/service-wrappers/windows-service.js stop",
-    "service:status": "node scripts/service-wrappers/windows-service.js status"
+    "service:status": "node scripts/service-wrappers/windows-service.js status",
+    "verify-schema": "tsx src/verify-schema.ts"
   },
   "dependencies": {
     "better-sqlite3": "^9.2.2",

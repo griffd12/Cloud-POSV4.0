@@ -337,39 +337,59 @@ class ServiceHost {
   }
 }
 
-// Main
-async function main() {
-  const fileConfig = loadConfigFile();
-  const argConfig = parseArgs();
-  
-  const config: Config = {
-    ...defaultConfig,
-    ...fileConfig,
-    ...argConfig,
-  };
-  
-  if (!config.cloudUrl) {
-    console.error('Error: Cloud URL is required');
-    console.error('Usage: node dist/index.js --cloud <url> --service-host-id <id> --token <token>');
+// Subcommand: verify-schema
+if (process.argv[2] === 'verify-schema') {
+  const isTsx = import.meta.url.endsWith('.ts');
+  const verifyModulePath = isTsx ? './verify-schema.ts' : './verify-schema.js';
+  import(verifyModulePath).then(({ runVerification }) => {
+    let dataDir = defaultConfig.dataDir;
+    const args = process.argv.slice(3);
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--data-dir' && args[i + 1]) {
+        dataDir = args[i + 1];
+      }
+    }
+    runVerification(dataDir);
+    process.exit(0);
+  }).catch((e) => {
+    console.error('Failed to run schema verification:', e);
     process.exit(1);
+  });
+} else {
+  // Main
+  async function main() {
+    const fileConfig = loadConfigFile();
+    const argConfig = parseArgs();
+    
+    const config: Config = {
+      ...defaultConfig,
+      ...fileConfig,
+      ...argConfig,
+    };
+    
+    if (!config.cloudUrl) {
+      console.error('Error: Cloud URL is required');
+      console.error('Usage: node dist/index.js --cloud <url> --service-host-id <id> --token <token>');
+      process.exit(1);
+    }
+    
+    if (!config.serviceHostId) {
+      console.error('Error: Service Host ID is required');
+      console.error('Usage: node dist/index.js --cloud <url> --service-host-id <id> --token <token>');
+      process.exit(1);
+    }
+    
+    if (!config.token) {
+      console.error('Error: Service Host token is required');
+      process.exit(1);
+    }
+    
+    const serviceHost = new ServiceHost(config);
+    await serviceHost.start();
   }
-  
-  if (!config.serviceHostId) {
-    console.error('Error: Service Host ID is required');
-    console.error('Usage: node dist/index.js --cloud <url> --service-host-id <id> --token <token>');
-    process.exit(1);
-  }
-  
-  if (!config.token) {
-    console.error('Error: Service Host token is required');
-    process.exit(1);
-  }
-  
-  const serviceHost = new ServiceHost(config);
-  await serviceHost.start();
-}
 
-main().catch((e) => {
-  console.error('Failed to start Service Host:', e);
-  process.exit(1);
-});
+  main().catch((e) => {
+    console.error('Failed to start Service Host:', e);
+    process.exit(1);
+  });
+}
