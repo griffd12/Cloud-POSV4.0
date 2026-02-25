@@ -787,6 +787,53 @@ export default function PosPage() {
     },
   });
 
+  const removeCheckDiscountsMutation = useMutation({
+    mutationFn: async () => {
+      if (!currentCheck?.id) throw new Error("No check");
+      const discountsRes = await apiRequest("GET", `/api/checks/${currentCheck.id}/discounts`, undefined, wsHeaders());
+      const discounts = await discountsRes.json();
+      for (const d of discounts) {
+        await apiRequest("DELETE", `/api/check-discounts/${d.id}`, { employeeId: currentEmployee?.id }, wsHeaders());
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/checks", currentCheck?.id] });
+      toast({ title: "Check discounts removed" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to remove check discounts", description: error?.message || String(error), variant: "destructive" });
+    },
+  });
+
+  const checkServiceChargesQuery = useQuery<any[]>({
+    queryKey: ["/api/checks", currentCheck?.id, "service-charges"],
+    queryFn: async () => {
+      if (!currentCheck?.id) return [];
+      const res = await fetch(`/api/checks/${currentCheck.id}/service-charges`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!currentCheck?.id,
+  });
+
+  const voidServiceChargeMutation = useMutation({
+    mutationFn: async () => {
+      const charges = checkServiceChargesQuery.data || [];
+      const activeCharges = charges.filter((sc: any) => !sc.voided);
+      for (const sc of activeCharges) {
+        await apiRequest("POST", `/api/check-service-charges/${sc.id}/void`, { employeeId: currentEmployee?.id }, wsHeaders());
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/checks", currentCheck?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/checks", currentCheck?.id, "service-charges"] });
+      toast({ title: "Service charges voided" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to void service charges", description: error?.message || String(error), variant: "destructive" });
+    },
+  });
+
   const updateModifiersMutation = useMutation({
     mutationFn: async (data: { itemId: string; modifiers: SelectedModifier[]; finalize?: boolean }) => {
       const response = await apiRequest("PATCH", "/api/check-items/" + data.itemId + "/modifiers", {
@@ -1613,6 +1660,9 @@ export default function PosPage() {
 
   const { subtotal, tax, total, discountTotal } = calculateTotals();
 
+  const serviceChargeTotal = (checkServiceChargesQuery.data || [])
+    .filter((sc: any) => !sc.voided)
+    .reduce((sum: number, sc: any) => sum + parseFloat(sc.amount || "0"), 0);
 
   if (!currentEmployee || !currentRvc) {
     return <Redirect to="/" />;
@@ -2198,6 +2248,9 @@ export default function PosPage() {
             onVoidPayment={(payment) => voidPaymentMutation.mutate(payment)}
             canVoidPayment={hasPrivilege("void_sent") || hasPrivilege("void_unsent")}
             tenderNames={tenderNames}
+            onRemoveCheckDiscounts={currentCheck?.status === "open" ? () => removeCheckDiscountsMutation.mutate() : undefined}
+            serviceChargeTotal={serviceChargeTotal}
+            onVoidServiceCharge={currentCheck?.status === "open" && serviceChargeTotal > 0 ? () => voidServiceChargeMutation.mutate() : undefined}
           />
         </div>
       </div>

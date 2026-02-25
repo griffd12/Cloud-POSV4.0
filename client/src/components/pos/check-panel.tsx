@@ -40,6 +40,9 @@ interface CheckPanelProps {
   onVoidPayment?: (payment: CheckPayment) => void;
   canVoidPayment?: boolean;
   tenderNames?: Record<string, string>;
+  onRemoveCheckDiscounts?: () => void;
+  serviceChargeTotal?: number;
+  onVoidServiceCharge?: () => void;
 }
 
 const ORDER_TYPE_LABELS: Record<string, string> = {
@@ -246,9 +249,9 @@ function SwipeableItem({
             isRevealed ? "opacity-100" : "opacity-0 pointer-events-none"
           }`}
         >
-          {canDiscount && onDiscount && !item.discountId && (
+          {canDiscount && onDiscount && (
             <button
-              className="w-12 bg-purple-500 hover:bg-purple-600 text-white flex items-center justify-center"
+              className={`w-12 ${item.discountId ? "bg-orange-500 hover:bg-orange-600" : "bg-purple-500 hover:bg-purple-600"} text-white flex items-center justify-center`}
               onClick={(e) => {
                 e.stopPropagation();
                 setIsRevealed(false);
@@ -256,10 +259,10 @@ function SwipeableItem({
               }}
               data-testid={`button-discount-swipe-${item.id}`}
             >
-              <Percent className="w-5 h-5" />
+              {item.discountId ? <X className="w-5 h-5" /> : <Percent className="w-5 h-5" />}
             </button>
           )}
-          {canPriceOverride && onPriceOverride && (
+          {canPriceOverride && onPriceOverride && !item.discountId && (
             <button
               className="w-12 bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center"
               onClick={(e) => {
@@ -338,6 +341,9 @@ export function CheckPanel({
   onVoidPayment,
   canVoidPayment = false,
   tenderNames = {},
+  onRemoveCheckDiscounts,
+  serviceChargeTotal = 0,
+  onVoidServiceCharge,
 }: CheckPanelProps) {
   const formatPrice = (price: string | number | null) => {
     const numPrice = typeof price === "string" ? parseFloat(price) : (price || 0);
@@ -530,12 +536,43 @@ export function CheckPanel({
             <span className="tabular-nums font-medium">{formatPrice(subtotal + discountTotal)}</span>
           </div>
           {discountTotal > 0 && (
-            <div className="flex justify-between text-base text-purple-600 dark:text-purple-400">
+            <div className="flex justify-between items-center text-base text-purple-600 dark:text-purple-400">
               <span className="flex items-center gap-1">
                 <Percent className="w-4 h-4" />
                 Discounts
               </span>
-              <span className="tabular-nums">-{formatPrice(discountTotal)}</span>
+              <span className="flex items-center gap-1.5">
+                <span className="tabular-nums">-{formatPrice(discountTotal)}</span>
+                {onRemoveCheckDiscounts && (
+                  <button
+                    onClick={onRemoveCheckDiscounts}
+                    className="p-0.5 rounded hover:bg-purple-100 dark:hover:bg-purple-900/50 text-purple-500"
+                    data-testid="button-remove-check-discounts"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </span>
+            </div>
+          )}
+          {serviceChargeTotal > 0 && (
+            <div className="flex justify-between items-center text-base text-amber-600 dark:text-amber-400">
+              <span className="flex items-center gap-1">
+                <DollarSign className="w-4 h-4" />
+                Service Charges
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="tabular-nums">{formatPrice(serviceChargeTotal)}</span>
+                {onVoidServiceCharge && (
+                  <button
+                    onClick={onVoidServiceCharge}
+                    className="p-0.5 rounded hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-500"
+                    data-testid="button-void-service-charges"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </span>
             </div>
           )}
           {tax > 0 && (

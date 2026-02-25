@@ -6700,6 +6700,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(404).json({ message: "Item not found" });
       }
 
+      if (item.discountId) {
+        return res.status(400).json({ message: "Remove the discount before changing the price. You cannot override the price of an item that has an active discount." });
+      }
+
       const check = await storage.getCheck(item.checkId);
 
       // Manager approval for price overrides
@@ -6767,30 +6771,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // If the item has an existing discount, recalculate it based on the new price
-      let updatedDiscountFields: Record<string, any> = {};
-      if (item.discountId && item.discountAmount) {
-        const discount = await storage.getDiscount(item.discountId);
-        if (discount) {
-          let newDiscountAmount: number;
-          if (discount.type === "percent") {
-            newDiscountAmount = newTaxableAmount * (parseFloat(discount.value) / 100);
-          } else {
-            newDiscountAmount = parseFloat(discount.value);
-          }
-          newDiscountAmount = Math.min(newDiscountAmount, newTaxableAmount);
-          newDiscountAmount = Math.max(newDiscountAmount, 0);
-          newDiscountAmount = Math.round(newDiscountAmount * 100) / 100;
-          updatedDiscountFields = { discountAmount: newDiscountAmount.toFixed(2) };
-        }
-      }
-
-      // Update the item price AND tax fields so recalculation works correctly
       const updatedItem = await storage.updateCheckItem(itemId, {
         unitPrice: newPrice.toFixed(2),
         taxableAmount: newTaxableAmount.toFixed(2),
         taxAmount: newTaxAmount,
-        ...updatedDiscountFields,
       });
 
       // Recalculate check totals
