@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { eq, and, desc, sql, inArray, gte, lte, gt, or, ilike, isNotNull, isNull } from "drizzle-orm";
 import {
-  enterprises, properties, rvcs, roles, privileges, rolePrivileges, employees, employeeAssignments,
+  enterprises, properties, rvcs, roles, privileges, rolePrivileges, roleRules, employees, employeeAssignments,
   majorGroups, familyGroups,
   slus, taxGroups, printClasses, orderDevices, menuItems, menuItemSlus, type MenuItemSlu,
   modifierGroups, modifiers, modifierGroupModifiers, menuItemModifierGroups,
@@ -30,6 +30,7 @@ import {
   type Property, type InsertProperty,
   type Rvc, type InsertRvc,
   type Role, type InsertRole,
+  type RoleRules, type InsertRoleRules,
   type Privilege, type InsertPrivilege,
   type Employee, type InsertEmployee,
   type EmployeeAssignment, type InsertEmployeeAssignment,
@@ -203,6 +204,8 @@ export interface IStorage {
   getRolePrivileges(roleId: string): Promise<string[]>;
   setRolePrivileges(roleId: string, privilegeCodes: string[]): Promise<void>;
   upsertRole(data: InsertRole): Promise<Role>;
+  getRoleRules(roleId: string): Promise<RoleRules | undefined>;
+  upsertRoleRules(data: InsertRoleRules): Promise<RoleRules>;
 
   // Employees
   getEmployees(): Promise<Employee[]>;
@@ -1136,6 +1139,24 @@ export class DatabaseStorage implements IStorage {
       return updated;
     }
     const [created] = await db.insert(roles).values(sanitizeDates(data)).returning();
+    return created;
+  }
+
+  async getRoleRules(roleId: string): Promise<RoleRules | undefined> {
+    const [result] = await db.select().from(roleRules).where(eq(roleRules.roleId, roleId));
+    return result;
+  }
+
+  async upsertRoleRules(data: InsertRoleRules): Promise<RoleRules> {
+    const existing = await db.select().from(roleRules).where(eq(roleRules.roleId, data.roleId)).limit(1);
+    if (existing.length > 0) {
+      const [updated] = await db.update(roleRules)
+        .set({ ...sanitizeDates(data), updatedAt: new Date() })
+        .where(eq(roleRules.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(roleRules).values(sanitizeDates(data)).returning();
     return created;
   }
 

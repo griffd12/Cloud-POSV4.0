@@ -97,6 +97,24 @@ export const rolePrivileges = pgTable("role_privileges", {
   privilegeCode: text("privilege_code").notNull(),
 });
 
+export const roleRules = pgTable("role_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roleId: varchar("role_id").notNull().references(() => roles.id),
+  enterpriseId: varchar("enterprise_id").references(() => enterprises.id),
+  maxItemDiscountPct: integer("max_item_discount_pct").notNull().default(0),
+  maxCheckDiscountPct: integer("max_check_discount_pct").notNull().default(0),
+  maxItemDiscountAmt: decimal("max_item_discount_amt", { precision: 10, scale: 2 }).notNull().default("0"),
+  maxCheckDiscountAmt: decimal("max_check_discount_amt", { precision: 10, scale: 2 }).notNull().default("0"),
+  maxPriceOverridePctDown: integer("max_price_override_pct_down").notNull().default(0),
+  maxPriceOverrideAmtDown: decimal("max_price_override_amt_down", { precision: 10, scale: 2 }).notNull().default("0"),
+  reopenWindowMinutes: integer("reopen_window_minutes").notNull().default(0),
+  editClosedWindowMinutes: integer("edit_closed_window_minutes").notNull().default(0),
+  refundWindowMinutes: integer("refund_window_minutes").notNull().default(0),
+  bypassWindowsAllowed: boolean("bypass_windows_allowed").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // ============================================================================
 // EMPLOYEES
 // ============================================================================
@@ -1280,6 +1298,7 @@ export const insertEnterpriseSchema = createInsertSchema(enterprises).omit({ id:
 export const insertPropertySchema = createInsertSchema(properties).omit({ id: true });
 export const insertRvcSchema = createInsertSchema(rvcs).omit({ id: true });
 export const insertRoleSchema = createInsertSchema(roles).omit({ id: true });
+export const insertRoleRulesSchema = createInsertSchema(roleRules).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertPrivilegeSchema = createInsertSchema(privileges).omit({ id: true });
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
 export const insertEmployeeAssignmentSchema = createInsertSchema(employeeAssignments).omit({ id: true });
@@ -1361,6 +1380,8 @@ export type Rvc = typeof rvcs.$inferSelect;
 export type InsertRvc = z.infer<typeof insertRvcSchema>;
 export type Role = typeof roles.$inferSelect;
 export type InsertRole = z.infer<typeof insertRoleSchema>;
+export type RoleRules = typeof roleRules.$inferSelect;
+export type InsertRoleRules = z.infer<typeof insertRoleRulesSchema>;
 export type Privilege = typeof privileges.$inferSelect;
 export type InsertPrivilege = z.infer<typeof insertPrivilegeSchema>;
 export type Employee = typeof employees.$inferSelect;

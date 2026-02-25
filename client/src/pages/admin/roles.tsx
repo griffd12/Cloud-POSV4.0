@@ -15,10 +15,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { type Role, type Privilege } from "@shared/schema";
+import { type Role, type Privilege, type RoleRules } from "@shared/schema";
 import { useConfigOverride } from "@/hooks/use-config-override";
+import { OptionBitsPanel } from "@/components/admin/option-bits-panel";
+import { Shield, Save } from "lucide-react";
 
 export default function RolesPage() {
   const { toast } = useToast();
@@ -27,11 +30,25 @@ export default function RolesPage() {
   const scopeLookup = useScopeLookup();
   const [formOpen, setFormOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Role | null>(null);
+  const [rulesRoleId, setRulesRoleId] = useState<string>("");
   
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [active, setActive] = useState(true);
   const [selectedPrivileges, setSelectedPrivileges] = useState<string[]>([]);
+
+  const [ruleFields, setRuleFields] = useState({
+    maxItemDiscountPct: 0,
+    maxCheckDiscountPct: 0,
+    maxItemDiscountAmt: "0",
+    maxCheckDiscountAmt: "0",
+    maxPriceOverridePctDown: 0,
+    maxPriceOverrideAmtDown: "0",
+    reopenWindowMinutes: 0,
+    editClosedWindowMinutes: 0,
+    refundWindowMinutes: 0,
+    bypassWindowsAllowed: false,
+  });
 
   const { data: roles = [], isLoading } = useQuery<Role[]>({
     queryKey: ["/api/roles", filterKeys],
@@ -51,6 +68,62 @@ export default function RolesPage() {
       const res = await fetch(`/api/privileges${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch privileges");
       return res.json();
+    },
+  });
+
+  const { data: roleRulesData, isLoading: isLoadingRules } = useQuery<RoleRules | null>({
+    queryKey: ["/api/roles", rulesRoleId, "rules"],
+    queryFn: async () => {
+      const res = await fetch(`/api/roles/${rulesRoleId}/rules`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch role rules");
+      return res.json();
+    },
+    enabled: !!rulesRoleId,
+  });
+
+  useEffect(() => {
+    if (roleRulesData) {
+      setRuleFields({
+        maxItemDiscountPct: roleRulesData.maxItemDiscountPct ?? 0,
+        maxCheckDiscountPct: roleRulesData.maxCheckDiscountPct ?? 0,
+        maxItemDiscountAmt: roleRulesData.maxItemDiscountAmt ?? "0",
+        maxCheckDiscountAmt: roleRulesData.maxCheckDiscountAmt ?? "0",
+        maxPriceOverridePctDown: roleRulesData.maxPriceOverridePctDown ?? 0,
+        maxPriceOverrideAmtDown: roleRulesData.maxPriceOverrideAmtDown ?? "0",
+        reopenWindowMinutes: roleRulesData.reopenWindowMinutes ?? 0,
+        editClosedWindowMinutes: roleRulesData.editClosedWindowMinutes ?? 0,
+        refundWindowMinutes: roleRulesData.refundWindowMinutes ?? 0,
+        bypassWindowsAllowed: roleRulesData.bypassWindowsAllowed ?? false,
+      });
+    } else if (rulesRoleId && !isLoadingRules) {
+      setRuleFields({
+        maxItemDiscountPct: 0,
+        maxCheckDiscountPct: 0,
+        maxItemDiscountAmt: "0",
+        maxCheckDiscountAmt: "0",
+        maxPriceOverridePctDown: 0,
+        maxPriceOverrideAmtDown: "0",
+        reopenWindowMinutes: 0,
+        editClosedWindowMinutes: 0,
+        refundWindowMinutes: 0,
+        bypassWindowsAllowed: false,
+      });
+    }
+  }, [roleRulesData, rulesRoleId, isLoadingRules]);
+
+  const saveRulesMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("PUT", `/api/roles/${rulesRoleId}/rules`, {
+        enterpriseId: selectedEnterpriseId,
+        ...ruleFields,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/roles", rulesRoleId, "rules"] });
+      toast({ title: "Role rules saved" });
+    },
+    onError: () => {
+      toast({ title: "Failed to save role rules", variant: "destructive" });
     },
   });
 
@@ -243,6 +316,7 @@ export default function RolesPage() {
         <TabsList>
           <TabsTrigger value="roles" data-testid="tab-roles">Roles</TabsTrigger>
           <TabsTrigger value="privileges" data-testid="tab-privileges">Privileges</TabsTrigger>
+          <TabsTrigger value="role-rules" data-testid="tab-role-rules">Role Rules</TabsTrigger>
         </TabsList>
         
         <TabsContent value="roles" className="space-y-4">
@@ -420,6 +494,214 @@ export default function RolesPage() {
               </Card>
             ))}
           </div>
+        </TabsContent>
+
+        <TabsContent value="role-rules" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                Role Rules & Thresholds
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Select Role</Label>
+                <Select value={rulesRoleId} onValueChange={(v) => setRulesRoleId(v)}>
+                  <SelectTrigger data-testid="select-rules-role">
+                    <SelectValue placeholder="Choose a role to configure..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name} ({role.code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {rulesRoleId && (
+                <>
+                  {isLoadingRules ? (
+                    <div className="text-sm text-muted-foreground">Loading rules...</div>
+                  ) : (
+                    <>
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="text-sm font-medium mb-3">Discount Limits</h4>
+                          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="maxItemDiscountPct" className="text-xs">Max Item Discount %</Label>
+                              <Input
+                                id="maxItemDiscountPct"
+                                data-testid="input-max-item-discount-pct"
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={ruleFields.maxItemDiscountPct}
+                                onChange={(e) => setRuleFields(prev => ({ ...prev, maxItemDiscountPct: parseInt(e.target.value) || 0 }))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="maxCheckDiscountPct" className="text-xs">Max Check Discount %</Label>
+                              <Input
+                                id="maxCheckDiscountPct"
+                                data-testid="input-max-check-discount-pct"
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={ruleFields.maxCheckDiscountPct}
+                                onChange={(e) => setRuleFields(prev => ({ ...prev, maxCheckDiscountPct: parseInt(e.target.value) || 0 }))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="maxItemDiscountAmt" className="text-xs">Max Item Discount $</Label>
+                              <Input
+                                id="maxItemDiscountAmt"
+                                data-testid="input-max-item-discount-amt"
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={ruleFields.maxItemDiscountAmt}
+                                onChange={(e) => setRuleFields(prev => ({ ...prev, maxItemDiscountAmt: e.target.value }))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="maxCheckDiscountAmt" className="text-xs">Max Check Discount $</Label>
+                              <Input
+                                id="maxCheckDiscountAmt"
+                                data-testid="input-max-check-discount-amt"
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={ruleFields.maxCheckDiscountAmt}
+                                onChange={(e) => setRuleFields(prev => ({ ...prev, maxCheckDiscountAmt: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-medium mb-3">Price Override Limits</h4>
+                          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="maxPriceOverridePctDown" className="text-xs">Max Override % Down</Label>
+                              <Input
+                                id="maxPriceOverridePctDown"
+                                data-testid="input-max-price-override-pct-down"
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={ruleFields.maxPriceOverridePctDown}
+                                onChange={(e) => setRuleFields(prev => ({ ...prev, maxPriceOverridePctDown: parseInt(e.target.value) || 0 }))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="maxPriceOverrideAmtDown" className="text-xs">Max Override $ Down</Label>
+                              <Input
+                                id="maxPriceOverrideAmtDown"
+                                data-testid="input-max-price-override-amt-down"
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={ruleFields.maxPriceOverrideAmtDown}
+                                onChange={(e) => setRuleFields(prev => ({ ...prev, maxPriceOverrideAmtDown: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-medium mb-3">Time Windows</h4>
+                          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="reopenWindowMinutes" className="text-xs">Reopen Window (min)</Label>
+                              <Input
+                                id="reopenWindowMinutes"
+                                data-testid="input-reopen-window-minutes"
+                                type="number"
+                                min={0}
+                                value={ruleFields.reopenWindowMinutes}
+                                onChange={(e) => setRuleFields(prev => ({ ...prev, reopenWindowMinutes: parseInt(e.target.value) || 0 }))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="editClosedWindowMinutes" className="text-xs">Edit Closed Window (min)</Label>
+                              <Input
+                                id="editClosedWindowMinutes"
+                                data-testid="input-edit-closed-window-minutes"
+                                type="number"
+                                min={0}
+                                value={ruleFields.editClosedWindowMinutes}
+                                onChange={(e) => setRuleFields(prev => ({ ...prev, editClosedWindowMinutes: parseInt(e.target.value) || 0 }))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="refundWindowMinutes" className="text-xs">Refund Window (min)</Label>
+                              <Input
+                                id="refundWindowMinutes"
+                                data-testid="input-refund-window-minutes"
+                                type="number"
+                                min={0}
+                                value={ruleFields.refundWindowMinutes}
+                                onChange={(e) => setRuleFields(prev => ({ ...prev, refundWindowMinutes: parseInt(e.target.value) || 0 }))}
+                              />
+                            </div>
+                            <div className="flex items-center space-x-2 pt-6">
+                              <Switch
+                                id="bypassWindowsAllowed"
+                                data-testid="switch-bypass-windows"
+                                checked={ruleFields.bypassWindowsAllowed}
+                                onCheckedChange={(v) => setRuleFields(prev => ({ ...prev, bypassWindowsAllowed: v }))}
+                              />
+                              <Label htmlFor="bypassWindowsAllowed" className="text-xs">Bypass Windows</Label>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end">
+                          <Button
+                            onClick={() => saveRulesMutation.mutate()}
+                            disabled={saveRulesMutation.isPending}
+                            data-testid="button-save-role-rules"
+                          >
+                            <Save className="w-4 h-4 mr-1" />
+                            Save Rules
+                          </Button>
+                        </div>
+                      </div>
+
+                      {selectedEnterpriseId && (
+                        <div className="border-t pt-4 mt-4">
+                          <h4 className="text-sm font-medium mb-3">Option Permissions</h4>
+                          <OptionBitsPanel
+                            entityType="role"
+                            entityId={rulesRoleId}
+                            enterpriseId={selectedEnterpriseId}
+                            currentScopeLevel={selectedRvcId ? "rvc" : selectedPropertyId ? "property" : "enterprise"}
+                            currentScopeId={selectedRvcId || selectedPropertyId || selectedEnterpriseId}
+                            scopeChain={[
+                              { level: "enterprise", id: selectedEnterpriseId },
+                              ...(selectedPropertyId ? [{ level: "property", id: selectedPropertyId }] : []),
+                              ...(selectedRvcId ? [{ level: "rvc", id: selectedRvcId }] : []),
+                            ]}
+                            scopeLabel={`Role: ${roles.find(r => r.id === rulesRoleId)?.name || ""}`}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+
+              {!rulesRoleId && (
+                <div className="text-sm text-muted-foreground py-4 text-center">
+                  Select a role above to configure its thresholds and option permissions.
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

@@ -11,7 +11,7 @@ import archiver from "archiver";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, ne, sql, inArray, and, desc } from "drizzle-orm";
-import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges } from "@shared/schema";
+import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges } from "@shared/schema";
 import { uberEatsIntegration } from "./integrations/uber-eats";
 import { grubhubIntegration } from "./integrations/grubhub";
 import { doorDashIntegration } from "./integrations/doordash";
@@ -747,7 +747,7 @@ async function recalculateCheckTotals(checkId: string): Promise<void> {
     (sum: number, d: any) => sum + parseFloat(d.amount || "0"), 0
   );
 
-  const netSubtotal = grossSubtotal - itemDiscountTotal - checkLevelDiscountTotal;
+  const netSubtotal = Math.max(0, grossSubtotal - itemDiscountTotal - checkLevelDiscountTotal);
   
   if (checkLevelDiscountTotal > 0 && grossSubtotal > 0) {
     const discountRatio = checkLevelDiscountTotal / grossSubtotal;
@@ -757,8 +757,8 @@ async function recalculateCheckTotals(checkId: string): Promise<void> {
   const totalDiscounts = itemDiscountTotal + checkLevelDiscountTotal;
 
   const subtotal = Math.round(grossSubtotal * 100) / 100;
-  const tax = Math.round(addOnTax * 100) / 100;
-  const total = Math.round((netSubtotal + addOnTax) * 100) / 100;
+  const tax = Math.max(0, Math.round(addOnTax * 100) / 100);
+  const total = Math.max(0, Math.round((netSubtotal + tax) * 100) / 100);
 
   await storage.updateCheck(checkId, {
     subtotal: subtotal.toFixed(2),
@@ -2240,74 +2240,122 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!enterpriseId) {
       return res.status(400).json({ message: "enterpriseId is required" });
     }
-    
-    // Seed 6 roles from the POS roles matrix with privilege assignments
-    // Privilege codes matching the matrix
-    const allPrivileges = [
-      "open_check", "close_check", "split_check", "merge_checks", "transfer_check", "reopen_check", "change_order_type", "assign_table",
-      "add_item", "void_item", "void_item_no_reason", "modify_price", "add_modifier", "remove_modifier",
-      "apply_tender", "split_payment", "refund", "force_tender", "offline_payment",
-      "approve_void", "approve_discount", "approve_refund", "approve_price_override", "manager_approval",
-      "view_sales_reports", "view_labor_reports", "export_reports", "view_audit_logs",
-      "admin_access", "kds_access", "fast_transaction", "send_to_kitchen", "void_unsent", "void_sent", "apply_discount"
+
+    const auditPrivileges = [
+      { code: "APPLY_ITEM_DISCOUNT", name: "Apply item-level discount", domain: "pricing_flags" },
+      { code: "APPLY_CHECK_DISCOUNT", name: "Apply check-level discount", domain: "pricing_flags" },
+      { code: "REMOVE_DISCOUNT", name: "Remove discount", domain: "pricing_flags" },
+      { code: "PRICE_OVERRIDE_ITEM", name: "Price override (menu item)", domain: "pricing_flags" },
+      { code: "PRICE_OVERRIDE_OPEN_ITEM", name: "Price override (open item)", domain: "pricing_flags" },
+      { code: "OVERRIDE_BELOW_FLOOR", name: "Allow override below floor", domain: "pricing_flags" },
+      { code: "REQUIRE_REASON_DISCOUNT", name: "Require reason code for discounts", domain: "pricing_flags" },
+      { code: "REQUIRE_REASON_OVERRIDE", name: "Require reason code for overrides", domain: "pricing_flags" },
+      { code: "REQUIRE_MGR_DISCOUNT_ABOVE_LIMIT", name: "Require manager approval for discounts above limit", domain: "pricing_flags" },
+      { code: "REQUIRE_MGR_OVERRIDE_ABOVE_LIMIT", name: "Require manager approval for overrides above limit", domain: "pricing_flags" },
+      { code: "APPLY_SERVICE_CHARGE", name: "Apply service charge", domain: "check_ops_flags" },
+      { code: "REMOVE_SERVICE_CHARGE", name: "Remove service charge", domain: "check_ops_flags" },
+      { code: "OVERRIDE_SERVICE_CHARGE", name: "Override service charge amount/percent", domain: "check_ops_flags" },
+      { code: "REQUIRE_REASON_SC", name: "Require reason code for service charge changes", domain: "check_ops_flags" },
+      { code: "SPLIT_CHECK", name: "Split check", domain: "check_ops_flags" },
+      { code: "MERGE_CHECK", name: "Merge checks", domain: "check_ops_flags" },
+      { code: "TRANSFER_CHECK", name: "Transfer check", domain: "check_ops_flags" },
+      { code: "MOVE_ITEMS_BETWEEN_CHECKS", name: "Move items between checks", domain: "check_ops_flags" },
+      { code: "VOID_ITEM_PREPAY", name: "Void item before payment", domain: "check_ops_flags" },
+      { code: "VOID_CHECK_PREPAY", name: "Void entire check before payment", domain: "check_ops_flags" },
+      { code: "REOPEN_CLOSED_UNPAID", name: "Reopen closed unpaid check", domain: "tender_flags" },
+      { code: "EDIT_CLOSED_UNPAID", name: "Edit closed unpaid check", domain: "tender_flags" },
+      { code: "REFUND_ITEM", name: "Refund individual items", domain: "tender_flags" },
+      { code: "REFUND_FULL", name: "Refund entire check", domain: "tender_flags" },
+      { code: "REFUND_ORIGINAL_TENDER_ONLY", name: "Refund to original tender only", domain: "tender_flags" },
+      { code: "REFUND_ALTERNATE_TENDER", name: "Refund to alternate tender", domain: "tender_flags" },
+      { code: "CASH_REFUND_FOR_CARD_SALE", name: "Cash refund for card sale", domain: "tender_flags" },
+      { code: "NO_RECEIPT_REFUND", name: "Allow refund without original receipt", domain: "tender_flags" },
+      { code: "REOPEN_PAID_CHECK", name: "Reopen paid check", domain: "admin_flags" },
+      { code: "EDIT_PAID_CHECK", name: "Edit paid/settled check", domain: "admin_flags" },
+      { code: "BYPASS_WINDOWS", name: "Bypass time windows", domain: "admin_flags" },
     ];
 
-    // Staff privileges (most limited)
-    const staffPrivileges = [
-      "open_check", "close_check", "split_check", "merge_checks", "change_order_type", "assign_table",
-      "add_item", "add_modifier",
-      "apply_tender", "split_payment",
-      "fast_transaction", "send_to_kitchen", "kds_access"
-    ];
+    for (const p of auditPrivileges) {
+      await db.insert(privileges).values({ id: crypto.randomUUID(), ...p }).onConflictDoNothing();
+    }
 
-    // Supervisor privileges (Staff + more)
-    const supervisorPrivileges = [
-      ...staffPrivileges,
-      "transfer_check", "reopen_check",
-      "void_item", "remove_modifier",
-      "approve_void", "approve_discount",
-      "view_sales_reports"
-    ];
-
-    // Ops Manager privileges (Supervisor + more)
-    const opsMgrPrivileges = [
-      ...supervisorPrivileges,
-      "void_item_no_reason", "modify_price",
-      "refund", "force_tender", "offline_payment",
+    const legacyPrivileges = [
+      "open_check", "close_check", "split_check", "merge_checks", "transfer_check", "reopen_check",
+      "change_order_type", "assign_table", "add_item", "void_item", "void_item_no_reason",
+      "modify_price", "add_modifier", "remove_modifier", "apply_tender", "split_payment",
+      "refund", "force_tender", "offline_payment", "approve_void", "approve_discount",
       "approve_refund", "approve_price_override", "manager_approval",
-      "view_labor_reports",
-      "void_unsent", "void_sent", "apply_discount"
+      "view_sales_reports", "view_labor_reports", "export_reports", "view_audit_logs",
+      "admin_access", "kds_access", "fast_transaction", "send_to_kitchen", "void_unsent",
+      "void_sent", "apply_discount", "clock_in_out"
     ];
 
-    // Property Admin privileges (Ops Mgr + reports)
-    const propAdminPrivileges = [
-      ...opsMgrPrivileges,
-      "export_reports", "view_audit_logs"
+    const clockInOnlyPrivs: string[] = ["clock_in_out"];
+    const cashierPrivs = [
+      ...legacyPrivileges.filter(p => ["open_check", "close_check", "add_item", "add_modifier",
+        "apply_tender", "split_payment", "fast_transaction", "send_to_kitchen", "kds_access",
+        "void_unsent", "void_item", "remove_modifier", "clock_in_out"].includes(p)),
+      "APPLY_ITEM_DISCOUNT", "APPLY_CHECK_DISCOUNT", "REMOVE_DISCOUNT",
+      "REQUIRE_REASON_DISCOUNT", "REQUIRE_REASON_OVERRIDE",
+      "SPLIT_CHECK", "TRANSFER_CHECK", "MOVE_ITEMS_BETWEEN_CHECKS",
+      "VOID_ITEM_PREPAY", "VOID_CHECK_PREPAY", "REOPEN_CLOSED_UNPAID"
     ];
-
-    // Enterprise Admin privileges (all)
-    const entAdminPrivileges = [...allPrivileges, "admin_access"];
-
-    // System Admin privileges (all)
-    const sysAdminPrivileges = [...allPrivileges, "admin_access"];
+    const serverPrivs = [
+      ...legacyPrivileges.filter(p => ["open_check", "close_check", "add_item", "add_modifier",
+        "apply_tender", "fast_transaction", "send_to_kitchen", "kds_access", "clock_in_out"].includes(p)),
+      "APPLY_ITEM_DISCOUNT", "APPLY_CHECK_DISCOUNT", "REQUIRE_REASON_DISCOUNT",
+      "SPLIT_CHECK", "TRANSFER_CHECK", "MOVE_ITEMS_BETWEEN_CHECKS",
+      "VOID_ITEM_PREPAY"
+    ];
+    const bartenderPrivs = [...serverPrivs];
+    const managerPrivs = [
+      ...legacyPrivileges.filter(p => !["admin_access"].includes(p)),
+      "APPLY_ITEM_DISCOUNT", "APPLY_CHECK_DISCOUNT", "REMOVE_DISCOUNT",
+      "PRICE_OVERRIDE_ITEM", "PRICE_OVERRIDE_OPEN_ITEM",
+      "REQUIRE_REASON_DISCOUNT", "REQUIRE_REASON_OVERRIDE",
+      "REQUIRE_MGR_DISCOUNT_ABOVE_LIMIT", "REQUIRE_MGR_OVERRIDE_ABOVE_LIMIT",
+      "APPLY_SERVICE_CHARGE", "REMOVE_SERVICE_CHARGE", "OVERRIDE_SERVICE_CHARGE",
+      "REQUIRE_REASON_SC", "SPLIT_CHECK", "MERGE_CHECK", "TRANSFER_CHECK",
+      "MOVE_ITEMS_BETWEEN_CHECKS", "VOID_ITEM_PREPAY", "VOID_CHECK_PREPAY",
+      "REOPEN_CLOSED_UNPAID", "EDIT_CLOSED_UNPAID",
+      "REFUND_ITEM", "REFUND_FULL", "REFUND_ORIGINAL_TENDER_ONLY"
+    ];
+    const allPrivs = [
+      ...legacyPrivileges,
+      ...auditPrivileges.map(p => p.code)
+    ];
 
     const rolesData = [
-      { code: "SYS_ADMIN", name: "System Admin", privileges: sysAdminPrivileges },
-      { code: "ENT_ADMIN", name: "Enterprise Admin", privileges: entAdminPrivileges },
-      { code: "PROP_ADMIN", name: "Property Admin", privileges: propAdminPrivileges },
-      { code: "OPS_MGR", name: "Operations Manager", privileges: opsMgrPrivileges },
-      { code: "SUPERVISOR", name: "Supervisor", privileges: supervisorPrivileges },
-      { code: "STAFF", name: "Staff", privileges: staffPrivileges },
+      { code: "CLOCK_IN_ONLY", name: "Clock In Only", privileges: clockInOnlyPrivs },
+      { code: "CASHIER", name: "Cashier", privileges: cashierPrivs },
+      { code: "SVR", name: "Server", privileges: serverPrivs },
+      { code: "BARTENDER", name: "Bartender", privileges: bartenderPrivs },
+      { code: "MGR", name: "Manager", privileges: managerPrivs },
+      { code: "SYS_ADMIN", name: "System Admin", privileges: allPrivs },
+      { code: "ENT_ADMIN", name: "Enterprise Admin", privileges: allPrivs },
     ];
+
+    const rulesData: Record<string, any> = {
+      CLOCK_IN_ONLY: { maxItemDiscountPct: 0, maxCheckDiscountPct: 0, maxItemDiscountAmt: "0", maxCheckDiscountAmt: "0", maxPriceOverridePctDown: 0, maxPriceOverrideAmtDown: "0", reopenWindowMinutes: 0, editClosedWindowMinutes: 0, refundWindowMinutes: 0, bypassWindowsAllowed: false },
+      SVR: { maxItemDiscountPct: 10, maxCheckDiscountPct: 10, maxItemDiscountAmt: "10", maxCheckDiscountAmt: "10", maxPriceOverridePctDown: 15, maxPriceOverrideAmtDown: "15", reopenWindowMinutes: 30, editClosedWindowMinutes: 30, refundWindowMinutes: 30, bypassWindowsAllowed: false },
+      BARTENDER: { maxItemDiscountPct: 10, maxCheckDiscountPct: 10, maxItemDiscountAmt: "10", maxCheckDiscountAmt: "10", maxPriceOverridePctDown: 15, maxPriceOverrideAmtDown: "15", reopenWindowMinutes: 30, editClosedWindowMinutes: 30, refundWindowMinutes: 30, bypassWindowsAllowed: false },
+      CASHIER: { maxItemDiscountPct: 15, maxCheckDiscountPct: 15, maxItemDiscountAmt: "15", maxCheckDiscountAmt: "15", maxPriceOverridePctDown: 20, maxPriceOverrideAmtDown: "20", reopenWindowMinutes: 60, editClosedWindowMinutes: 60, refundWindowMinutes: 60, bypassWindowsAllowed: false },
+      MGR: { maxItemDiscountPct: 50, maxCheckDiscountPct: 50, maxItemDiscountAmt: "100", maxCheckDiscountAmt: "100", maxPriceOverridePctDown: 50, maxPriceOverrideAmtDown: "100", reopenWindowMinutes: 240, editClosedWindowMinutes: 240, refundWindowMinutes: 240, bypassWindowsAllowed: false },
+      SYS_ADMIN: { maxItemDiscountPct: 100, maxCheckDiscountPct: 100, maxItemDiscountAmt: "9999", maxCheckDiscountAmt: "9999", maxPriceOverridePctDown: 100, maxPriceOverrideAmtDown: "9999", reopenWindowMinutes: 1440, editClosedWindowMinutes: 1440, refundWindowMinutes: 1440, bypassWindowsAllowed: true },
+      ENT_ADMIN: { maxItemDiscountPct: 100, maxCheckDiscountPct: 100, maxItemDiscountAmt: "9999", maxCheckDiscountAmt: "9999", maxPriceOverridePctDown: 100, maxPriceOverrideAmtDown: "9999", reopenWindowMinutes: 1440, editClosedWindowMinutes: 1440, refundWindowMinutes: 1440, bypassWindowsAllowed: true },
+    };
 
     const createdRoles = [];
     for (const roleData of rolesData) {
       const role = await storage.upsertRole({ name: roleData.name, code: roleData.code, active: true, enterpriseId });
-      await storage.setRolePrivileges(role.id, Array.from(new Set(roleData.privileges))); // Remove duplicates
+      await storage.setRolePrivileges(role.id, Array.from(new Set(roleData.privileges)));
+      if (rulesData[roleData.code]) {
+        await storage.upsertRoleRules({ roleId: role.id, enterpriseId, ...rulesData[roleData.code] });
+      }
       createdRoles.push(role);
     }
 
-    res.json({ message: "Roles seeded successfully", roles: createdRoles });
+    res.json({ message: "Roles seeded with audit matrix privileges and rules", roles: createdRoles });
   });
 
   // Get privileges for a specific role
@@ -2333,6 +2381,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error updating role privileges:", error);
       res.status(500).json({ message: "Failed to update role privileges" });
+    }
+  });
+
+  app.get("/api/roles/:roleId/rules", async (req, res) => {
+    try {
+      const rules = await storage.getRoleRules(req.params.roleId);
+      res.json(rules || null);
+    } catch (error: any) {
+      console.error("Error fetching role rules:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch role rules" });
+    }
+  });
+
+  app.put("/api/roles/:roleId/rules", async (req, res) => {
+    try {
+      const rules = await storage.upsertRoleRules({
+        roleId: req.params.roleId,
+        ...req.body,
+      });
+      res.json(rules);
+    } catch (error: any) {
+      console.error("Error updating role rules:", error);
+      res.status(500).json({ message: error.message || "Failed to update role rules" });
     }
   });
 
@@ -4078,25 +4149,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(404).json({ message: "Discount not found or inactive" });
       }
 
-      // Validate manager approval if required
-      let approvedByEmployeeId: string | null = null;
-      if (discount.requiresManagerApproval) {
-        if (!managerPin) {
-          return res.status(400).json({ message: "Manager approval required" });
-        }
-        // Find employee by PIN using the existing auth function
-        const manager = await storage.getEmployeeByPin(managerPin);
-        if (!manager) {
-          return res.status(401).json({ message: "Invalid manager PIN" });
-        }
-        // Check if they have the apply_discount privilege
-        const privileges = manager.roleId ? await storage.getRolePrivileges(manager.roleId) : [];
-        if (!privileges.includes("apply_discount")) {
-          return res.status(403).json({ message: "Employee does not have discount approval privilege" });
-        }
-        approvedByEmployeeId = manager.id;
-      }
-
       // Calculate discount amount based on item total
       const unitPrice = parseFloat(item.unitPrice || "0");
       const modifierTotal = (item.modifiers || []).reduce(
@@ -4110,9 +4162,54 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       } else {
         discountAmount = parseFloat(discount.value);
       }
-      // Cap discount at item total
       discountAmount = Math.min(discountAmount, itemTotal);
       discountAmount = Math.round(discountAmount * 100) / 100;
+
+      let approvedByEmployeeId: string | null = null;
+      const employee = employeeId ? await storage.getEmployee(employeeId) : null;
+      const roleRulesData = employee?.roleId ? await storage.getRoleRules(employee.roleId) : null;
+      const employeePrivs = employee?.roleId ? await storage.getRolePrivileges(employee.roleId) : [];
+
+      if (employeePrivs.length > 0 && !employeePrivs.includes("APPLY_ITEM_DISCOUNT") && !employeePrivs.includes("apply_discount") && !employeePrivs.includes("admin_access")) {
+        return res.status(403).json({ message: "Employee does not have permission to apply item discounts" });
+      }
+
+      if (roleRulesData) {
+        const discountPct = itemTotal > 0 ? (discountAmount / itemTotal) * 100 : 0;
+        const maxPct = roleRulesData.maxItemDiscountPct || 0;
+        const maxAmt = parseFloat(roleRulesData.maxItemDiscountAmt as string || "0");
+        const exceedsLimit = (maxPct > 0 && discountPct > maxPct) || (maxAmt > 0 && discountAmount > maxAmt);
+
+        if (exceedsLimit) {
+          if (!employeePrivs.includes("REQUIRE_MGR_DISCOUNT_ABOVE_LIMIT") && !employeePrivs.includes("admin_access")) {
+            if (!managerPin) {
+              return res.status(403).json({
+                message: `Discount exceeds role limit (max ${maxPct}% / $${maxAmt}). Manager approval required.`,
+                requiresManagerApproval: true,
+                discountAmount,
+                maxPct,
+                maxAmt,
+              });
+            }
+          }
+        }
+      }
+
+      if (discount.requiresManagerApproval || managerPin) {
+        if (managerPin) {
+          const manager = await storage.getEmployeeByPin(managerPin);
+          if (!manager) {
+            return res.status(401).json({ message: "Invalid manager PIN" });
+          }
+          const mgrPrivs = manager.roleId ? await storage.getRolePrivileges(manager.roleId) : [];
+          if (!mgrPrivs.includes("apply_discount") && !mgrPrivs.includes("APPLY_ITEM_DISCOUNT") && !mgrPrivs.includes("admin_access")) {
+            return res.status(403).json({ message: "Manager does not have discount approval privilege" });
+          }
+          approvedByEmployeeId = manager.id;
+        } else if (discount.requiresManagerApproval) {
+          return res.status(400).json({ message: "Manager approval required" });
+        }
+      }
 
       // Apply discount to item
       await storage.updateCheckItem(itemId, {
@@ -4208,7 +4305,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(404).json({ message: "Discount not found or inactive" });
       }
 
-      // Calculate discount based on current subtotal (before this discount)
       const currentSubtotal = parseFloat(check.subtotal || "0") + parseFloat(check.discountTotal || "0");
       
       let discountAmount: number;
@@ -4217,9 +4313,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       } else {
         discountAmount = parseFloat(discount.value);
       }
-      // Cap discount at subtotal
       discountAmount = Math.min(discountAmount, currentSubtotal);
       discountAmount = Math.round(discountAmount * 100) / 100;
+
+      const chkEmployee = employeeId ? await storage.getEmployee(employeeId) : null;
+      const chkRoleRules = chkEmployee?.roleId ? await storage.getRoleRules(chkEmployee.roleId) : null;
+      const chkPrivs = chkEmployee?.roleId ? await storage.getRolePrivileges(chkEmployee.roleId) : [];
+
+      if (chkPrivs.length > 0 && !chkPrivs.includes("APPLY_CHECK_DISCOUNT") && !chkPrivs.includes("apply_discount") && !chkPrivs.includes("admin_access")) {
+        return res.status(403).json({ message: "Employee does not have permission to apply check discounts" });
+      }
+
+      if (chkRoleRules) {
+        const discPct = currentSubtotal > 0 ? (discountAmount / currentSubtotal) * 100 : 0;
+        const maxPct = chkRoleRules.maxCheckDiscountPct || 0;
+        const maxAmt = parseFloat(chkRoleRules.maxCheckDiscountAmt as string || "0");
+        const exceedsLimit = (maxPct > 0 && discPct > maxPct) || (maxAmt > 0 && discountAmount > maxAmt);
+        if (exceedsLimit && !chkPrivs.includes("admin_access")) {
+          if (!approvedByEmployeeId) {
+            return res.status(403).json({
+              message: `Check discount exceeds role limit (max ${maxPct}% / $${maxAmt}). Manager approval required.`,
+              requiresManagerApproval: true,
+              discountAmount,
+              maxPct,
+              maxAmt,
+            });
+          }
+        }
+      }
 
       // Create check discount record
       const checkDiscount = await storage.createCheckDiscount({
@@ -6599,16 +6720,42 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       const oldPrice = parseFloat(item.unitPrice || "0");
+      const priceDropAmt = Math.max(0, oldPrice - newPrice);
+      const priceDropPct = oldPrice > 0 ? (priceDropAmt / oldPrice) * 100 : 0;
+
+      const empRecord = employeeId ? await storage.getEmployee(employeeId) : null;
+      const empRoleRules = empRecord?.roleId ? await storage.getRoleRules(empRecord.roleId) : null;
+      const empPrivs = empRecord?.roleId ? await storage.getRolePrivileges(empRecord.roleId) : [];
+
+      if (empPrivs.length > 0 && !empPrivs.includes("PRICE_OVERRIDE_ITEM") && !empPrivs.includes("modify_price") && !empPrivs.includes("admin_access")) {
+        return res.status(403).json({ message: "Employee does not have permission to override prices" });
+      }
+
+      if (empRoleRules && priceDropAmt > 0) {
+        const maxPct = empRoleRules.maxPriceOverridePctDown || 0;
+        const maxAmt = parseFloat(empRoleRules.maxPriceOverrideAmtDown as string || "0");
+        const exceedsLimit = (maxPct > 0 && priceDropPct > maxPct) || (maxAmt > 0 && priceDropAmt > maxAmt);
+        if (exceedsLimit && !empPrivs.includes("admin_access")) {
+          if (!managerPin) {
+            return res.status(403).json({
+              message: `Price override exceeds role limit (max ${maxPct}% / $${maxAmt} down). Manager approval required.`,
+              requiresManagerApproval: true,
+              priceDropAmt: priceDropAmt.toFixed(2),
+              priceDropPct: Math.round(priceDropPct),
+              maxPct,
+              maxAmt,
+            });
+          }
+        }
+      }
 
       // Calculate new taxable amount and tax based on the new price
-      // Use the stored tax rate from ring-in time (if available)
       const modifierTotal = (item.modifiers || []).reduce(
         (sum: number, mod: any) => sum + parseFloat(mod.priceDelta || "0"),
         0
       );
       const newTaxableAmount = (newPrice + modifierTotal) * (item.quantity || 1);
       
-      // Recalculate tax using stored rate or fetch from tax group
       let newTaxAmount = "0.00";
       const taxRate = parseFloat(item.taxRateAtSale || "0");
       if (taxRate > 0) {
@@ -6616,8 +6763,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         if (taxMode === "add_on") {
           newTaxAmount = (newTaxableAmount * taxRate).toFixed(2);
         } else {
-          // Inclusive: tax is embedded in price
           newTaxAmount = (newTaxableAmount - (newTaxableAmount / (1 + taxRate))).toFixed(2);
+        }
+      }
+
+      // If the item has an existing discount, recalculate it based on the new price
+      let updatedDiscountFields: Record<string, any> = {};
+      if (item.discountId && item.discountAmount) {
+        const discount = await storage.getDiscount(item.discountId);
+        if (discount) {
+          let newDiscountAmount: number;
+          if (discount.type === "percent") {
+            newDiscountAmount = newTaxableAmount * (parseFloat(discount.value) / 100);
+          } else {
+            newDiscountAmount = parseFloat(discount.value);
+          }
+          newDiscountAmount = Math.min(newDiscountAmount, newTaxableAmount);
+          newDiscountAmount = Math.max(newDiscountAmount, 0);
+          newDiscountAmount = Math.round(newDiscountAmount * 100) / 100;
+          updatedDiscountFields = { discountAmount: newDiscountAmount.toFixed(2) };
         }
       }
 
@@ -6626,6 +6790,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         unitPrice: newPrice.toFixed(2),
         taxableAmount: newTaxableAmount.toFixed(2),
         taxAmount: newTaxAmount,
+        ...updatedDiscountFields,
       });
 
       // Recalculate check totals

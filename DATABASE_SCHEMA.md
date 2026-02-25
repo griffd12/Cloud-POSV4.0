@@ -184,6 +184,33 @@ Junction table linking roles to their assigned privileges.
 
 ---
 
+### `role_rules`
+
+Per-role threshold and limit rules for pricing, discounts, price overrides, and time windows. Part of the auditor's Role Option Matrix specification.
+
+| Column | Data Type | Nullable | Default |
+|--------|-----------|----------|---------|
+| id | varchar (UUID) | NO | `gen_random_uuid()` |
+| role_id | varchar | NO | — |
+| enterprise_id | varchar | NO | — |
+| max_item_discount_pct | integer | YES | `0` |
+| max_check_discount_pct | integer | YES | `0` |
+| max_item_discount_amt | numeric | YES | `0` |
+| max_check_discount_amt | numeric | YES | `0` |
+| max_price_override_pct_down | integer | YES | `0` |
+| max_price_override_amt_down | numeric | YES | `0` |
+| reopen_window_minutes | integer | YES | `0` |
+| edit_closed_window_minutes | integer | YES | `0` |
+| refund_window_minutes | integer | YES | `0` |
+| bypass_windows_allowed | boolean | YES | `false` |
+
+- **Primary Key:** `id`
+- **Foreign Keys:**
+  - `role_id` → `roles.id`
+- **Unique Constraints:** `(role_id, enterprise_id)`
+
+---
+
 ### `job_codes`
 
 Job classifications for employees (e.g., Server, Cook, Manager) with pay and tip configuration.

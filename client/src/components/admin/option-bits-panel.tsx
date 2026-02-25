@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -9,7 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Settings2, RotateCcw, Plus } from "lucide-react";
+import { getConfigHelp } from "@/lib/config-help-registry";
 
 interface OptionFlag {
   id: string;
@@ -47,6 +49,20 @@ const SCOPE_LABELS: Record<string, string> = {
 };
 
 const SCOPE_ORDER = ["enterprise", "property", "rvc", "workstation"];
+
+const CATEGORY_DISPLAY_LABELS: Record<string, string> = {
+  pricing_flags: "Pricing",
+  check_ops_flags: "Check Operations",
+  tender_flags: "Refunds & Tenders",
+  admin_flags: "Admin / Danger Zone",
+};
+
+const CATEGORY_DISPLAY_ORDER = [
+  "pricing_flags",
+  "check_ops_flags",
+  "tender_flags",
+  "admin_flags",
+];
 
 export function OptionBitsPanel({
   entityType,
@@ -134,6 +150,34 @@ export function OptionBitsPanel({
 
   const optionKeys = Object.keys(groupedByKey).sort();
 
+  const categorizedGroups = useMemo(() => {
+    const groups: Record<string, string[]> = {};
+    const uncategorized: string[] = [];
+
+    for (const key of optionKeys) {
+      const help = getConfigHelp(key);
+      const category = help?.category;
+      if (category && CATEGORY_DISPLAY_LABELS[category]) {
+        if (!groups[category]) groups[category] = [];
+        groups[category].push(key);
+      } else {
+        uncategorized.push(key);
+      }
+    }
+
+    const ordered: { categoryKey: string; label: string; keys: string[] }[] = [];
+    for (const cat of CATEGORY_DISPLAY_ORDER) {
+      if (groups[cat] && groups[cat].length > 0) {
+        ordered.push({ categoryKey: cat, label: CATEGORY_DISPLAY_LABELS[cat], keys: groups[cat] });
+      }
+    }
+    if (uncategorized.length > 0) {
+      ordered.push({ categoryKey: "custom_other", label: "Custom / Other", keys: uncategorized });
+    }
+
+    return ordered;
+  }, [optionKeys]);
+
   function getEffectiveValue(key: string): { value: string | null; scopeLevel: string; isOverride: boolean } {
     const keyFlags = groupedByKey[key] || [];
     let best: OptionFlag | null = null;
@@ -198,6 +242,67 @@ export function OptionBitsPanel({
     setNewValue("");
   }
 
+  function renderFlagRow(key: string) {
+    const effective = getEffectiveValue(key);
+    const isOverride = hasOverrideAtCurrentScope(key);
+    const isBool = effective.value === "true" || effective.value === "false";
+    const help = getConfigHelp(key);
+
+    return (
+      <div
+        key={key}
+        className="flex items-center justify-between gap-3 p-2 rounded-md border bg-card"
+        data-testid={`option-flag-${key}`}
+      >
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium truncate" title={help?.description}>
+              {help?.label || key}
+            </span>
+            {isOverride ? (
+              <Badge variant="default" className="text-xs shrink-0">Override</Badge>
+            ) : (
+              <Badge variant="secondary" className="text-xs shrink-0">
+                Inherited ({SCOPE_LABELS[effective.scopeLevel] || effective.scopeLevel})
+              </Badge>
+            )}
+          </div>
+          {help?.description && (
+            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{help.description}</p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {isBool ? (
+            <Switch
+              checked={effective.value === "true"}
+              onCheckedChange={() => handleToggle(key, effective.value)}
+              data-testid={`toggle-${key}`}
+            />
+          ) : (
+            <Input
+              className="w-32 text-xs"
+              value={effective.value || ""}
+              onChange={(e) => handleSetValue(key, e.target.value)}
+              data-testid={`input-${key}`}
+            />
+          )}
+
+          {isOverride && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleReset(key)}
+              data-testid={`reset-${key}`}
+            >
+              <RotateCcw className="w-3 h-3" />
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (!entityId) {
     return null;
   }
@@ -218,72 +323,36 @@ export function OptionBitsPanel({
           <div className="text-sm text-muted-foreground">Loading...</div>
         ) : optionKeys.length === 0 ? (
           <div className="text-sm text-muted-foreground">No option flags configured</div>
+        ) : categorizedGroups.length > 0 ? (
+          <Accordion type="multiple" defaultValue={categorizedGroups.map(g => g.categoryKey)} className="space-y-1">
+            {categorizedGroups.map((group) => (
+              <AccordionItem key={group.categoryKey} value={group.categoryKey} data-testid={`category-${group.categoryKey}`}>
+                <AccordionTrigger className="text-sm py-2" data-testid={`category-trigger-${group.categoryKey}`}>
+                  <span className="flex items-center gap-2">
+                    {group.label}
+                    <Badge variant="secondary" className="text-xs">{group.keys.length}</Badge>
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-2 pt-1">
+                    {group.keys.map((key) => renderFlagRow(key))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
         ) : (
           <div className="space-y-2">
-            {optionKeys.map((key) => {
-              const effective = getEffectiveValue(key);
-              const isOverride = hasOverrideAtCurrentScope(key);
-              const isBool = effective.value === "true" || effective.value === "false";
-
-              return (
-                <div
-                  key={key}
-                  className="flex items-center justify-between gap-3 p-2 rounded-md border bg-card"
-                  data-testid={`option-flag-${key}`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium truncate">{key}</span>
-                      {isOverride ? (
-                        <Badge variant="default" className="text-xs shrink-0">Override</Badge>
-                      ) : (
-                        <Badge variant="secondary" className="text-xs shrink-0">
-                          Inherited ({SCOPE_LABELS[effective.scopeLevel] || effective.scopeLevel})
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    {isBool ? (
-                      <Switch
-                        checked={effective.value === "true"}
-                        onCheckedChange={() => handleToggle(key, effective.value)}
-                        data-testid={`toggle-${key}`}
-                      />
-                    ) : (
-                      <Input
-                        className="w-32 h-7 text-xs"
-                        value={effective.value || ""}
-                        onChange={(e) => handleSetValue(key, e.target.value)}
-                        data-testid={`input-${key}`}
-                      />
-                    )}
-
-                    {isOverride && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleReset(key)}
-                        className="h-7 px-2"
-                        data-testid={`reset-${key}`}
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {optionKeys.map((key) => renderFlagRow(key))}
           </div>
         )}
 
         <div className="border-t pt-3 mt-3">
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 flex-wrap">
             <div className="flex-1">
               <Label className="text-xs">New Option Key</Label>
               <Input
-                className="h-8 text-sm"
+                className="text-sm"
                 placeholder="e.g. popDrawer"
                 value={newKey}
                 onChange={(e) => setNewKey(e.target.value)}
@@ -293,7 +362,7 @@ export function OptionBitsPanel({
             <div className="w-24">
               <Label className="text-xs">Type</Label>
               <Select value={newValueType} onValueChange={(v: "text" | "bool") => setNewValueType(v)}>
-                <SelectTrigger className="h-8 text-xs" data-testid="select-new-option-type">
+                <SelectTrigger className="text-xs" data-testid="select-new-option-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -306,7 +375,7 @@ export function OptionBitsPanel({
               <div className="w-32">
                 <Label className="text-xs">Value</Label>
                 <Input
-                  className="h-8 text-sm"
+                  className="text-sm"
                   placeholder="value"
                   value={newValue}
                   onChange={(e) => setNewValue(e.target.value)}
@@ -319,7 +388,6 @@ export function OptionBitsPanel({
               size="sm"
               onClick={handleAddNew}
               disabled={!newKey.trim()}
-              className="h-8"
               data-testid="button-add-option"
             >
               <Plus className="w-3 h-3 mr-1" />

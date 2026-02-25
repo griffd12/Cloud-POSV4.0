@@ -273,6 +273,165 @@ const configHelpRegistry: Record<string, ConfigHelpEntry> = {
     description: "When enabled, this tender is treated as a gift card for reporting and liability tracking. Gift media tenders are separated in gift card liability reports and redemption summaries. Enable this for gift cards, store credit, and similar prepaid instruments.",
     category: "Tender Media Classification",
   },
+
+  APPLY_ITEM_DISCOUNT: {
+    label: "Apply Item Discount",
+    description: "When enabled, the role can apply a discount to an individual menu item on a check. The discount may be a percentage or flat amount, subject to the role's configured maximum discount limits.",
+    category: "pricing_flags",
+  },
+  APPLY_CHECK_DISCOUNT: {
+    label: "Apply Check Discount",
+    description: "When enabled, the role can apply a discount to the entire check (all items). The discount may be a percentage or flat amount, subject to the role's configured maximum check-level discount limits.",
+    category: "pricing_flags",
+  },
+  REMOVE_DISCOUNT: {
+    label: "Remove Discount",
+    description: "When enabled, the role can remove a previously applied discount from an item or check. Without this permission, discounts once applied can only be removed by a manager or higher-privilege role.",
+    category: "pricing_flags",
+  },
+  PRICE_OVERRIDE_ITEM: {
+    label: "Price Override Item",
+    description: "When enabled, the role can manually change the price of a standard menu item. The override is subject to the role's maximum price override percentage and amount limits.",
+    category: "pricing_flags",
+  },
+  PRICE_OVERRIDE_OPEN_ITEM: {
+    label: "Price Override Open Item",
+    description: "When enabled, the role can set or change the price of an open-priced (market price) item. Open items require a price to be entered at the time of order.",
+    category: "pricing_flags",
+  },
+  OVERRIDE_BELOW_FLOOR: {
+    label: "Override Below Floor Price",
+    description: "When enabled, the role can override an item's price below its configured floor price. Floor prices represent the minimum acceptable selling price. This is a high-risk permission typically reserved for managers.",
+    category: "pricing_flags",
+  },
+  REQUIRE_REASON_DISCOUNT: {
+    label: "Require Reason for Discount",
+    description: "When enabled, the role must provide a reason code when applying any discount. The reason is logged for audit and reporting purposes. This helps track why discounts are being given.",
+    category: "pricing_flags",
+  },
+  REQUIRE_REASON_OVERRIDE: {
+    label: "Require Reason for Price Override",
+    description: "When enabled, the role must provide a reason code when performing a price override. The reason is logged for audit and reporting purposes. This helps track why prices are being changed.",
+    category: "pricing_flags",
+  },
+  REQUIRE_MGR_DISCOUNT_ABOVE_LIMIT: {
+    label: "Require Manager Approval for Discount Above Limit",
+    description: "When enabled, discounts that exceed the role's configured maximum discount limit require manager approval before they can be applied. The manager must authenticate to authorize the discount.",
+    category: "pricing_flags",
+  },
+  REQUIRE_MGR_OVERRIDE_ABOVE_LIMIT: {
+    label: "Require Manager Approval for Override Above Limit",
+    description: "When enabled, price overrides that exceed the role's configured maximum override limit require manager approval before they can be applied. The manager must authenticate to authorize the override.",
+    category: "pricing_flags",
+  },
+
+  APPLY_SERVICE_CHARGE: {
+    label: "Apply Service Charge",
+    description: "When enabled, the role can manually apply a service charge (auto-gratuity, delivery fee, etc.) to a check. Service charges are separate from tips and are typically mandatory.",
+    category: "check_ops_flags",
+  },
+  REMOVE_SERVICE_CHARGE: {
+    label: "Remove Service Charge",
+    description: "When enabled, the role can remove a previously applied service charge from a check. Without this permission, service charges once applied cannot be removed by this role.",
+    category: "check_ops_flags",
+  },
+  OVERRIDE_SERVICE_CHARGE: {
+    label: "Override Service Charge Amount",
+    description: "When enabled, the role can change the amount of a service charge from its default configured value. This allows adjusting auto-gratuity percentages or flat service charge amounts on a per-check basis.",
+    category: "check_ops_flags",
+  },
+  REQUIRE_REASON_SC: {
+    label: "Require Reason for Service Charge Change",
+    description: "When enabled, the role must provide a reason code when removing or overriding a service charge. The reason is logged for audit and reporting purposes.",
+    category: "check_ops_flags",
+  },
+  SPLIT_CHECK: {
+    label: "Split Check",
+    description: "When enabled, the role can split a single check into multiple checks, dividing items or amounts among different guests or payment methods.",
+    category: "check_ops_flags",
+  },
+  MERGE_CHECK: {
+    label: "Merge Checks",
+    description: "When enabled, the role can merge two or more open checks into a single check. All items from the source checks are combined into the destination check.",
+    category: "check_ops_flags",
+  },
+  TRANSFER_CHECK: {
+    label: "Transfer Check",
+    description: "When enabled, the role can transfer an open check from one server/employee to another. The check moves to the new server's open check list.",
+    category: "check_ops_flags",
+  },
+  MOVE_ITEMS_BETWEEN_CHECKS: {
+    label: "Move Items Between Checks",
+    description: "When enabled, the role can move individual items from one open check to another. This is useful for correcting order mistakes or accommodating guest requests to separate items.",
+    category: "check_ops_flags",
+  },
+  VOID_ITEM_PREPAY: {
+    label: "Void Item Before Payment",
+    description: "When enabled, the role can void (remove) items from an open check before any payment has been applied. Voided items are removed from the check total.",
+    category: "check_ops_flags",
+  },
+  VOID_CHECK_PREPAY: {
+    label: "Void Entire Check Before Payment",
+    description: "When enabled, the role can void an entire open check before any payment has been applied. All items are removed and the check is cancelled.",
+    category: "check_ops_flags",
+  },
+
+  REOPEN_CLOSED_UNPAID: {
+    label: "Reopen Closed Unpaid Check",
+    description: "When enabled, the role can reopen a check that was closed without payment. Subject to the role's configured reopen window (in minutes). After the window expires, reopening requires a higher-privilege role.",
+    category: "tender_flags",
+  },
+  EDIT_CLOSED_UNPAID: {
+    label: "Edit Closed Unpaid Check",
+    description: "When enabled, the role can edit items on a check that was closed without payment. Subject to the role's configured edit closed window (in minutes). Allows adding or removing items after closure.",
+    category: "tender_flags",
+  },
+  REFUND_ITEM: {
+    label: "Refund Individual Item",
+    description: "When enabled, the role can issue a refund for a specific item on a paid check. The refund amount equals the item's price including any applicable taxes. Subject to the role's refund window.",
+    category: "tender_flags",
+  },
+  REFUND_FULL: {
+    label: "Refund Full Check",
+    description: "When enabled, the role can issue a full refund for an entire paid check. All items and taxes are refunded. Subject to the role's configured refund window (in minutes).",
+    category: "tender_flags",
+  },
+  REFUND_ORIGINAL_TENDER_ONLY: {
+    label: "Refund to Original Tender Only",
+    description: "When enabled, refunds issued by this role must go back to the original payment method used. For example, a card payment can only be refunded to the same card. This prevents cash refunds on card transactions.",
+    category: "tender_flags",
+  },
+  REFUND_ALTERNATE_TENDER: {
+    label: "Refund to Alternate Tender",
+    description: "When enabled, the role can issue refunds to a different payment method than what was originally used. For example, refunding a card transaction as cash. This is a higher-risk permission.",
+    category: "tender_flags",
+  },
+  CASH_REFUND_FOR_CARD_SALE: {
+    label: "Cash Refund for Card Sale",
+    description: "When enabled, the role can issue a cash refund for a transaction that was originally paid by credit or debit card. This is a high-risk permission as it can be used for fraud. Typically restricted to managers.",
+    category: "tender_flags",
+  },
+  NO_RECEIPT_REFUND: {
+    label: "No-Receipt Refund",
+    description: "When enabled, the role can process a refund without a receipt or original transaction reference. This is a high-risk permission as refunds cannot be verified against original transactions. Typically restricted to managers.",
+    category: "tender_flags",
+  },
+
+  REOPEN_PAID_CHECK: {
+    label: "Reopen Paid Check",
+    description: "When enabled, the role can reopen a check that has already been paid and closed. This reverses the payment and returns the check to an open state. This is a high-risk operation that affects cash reconciliation and card settlements.",
+    category: "admin_flags",
+  },
+  EDIT_PAID_CHECK: {
+    label: "Edit Paid Check",
+    description: "When enabled, the role can modify items on a check that has already been paid. Changes may trigger refunds or additional charges. This is a high-risk operation typically restricted to managers and above.",
+    category: "admin_flags",
+  },
+  BYPASS_WINDOWS: {
+    label: "Bypass Time Windows",
+    description: "When enabled, the role can bypass all configured time windows (reopen window, edit closed window, refund window). Operations that would normally be blocked after the time window expires are allowed regardless of timing.",
+    category: "admin_flags",
+  },
 };
 
 export function getConfigHelp(fieldName: string): ConfigHelpEntry | undefined {
