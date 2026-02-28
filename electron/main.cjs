@@ -2530,19 +2530,20 @@ async function initAllServices() {
     setupAutoLaunch(true);
   }
 
-  syncInterval = setInterval(() => {
-    checkConnectivity();
-    if (connectionMode !== 'green' && syncInterval) {
-      clearInterval(syncInterval);
-      syncInterval = setInterval(() => {
-        checkConnectivity();
-        if (connectionMode === 'green' && syncInterval) {
-          clearInterval(syncInterval);
-          syncInterval = setInterval(() => checkConnectivity(), 30000);
-        }
-      }, 15000);
-    }
-  }, 30000);
+  let lastConnectivityMode = 'green';
+  function scheduleConnectivityCheck() {
+    if (syncInterval) clearInterval(syncInterval);
+    const interval = lastConnectivityMode === 'green' ? 30000 : 15000;
+    syncInterval = setInterval(() => {
+      checkConnectivity();
+      const currentMode = connectionMode || 'green';
+      if (currentMode !== lastConnectivityMode) {
+        lastConnectivityMode = currentMode;
+        scheduleConnectivityCheck();
+      }
+    }, interval);
+  }
+  scheduleConnectivityCheck();
   checkConnectivity();
 
   syncTimer = setInterval(syncOfflineData, 60000);
