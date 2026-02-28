@@ -894,8 +894,36 @@ class OfflineApiInterceptor {
 
     const checkItemMatch = pathname.match(/^\/api\/check-items\/([a-f0-9_-]+)$/);
     if (checkItemMatch) {
+      const itemId = checkItemMatch[1];
+      const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+      for (const c of checks) {
+        if (c.items && c.items.some(i => i.id === itemId)) {
+          c.items = c.items.filter(i => i.id !== itemId);
+          let subtotal = 0;
+          c.items.forEach(i => {
+            subtotal += parseFloat(i.totalPrice || i.unitPrice || 0) * (i.quantity || 1);
+          });
+          c.subtotal = subtotal.toFixed(2);
+          let taxTotal = 0;
+          try {
+            const taxRates = this.db.getEntityList('tax_rates', null);
+            if (taxRates && taxRates.length > 0) {
+              const defaultRate = taxRates.find(t => t.isDefault) || taxRates[0];
+              if (defaultRate && defaultRate.rate) {
+                taxTotal = subtotal * (parseFloat(defaultRate.rate) / 100);
+              }
+            }
+          } catch (e) {}
+          c.taxTotal = taxTotal.toFixed(2);
+          const discountTotal = parseFloat(c.discountTotal) || 0;
+          c.total = Math.max(0, subtotal - discountTotal + taxTotal).toFixed(2);
+          c.updatedAt = new Date().toISOString();
+          this.db.saveOfflineCheck(c);
+          break;
+        }
+      }
       this.db.queueOperation('delete_check_item', pathname, 'DELETE', null, 3);
-      return { status: 200, data: { message: 'Item removal queued for sync', offline: true } };
+      return { status: 200, data: { message: 'Item removed (offline)', offline: true } };
     }
 
     this.db.queueOperation('offline_delete', pathname, 'DELETE', null, 5);
