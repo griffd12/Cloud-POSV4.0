@@ -45,6 +45,23 @@ try {
     // Strip shebang lines — they cause SyntaxError inside Electron's asar archive
     content = content.replace(/^#!.*\r?\n/gm, '');
     console.log('[build-service-host] Stripped shebang lines from bundle');
+
+    // Fix ESM→CJS __dirname shim: esbuild replaces import.meta.url with __filename,
+    // but fileURLToPath(__filename) throws ERR_INVALID_URL_SCHEME because __filename
+    // is already a plain path, not a file:// URL. Replace with direct path usage.
+    let fixCount = 0;
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('fileURLToPath') && lines[i].includes('__filename')) {
+        lines[i] = lines[i]
+          .replace(/[a-zA-Z_$][\w$]*\.default\.dirname\(\(0, [a-zA-Z_$][\w$]*\.fileURLToPath\)\(__filename\)\)/g, '__dirname')
+          .replace(/\(0, [a-zA-Z_$][\w$]*\.fileURLToPath\)\(__filename\)/g, '__filename');
+        fixCount++;
+      }
+    }
+    content = lines.join('\n');
+    console.log(`[build-service-host] Fixed fileURLToPath(__filename) patterns: ${fixCount} lines`);
+
     const envBootstrap = `
 // Embedded service-host bootstrap: read config from environment variables
 if (process.env.SERVICE_HOST_PORT) {
