@@ -82,6 +82,24 @@ No new EMC configuration required. The existing CAPS workstation designation (Pr
 
 ---
 
+## POS UI Fixes
+
+### COM Panel on Custom POS Layouts
+- The Conversational Ordering Module (COM / Menu Build) panel now renders correctly on **both** custom grid layouts and standard SLU layouts
+- Previously, tapping a menu-build-enabled item on a custom grid layout did nothing — the COM panel was only wired to the standard SLU branch
+- Pizza Builder navigation also verified working from both layout modes
+
+### EMC Menu Build Multi-Select
+- The "Add Ingredient from Modifiers" UI in the Menu Items EMC form now uses **multi-select checkboxes** instead of a single-select dropdown
+- Modifiers are grouped by their modifier group (e.g., "Ice Cream Flavor", "Toppings", "Drizzles") with section headers
+- Check/uncheck multiple ingredients at once — no more picking one at a time
+
+### CI/CD Fix
+- GitHub Actions workflow updated to use the built-in `GITHUB_TOKEN` instead of a personal access token for the release step
+- Eliminates "Bad credentials" failures when the personal token expires
+
+---
+
 ## Known Limitations
 
 - Service-host embedded bundle requires `better-sqlite3` native module (already included in Electron build)
