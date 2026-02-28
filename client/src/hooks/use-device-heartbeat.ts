@@ -13,13 +13,17 @@ export function useDeviceHeartbeat(enabled: boolean = true) {
         return;
       }
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
       await fetch("/api/registered-devices/heartbeat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...headers,
         },
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
     } catch (error) {
       console.debug("Heartbeat failed:", error);
     }

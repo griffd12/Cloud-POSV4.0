@@ -1,4 +1,4 @@
-# Cloud POS System — V3.1
+# Cloud POS System — V3.1.5
 
 ## Overview
 This project is an enterprise cloud-based Point of Sale (POS) system for Quick Service Restaurants (QSRs) in high-volume environments. It provides a scalable solution with extensive administrative configuration and real-time operational features, supporting a multi-property hierarchy, KDS integration, and enterprise functionalities like fiscal close, cash management, gift cards, loyalty, inventory, forecasting, and online ordering integration. The system uses a Simphony-class design for configuration inheritance with override capabilities and offers an optional Central Application Processing Service (CAPS) for hybrid cloud/on-premise offline resilience. Its vision is to be a highly flexible and reliable POS system for various QSR operations, ensuring continuous service even offline, and supporting both web and native applications (Android & Windows).
@@ -79,3 +79,11 @@ Preferred communication style: Simple, everyday language.
 - Shift4 (semi_integrated)
 - FreedomPay (semi_integrated)
 - Eigen (semi_integrated)
+
+### Offline Mode (v3.1.5)
+- Offline login returns `salariedBypass: true` to bypass clock-in gate (labor rules can't be enforced offline)
+- Frontend detects `offlineAuth` flag and fast-paths directly to POS screen
+- CAPS failover timeout: 3 seconds (was 10s)
+- `Promise.race` backup on `electronNet.fetch` in case `AbortSignal.timeout` is ignored
+- All frontend raw `fetch()` calls have 5-second AbortController timeouts
+- Offline handlers exist for: auth/login, time-punches/status, employees/job-codes, heartbeat, checks, payments, workstation context, break-rules, health

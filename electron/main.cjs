@@ -2364,7 +2364,7 @@ function registerProtocolInterceptor() {
             method: request.method,
             headers: capsHeaders,
             body: request.method !== 'GET' && request.method !== 'HEAD' ? await request.arrayBuffer() : undefined,
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(3000),
           });
           return new Response(capsResponse.body, {
             status: capsResponse.status,
@@ -2404,7 +2404,10 @@ function registerProtocolInterceptor() {
         setTimeout(() => ac.abort(), 8000);
         fetchSignal = ac.signal;
       }
-      const response = await electronNet.fetch(request, { bypassCustomProtocolHandlers: true, signal: fetchSignal });
+      const response = await Promise.race([
+        electronNet.fetch(request, { bypassCustomProtocolHandlers: true, signal: fetchSignal }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Protocol fetch timeout (8s)')), 8500)),
+      ]);
 
       if (response.ok && request.method === 'GET' && !isApiRequest) {
         const cloned = response.clone();
@@ -2448,7 +2451,7 @@ function registerProtocolInterceptor() {
               method: request.method,
               headers: capsHeaders,
               body: capsBody,
-              signal: AbortSignal.timeout(10000),
+              signal: AbortSignal.timeout(3000),
             });
             setConnectionMode('yellow');
             if (offlineInterceptor) offlineInterceptor.setConnectionMode('yellow');

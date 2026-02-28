@@ -799,9 +799,10 @@ class OfflineApiInterceptor {
                   'fast_transaction', 'send_to_kitchen', 'void_unsent', 'void_sent',
                   'apply_discount', 'admin_access', 'kds_access', 'manager_approval'
                 ],
-          salariedBypass: false,
+          salariedBypass: true,
           bypassJobCode: null,
           device: null,
+          offlineAuth: true,
         },
       };
     }
