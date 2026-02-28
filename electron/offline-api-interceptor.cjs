@@ -95,6 +95,7 @@ class OfflineApiInterceptor {
         /^\/api\/employees\/[^/]+\/job-codes\/details/,
         /^\/api\/system-status/,
         /^\/api\/option-flags/,
+        /^\/api\/client-ip/,
       ];
       return readEndpoints.some(re => re.test(pathname));
     }
@@ -105,6 +106,8 @@ class OfflineApiInterceptor {
         /^\/api\/auth\/pin/,
         /^\/api\/checks/,
         /^\/api\/check-items/,
+        /^\/api\/check-payments/,
+        /^\/api\/check-service-charges/,
         /^\/api\/payments/,
         /^\/api\/time-punches/,
         /^\/api\/time-clock/,
@@ -115,6 +118,9 @@ class OfflineApiInterceptor {
         /^\/api\/registered-devices\/heartbeat/,
         /^\/api\/gift-cards/,
         /^\/api\/loyalty/,
+        /^\/api\/cash-drawer-kick/,
+        /^\/api\/pos\//,
+        /^\/api\/terminal-sessions/,
       ];
       return writeEndpoints.some(re => re.test(pathname));
     }
@@ -123,6 +129,7 @@ class OfflineApiInterceptor {
       const deleteEndpoints = [
         /^\/api\/checks\/[^/]+$/,
         /^\/api\/check-items\/[^/]+$/,
+        /^\/api\/pos\/checks\/[^/]+\/customer$/,
       ];
       return deleteEndpoints.some(re => re.test(pathname));
     }
@@ -443,6 +450,22 @@ class OfflineApiInterceptor {
       return { status: 200, data };
     }
 
+    if (pathname.match(/^\/api\/checks\/[^/]+\/service-charges/)) {
+      return { status: 200, data: [] };
+    }
+
+    if (pathname.match(/^\/api\/checks\/[^/]+\/payments/)) {
+      const payCheckMatch = pathname.match(/^\/api\/checks\/([^/]+)\/payments/);
+      if (payCheckMatch) {
+        const check = this.db.getOfflineCheck(payCheckMatch[1]);
+        return { status: 200, data: (check && check.payments) || [] };
+      }
+    }
+
+    if (pathname === '/api/client-ip') {
+      return { status: 200, data: { ip: '127.0.0.1', offline: true } };
+    }
+
     if (pathname.startsWith('/api/checks')) {
       const rvcId = query?.rvcId;
       const status = query?.status;
@@ -575,6 +598,31 @@ class OfflineApiInterceptor {
       return this.queueOfflinePrintJob(body);
     }
 
+    if (pathname === '/api/cash-drawer-kick' || pathname === '/api/cash-drawer-kick/') {
+      return { status: 200, data: { success: true, offline: true, message: 'Cash drawer kick queued (offline)' } };
+    }
+
+    if (pathname.match(/^\/api\/pos\/capture-with-tip/)) {
+      return { status: 200, data: { success: true, offline: true, message: 'Tip capture queued for sync' } };
+    }
+
+    if (pathname.match(/^\/api\/pos\/loyalty\/earn/)) {
+      return { status: 503, data: { error: 'Loyalty features require a cloud connection', offline: true } };
+    }
+
+    if (pathname.match(/^\/api\/pos\/record-external-payment/)) {
+      this.db.queueOperation('external_payment', pathname, 'POST', body, 1);
+      return { status: 202, data: { success: true, offline: true, message: 'External payment queued for sync' } };
+    }
+
+    if (pathname.match(/^\/api\/pos\/process-card-payment/) || pathname.match(/^\/api\/stripe/) || pathname.match(/^\/api\/terminal-sessions/)) {
+      return { status: 503, data: { error: 'Card payment processing requires a cloud connection', offline: true } };
+    }
+
+    if (pathname.match(/^\/api\/checks\/merge/)) {
+      return { status: 503, data: { error: 'Check merge requires a cloud connection', offline: true } };
+    }
+
     this.db.queueOperation('offline_post', pathname, 'POST', body, 5);
     return { status: 202, data: { message: 'Queued for sync', offline: true } };
   }
@@ -583,6 +631,16 @@ class OfflineApiInterceptor {
     const checkMatch = pathname.match(/^\/api\/checks\/([a-f0-9-]+)$/);
     if (checkMatch) {
       return this.updateOfflineCheck(checkMatch[1], body);
+    }
+
+    if (pathname.match(/^\/api\/check-payments\/[^/]+\/void/)) {
+      this.db.queueOperation('void_payment', pathname, 'PATCH', body, 1);
+      return { status: 200, data: { success: true, offline: true, message: 'Payment void queued for sync' } };
+    }
+
+    if (pathname.match(/^\/api\/check-service-charges\/[^/]+\/void/)) {
+      this.db.queueOperation('void_service_charge', pathname, 'POST', body, 2);
+      return { status: 200, data: { success: true, offline: true, message: 'Service charge void queued for sync' } };
     }
 
     this.db.queueOperation('offline_update', pathname, 'PATCH', body, 5);
@@ -925,6 +983,21 @@ class OfflineApiInterceptor {
       }
       this.db.queueOperation('delete_check_item', pathname, 'DELETE', null, 3);
       return { status: 200, data: { message: 'Item removed (offline)', offline: true } };
+    }
+
+    if (pathname.match(/^\/api\/pos\/checks\/[^/]+\/customer$/)) {
+      const custCheckMatch = pathname.match(/^\/api\/pos\/checks\/([^/]+)\/customer$/);
+      if (custCheckMatch) {
+        const checkId = custCheckMatch[1];
+        const check = this.db.getOfflineCheck(checkId);
+        if (check) {
+          check.customerId = null;
+          check.updatedAt = new Date().toISOString();
+          this.db.saveOfflineCheck(check);
+        }
+        this.db.queueOperation('remove_customer', pathname, 'DELETE', null, 3);
+        return { status: 200, data: { success: true, offline: true } };
+      }
     }
 
     this.db.queueOperation('offline_delete', pathname, 'DELETE', null, 5);
