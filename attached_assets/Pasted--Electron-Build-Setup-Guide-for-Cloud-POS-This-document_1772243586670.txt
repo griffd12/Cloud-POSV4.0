@@ -1,0 +1,306 @@
+# Electron Build Setup Guide for Cloud POS
+
+This document provides step-by-step instructions for setting up the GitHub repository connection, pushing project files, and configuring the automated Electron build workflow that produces a Windows installer (.exe).
+
+---
+
+## Overview
+
+The Electron build runs entirely on GitHub Actions using a `windows-latest` runner. The workflow:
+1. Checks out the code
+2. Installs dependencies (`npm ci`)
+3. Builds the web app (`npm run build`)
+4. Runs a prebuild cleanup script (`node electron/prebuild-cleanup.cjs`)
+5. Builds the Electron Windows installer via `electron-builder`
+6. Uploads the `.exe` installer, `.blockmap`, and `latest.yml` to a GitHub Release
+
+---
+
+## Step 1: Add a GitHub Remote
+
+The Replit project needs a git remote pointing to the new GitHub repository.
+
+```bash
+git remote add origin https://github.com/YOUR_USERNAME/YOUR_NEW_REPO.git
+```
+
+If the remote already exists but points to the wrong repo:
+```bash
+git remote set-url origin https://github.com/YOUR_USERNAME/YOUR_NEW_REPO.git
+```
+
+To verify:
+```bash
+git remote -v
+```
+You should see `origin` pointing to `https://github.com/YOUR_USERNAME/YOUR_NEW_REPO.git`.
+
+---
+
+## Step 2: Configure Authentication for Pushing
+
+To push from Replit to GitHub, the remote URL must include the token for authentication:
+
+```bash
+git remote set-url origin https://YOUR_GH_TOKEN@github.com/YOUR_USERNAME/YOUR_NEW_REPO.git
+```
+
+Replace `YOUR_GH_TOKEN` with the actual GitHub Personal Access Token value. The token needs these permissions:
+- `repo` (full control of private repositories) — or at minimum `contents: write`
+- `workflow` (if you need to push workflow files)
+
+The `GH_TOKEN` is available as a Replit environment secret. You can retrieve its value using `process.env.GH_TOKEN` or `$GH_TOKEN` in shell commands.
+
+---
+
+## Step 3: Push All Files to GitHub
+
+```bash
+git add -A
+git commit -m "Initial commit for Electron build"
+git branch -M main
+git push -u origin main
+```
+
+If the GitHub repo already has commits (e.g., a README created during repo setup), you may need to force push:
+```bash
+git push -u origin main --force
+```
+
+---
+
+## Step 4: Set Up `GH_TOKEN` as a GitHub Repository Secret
+
+This is required for the GitHub Actions workflow to work. Go to:
+
+1. Your GitHub repository page
+2. **Settings** tab
+3. Left sidebar: **Secrets and variables** → **Actions**
+4. Click **New repository secret**
+5. Name: `GH_TOKEN`
+6. Value: Your GitHub Personal Access Token (same one used above)
+7. Click **Add secret**
+
+The workflow references this secret as `${{ secrets.GH_TOKEN }}` in two places:
+- The `electron-builder` command (for downloading Electron binaries)
+- The `softprops/action-gh-release` upload step (for creating/updating the GitHub Release)
+
+---
+
+## Step 5: Ensure the Workflow File Exists
+
+The file must be at exactly this path: `.github/workflows/electron-build.yml`
+
+Here are the exact contents:
+
+```yaml
+name: Build Electron (Windows)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Run prebuild cleanup
+        run: node electron/prebuild-cleanup.cjs
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(node -e "console.log(require('./electron/electron-builder.json').extraMetadata.version)")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version $VERSION"
+
+      - name: Build Electron (Windows)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: npx electron-builder --config electron/electron-builder.json --win --publish never
+
+      - name: List build artifacts
+        shell: bash
+        run: ls -la electron-dist/
+
+      - name: Upload assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Cloud POS v${{ steps.version.outputs.version }}
+          body_path: electron/RELEASE_NOTES_v${{ steps.version.outputs.version }}.md
+          draft: false
+          prerelease: false
+          files: |
+            electron-dist/Cloud-POS-${{ steps.version.outputs.version }}-Setup.exe
+            electron-dist/Cloud-POS-${{ steps.version.outputs.version }}-Setup.exe.blockmap
+            electron-dist/latest.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+```
+
+---
+
+## Step 6: Update the `publish` Section in `electron/electron-builder.json`
+
+**IMPORTANT**: The `electron-builder.json` file contains a `publish` section that references a specific GitHub owner and repo. You MUST update this to match your new repository:
+
+```json
+"publish": [
+  {
+    "provider": "github",
+    "owner": "YOUR_GITHUB_USERNAME",
+    "repo": "YOUR_NEW_REPO_NAME",
+    "releaseType": "release"
+  }
+]
+```
+
+Replace `YOUR_GITHUB_USERNAME` and `YOUR_NEW_REPO_NAME` with the actual values for the new GitHub repository.
+
+---
+
+## Step 7: Version Management
+
+The application version is controlled in one place:
+
+**File**: `electron/electron-builder.json`
+**Field**: `extraMetadata.version`
+
+```json
+"extraMetadata": {
+  "main": "electron/main.cjs",
+  "version": "1.4.13"
+}
+```
+
+To release a new version:
+1. Change the `version` value (e.g., `"1.4.14"`)
+2. Create a matching release notes file (see Step 8)
+3. Commit and push the changes
+4. Trigger the build (see Step 9)
+
+---
+
+## Step 8: Release Notes
+
+For every version, create a release notes markdown file at:
+
+```
+electron/RELEASE_NOTES_v{version}.md
+```
+
+For example, version `1.4.13` requires `electron/RELEASE_NOTES_v1.4.13.md`.
+
+The workflow reads this file and uses it as the body of the GitHub Release. If the file is missing, the upload step will fail.
+
+---
+
+## Step 9: Triggering a Build
+
+There are two ways to trigger the Electron build:
+
+### Option A: Create a GitHub Release (Automatic Trigger)
+1. Go to your GitHub repository
+2. Click **Releases** → **Draft a new release**
+3. Set the tag to `v{version}` (e.g., `v1.4.13`) — must match the version in `electron-builder.json`
+4. Set the title (e.g., `Cloud POS v1.4.13`)
+5. Click **Publish release**
+6. The workflow fires automatically on the `release: published` event
+
+### Option B: Manual Trigger (workflow_dispatch)
+1. Go to your GitHub repository
+2. Click **Actions** tab
+3. Select **Build Electron (Windows)** from the left sidebar
+4. Click **Run workflow** → select branch (usually `main`) → **Run workflow**
+5. The workflow will create/update a release tagged with the version from `electron-builder.json`
+
+---
+
+## Step 10: Verify the Build
+
+After the workflow completes:
+1. Go to **Actions** tab in GitHub to check the workflow run status
+2. Go to **Releases** to find the published release
+3. The release should contain:
+   - `Cloud-POS-{version}-Setup.exe` — the Windows installer
+   - `Cloud-POS-{version}-Setup.exe.blockmap` — for delta updates
+   - `latest.yml` — for auto-update detection
+
+---
+
+## Troubleshooting
+
+### Push fails with authentication error
+Make sure the remote URL includes the token:
+```bash
+git remote set-url origin https://YOUR_GH_TOKEN@github.com/YOUR_USERNAME/YOUR_REPO.git
+```
+
+### Push fails with "refusing to allow" error
+The token may lack the `workflow` permission scope. GitHub requires this to push files under `.github/workflows/`. Generate a new token with the `workflow` scope.
+
+### Workflow fails at "Install dependencies"
+`npm ci` requires an exact `package-lock.json`. Make sure this file is committed and pushed. Do NOT `.gitignore` it.
+
+### Workflow fails at "Build Electron"
+- Check that `GH_TOKEN` is set as a repo secret (electron-builder uses it to download Electron binaries)
+- Check that `electron/electron-builder.json` is valid JSON
+
+### Workflow fails at "Upload assets to release"
+- The release notes file must exist: `electron/RELEASE_NOTES_v{version}.md`
+- The tag format must match: `v{version}` (e.g., `v1.4.13`)
+- The `GH_TOKEN` secret must have `contents: write` permission
+
+### Build succeeds but no .exe in release
+Check the "List build artifacts" step output. The artifact names must match the pattern `Cloud-POS-{version}-Setup.exe`. If the `productName` or `artifactName` in `electron-builder.json` was changed, update the workflow's `files:` section to match.
+
+---
+
+## Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `.github/workflows/electron-build.yml` | GitHub Actions workflow definition |
+| `electron/electron-builder.json` | Electron builder configuration (version, packaging, publish settings) |
+| `electron/main.cjs` | Electron main process entry point |
+| `electron/prebuild-cleanup.cjs` | Pre-build script that prepares files for packaging |
+| `electron/installer.nsh` | NSIS installer customization script |
+| `electron/RELEASE_NOTES_v{version}.md` | Release notes for each version |
+| `electron/assets/icon.png` | Application icon (PNG format) |
+| `electron/assets/icon.ico` | Application icon (ICO format for Windows) |
+
+---
+
+## Summary Checklist
+
+- [ ] GitHub remote added and pointing to the correct repo
+- [ ] Remote URL includes token for authentication (`https://TOKEN@github.com/...`)
+- [ ] `GH_TOKEN` added as a GitHub repository secret (Settings → Secrets → Actions)
+- [ ] `.github/workflows/electron-build.yml` exists and is committed
+- [ ] `publish.owner` and `publish.repo` in `electron/electron-builder.json` updated to match new repo
+- [ ] `extraMetadata.version` in `electron/electron-builder.json` set to desired version
+- [ ] `electron/RELEASE_NOTES_v{version}.md` created for the current version
+- [ ] `package-lock.json` committed (required by `npm ci`)
+- [ ] All files pushed to `main` branch
+- [ ] Build triggered via GitHub Release publish or manual workflow_dispatch
