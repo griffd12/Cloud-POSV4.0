@@ -1,10 +1,10 @@
 # Cloud POS Desktop v3.0.0
 
-## Release Date: February 24, 2026
+## Release Date: February 28, 2026
 
 ## Overview
 
-Version 3.0.0 is the first major release of Cloud POS V3 — a complete architectural transformation from a hardcoded POS system to a **fully configuration-driven platform** built on Simphony-class design principles. Every behavioral aspect of the POS — from cash drawer kicks to receipt printing to tip prompts — is now controlled through database configuration flags rather than hardcoded logic. This release also delivers full offline parity between the cloud PostgreSQL database and the on-premise SQLite databases used by the Electron desktop app, the CAPS service-host, and the service-host schema verification tooling.
+Version 3.0.0 is the first major release of Cloud POS V3 — a complete architectural transformation from a hardcoded POS system to a **fully configuration-driven platform** built on Simphony-class design principles. Every behavioral aspect of the POS — from cash drawer kicks to receipt printing to tip prompts — is now controlled through database configuration flags rather than hardcoded logic. This release also delivers full offline parity between the cloud PostgreSQL database and the on-premise SQLite databases, an immutable transaction journal with exactly-once cloud sync, config-driven financial rules, KDS offline operation, and property-level CAPS server designation.
 
 ---
 
@@ -49,23 +49,132 @@ Canonical reporting DAL queries, Z Reports, Cash Drawer Reports, and Cashier Rep
 
 ---
 
-## RVC Printing Configuration
+## Config-Driven Tax & Tender (CAPS Offline)
 
-Revenue Centers now support granular printing rules through five new columns:
+### Tax Calculation
+- `recalculateTotals()` now uses per-item `tax_group_id` to look up the correct tax rate and mode from the local SQLite `tax_groups` table
+- Supports both **add-on** (tax added on top of price) and **inclusive** (tax embedded in price) modes
+- Items without a `tax_group_id` are treated as tax-exempt ($0 tax)
+- No hardcoded tax rates anywhere in the system
 
-| Flag | Purpose |
-|------|---------|
-| `receipt_print_mode` | `auto_on_close`, `auto_on_payment`, or `manual_only` |
-| `receipt_copies` | Number of receipt copies to print |
-| `kitchen_print_mode` | Supports `manual_only` for KDS-only sites |
-| `void_receipt_print` | Toggle for automatic void slip printing |
-| `require_guest_count` | Require guest count entry when opening checks |
+### Tender Enforcement
+- `addPayment()` enforces tender behavior flags from the local database:
+  - `allow_tips=false` + tip > 0 → rejected
+  - `allow_over_tender=false` + payment exceeds balance → capped at remaining balance
+  - `allow_over_tender=true` + cash overpayment → `change_amount` calculated and returned
+  - `require_manager_approval=true` → requires `managerPin` parameter
+  - Returns `pop_drawer` and `print_check_on_payment` flags in response
+- `getTotalPayments()` uses `SUM(amount - change_amount)` for accurate net tendered calculation
+- Voided discounts and service charges filtered by `voided=0` in totals queries
+
+---
+
+## Immutable Transaction Journal
+
+A new `transaction_journal` table in the service-host SQLite database provides a complete, append-only audit trail for all CAPS and KDS mutations:
+
+### Schema
+| Column | Purpose |
+|--------|---------|
+| `event_id` | UUID primary key per individual event |
+| `txn_group_id` | UUID per check lifecycle (all events for one check share this) |
+| `device_id` | Workstation that generated the event |
+| `rvc_id` | Revenue Center context |
+| `business_date` | Business date for the event |
+| `check_id` | Associated check |
+| `event_type` | Type of mutation |
+| `payload_json` | Full event payload (immutable once written) |
+| `config_version` | Config version at time of event |
+| `sync_state` | pending / synced / failed |
+| `sync_attempts` | Number of sync attempts |
+
+### Journaled Events
+- **CAPS**: `check_opened`, `item_added`, `item_voided`, `round_sent`, `discount_applied`, `service_charge_applied`, `payment_added`, `check_closed`, `check_voided`, `check_reopened`
+- **KDS**: `kds_ticket_created`, `kds_ticket_completed`, `kds_item_recalled`
+
+### Integrity Rules
+- Append-only: INSERT only, never UPDATE payload or DELETE
+- Every financial and KDS mutation produces exactly one journal row
+- `txn_group_id` links all events in a check's lifecycle for audit tracing
+
+---
+
+## Exactly-Once Cloud Sync
+
+### Outbound (Service-Host → Cloud)
+- `syncJournalEntries()` reads pending entries via `getUnsyncedJournalEntries(limit)`
+- Sends batches to cloud: `POST /api/sync/transactions`
+- Cloud returns `{ processed, acknowledged: [event_ids], skipped: [event_ids] }`
+- Acknowledged entries marked as synced; skipped = already received (idempotent)
+- Failed entries increment `sync_attempts` for retry
+
+### Cloud Idempotency
+- Cloud endpoint checks for existing `localId + serviceHostId` combination before processing
+- Duplicate entries are skipped and reported in the `skipped` array
+- No double-counting of transactions regardless of network retries
+
+---
+
+## Offline Reporting
+
+New `GET /api/caps/reports/daily-summary` endpoint returns key metrics from local SQLite:
+- Net sales, tax total, discount total
+- Payments by tender media (cash/card/gift) via JOIN with tenders
+- Open/closed/voided check counts
+- Journal entry counts by event type and sync state
+- Works fully offline and persists across restarts
+
+---
+
+## LocalEffectiveConfig
+
+New `service-host/src/config/effective-config.ts` provides scope-based OptionBits resolution from local SQLite:
+- Constructor takes scope: `{ enterpriseId, propertyId?, rvcId?, workstationId? }` + `db`
+- Resolves with precedence: workstation(4) > rvc(3) > property(2) > enterprise(1)
+- Methods: `getBool()`, `getText()`, `getInt()`, `getAllForEntity()`
+
+---
+
+## Property-Level CAPS Server Designation
+
+CAPS server is now designated at the **Property level** instead of the separate "Service Hosts" EMC section:
+- New `caps_workstation_id` column on the `properties` table
+- **Property EMC Form**: Dropdown to select which workstation serves as the CAPS server
+- **Workstation List**: "CAPS" badge displayed on the designated workstation
+- **Activation Config**: `GET /api/workstations/:id/activation-config` resolves the CAPS workstation's IP address for all other workstations in the property
+- **Server Validation**: Cross-property validation prevents assigning a workstation from another property
+- **Config Help**: Full context help registered for the CAPS Workstation field
+
+### How It Works
+1. Admin selects a workstation (e.g., WS01) in the Property CAPS Workstation dropdown
+2. All Electron workstations call `activation-config` at startup and receive `serviceHostUrl` built from WS01's IP
+3. When cloud is unreachable, Electron automatically reroutes all API calls to the CAPS workstation on the LAN
+4. CAPS processes checks locally and syncs to cloud when connectivity returns
+
+---
+
+## Proof Mode
+
+New automated verification script (`npm run proof-mode` in service-host) validates the complete offline stack:
+
+| Phase | Validates |
+|-------|-----------|
+| 1 — Schema Init | Database creation, table existence, config sync tables |
+| 2 — Config Seeding | Employee, menu, tender, tax group, discount, KDS device sync |
+| 3 — Offline POS | Check creation, item addition, send-to-kitchen, KDS ticket creation |
+| 4 — Tender & Close | Discount application, cash + card payments, tax calculation, check close |
+| 5 — Journal Integrity | Event count, event types, txn_group_id consistency, payload content |
+| 6 — Persistence | DB close/reopen, data survives restart |
+| 7 — Daily Summary | Offline reporting accuracy |
+| 8 — Idempotency | Re-sync produces no duplicates |
+
+Outputs structured PASS/FAIL per assertion with timestamps, suitable for auditor review.
 
 ---
 
 ## OptionBits Infrastructure (emc_option_flags)
 
-A new generic key-value configuration system provides extensible behavioral flags with **scope-based inheritance**:
+A generic key-value configuration system provides extensible behavioral flags with **scope-based inheritance**:
 
 - **Table**: `emc_option_flags` with columns for enterprise_id, entity_type, entity_id, option_key, value_text, scope_level, scope_id
 - **Inheritance**: Enterprise → Property → RVC → Workstation (most specific scope wins)
@@ -84,6 +193,8 @@ The on-premise CAPS service-host SQLite schema has been upgraded to V4, achievin
 - **Tenders table**: 11 new columns (7 behavior + 1 display_order + 3 media flags)
 - **RVCs table**: 5 new columns (print modes, copies, guest count)
 - **emc_option_flags table**: New table with 3 indexes for scope-based resolution
+- **check_payments table**: Corrected columns (`tip_amount`, `change_amount`, `reference_number`, `voided`)
+- **transaction_journal table**: New immutable journal with 5 indexes
 
 ### Migration Logic
 - Automatic `ALTER TABLE` migration when V4 schema is detected
@@ -97,52 +208,45 @@ The on-premise CAPS service-host SQLite schema has been upgraded to V4, achievin
 - `syncMisc()` method processes and upserts option flags during sync
 - New getter methods: `getTenders()`, `getRvcs()`, `getOptionFlags()`
 
-### API Endpoints
-- `GET /api/option-flags` — exposes EMC option flags from local SQLite
+---
 
-### CAPS Payment Enrichment
-- Payment records in both `caps.ts` and `payment-controller.ts` now carry `isCashMedia`, `isCardMedia`, `isGiftMedia` flags
-- Downstream reporting receives media classification without string matching
+## RVC Printing Configuration
+
+Revenue Centers now support granular printing rules through five new columns:
+
+| Flag | Purpose |
+|------|---------|
+| `receipt_print_mode` | `auto_on_close`, `auto_on_payment`, or `manual_only` |
+| `receipt_copies` | Number of receipt copies to print |
+| `kitchen_print_mode` | Supports `manual_only` for KDS-only sites |
+| `void_receipt_print` | Toggle for automatic void slip printing |
+| `require_guest_count` | Require guest count entry when opening checks |
 
 ---
 
 ## Schema Verification CLI
 
-A new `verify-schema` subcommand validates on-premise SQLite databases against the expected V4 schema:
+A `verify-schema` subcommand validates on-premise SQLite databases against the expected V4 schema:
 
 ```
 node dist\index.js verify-schema --data-dir C:\POS\data
 ```
 
-Produces a 6-section PASS/FAIL report:
-- **Section A**: Tenders columns (all 11 new columns)
-- **Section B**: RVCs columns (all 5 new columns)
-- **Section C**: emc_option_flags table existence and columns
-- **Section D**: Index proof with UNIQUE composite verification
-- **Section E**: Backfill counts (cash/card/gift media, pop_drawer, allow_tips)
-- **Section F**: Duplicate CREATE TABLE guard
-
-Runs in read-only mode against the live database. No cloud connection required.
+Produces a 6-section PASS/FAIL report covering tenders, RVCs, option flags, indexes, backfill counts, and duplicate guards. Runs in read-only mode against the live database.
 
 ---
 
-## Cash Drawer Reliability (from v1.4.12)
+## Cash Drawer Reliability
 
 - **Dual kick strategy**: Embedded ESC/POS kick bytes in receipt data + standalone DRAWER_KICK WebSocket message as backup
-- **ESC/POS command ordering**: Drawer kick fires BEFORE paper cut (printers discard data after cut)
-- **Pin wiring correction**: Uses pin2 (0x00) for Cash Drawer 1
-- **Workstation identification fix**: Proper `realWorkstationId` separation for accurate device routing
-- **Multiple cash drawer support**: Two drawer outputs (pin2 and pin5) per workstation
-
-## Cash Drawer Kick Enhancement (from v1.4.13)
-
+- **ESC/POS command ordering**: Drawer kick fires BEFORE paper cut
 - **Robust command sequence**: ESC @ (initialize) + BEL (Star Line Mode native) + ESC p (standard ESC/POS)
 - Reliable on Star TSP100 printers in both Star Line Mode and ESC/POS emulation
-- **Hex-dump logging**: Exact kick command bytes logged for diagnostics
+- **Multiple cash drawer support**: Two drawer outputs (pin2 and pin5) per workstation
 
 ---
 
-## Receipt Layout Improvements (from v1.4.13)
+## Receipt Layout Improvements
 
 - Bold double-height store name header
 - Centered bold order type banner (e.g., TAKE OUT)
@@ -167,3 +271,8 @@ Runs in read-only mode against the live database. No cloud connection required.
 1. Deploy updated service-host binary
 2. Database migration runs automatically on startup
 3. Verify with: `node dist\index.js verify-schema --data-dir <data-dir>`
+
+**Property Configuration**:
+1. In EMC → Properties, select the CAPS Workstation for each property
+2. Ensure the selected workstation has an IP address configured
+3. All Electron workstations will discover the CAPS server automatically via activation-config
