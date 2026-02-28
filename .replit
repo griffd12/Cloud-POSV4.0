@@ -46,4 +46,4 @@ integrations = ["javascript_database:1.0.0", "javascript_websocket:1.0.0", "gith
 
 [userenv.shared]
 VITE_STRIPE_PUBLISHABLE_KEY = "pk_live_51SlfOk1jUKTTHde6QCPVM55FRVeB3ewxMgQqFyozGAOdDjCKvGbzqKvfrM8HgFkLHP5zAVBhyYvF9LzqhF6zt2kI000a40hvJg"
-GH_TOKEN = "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"
+GH_TOKEN = "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"
