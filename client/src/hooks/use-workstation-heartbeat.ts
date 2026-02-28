@@ -33,12 +33,16 @@ export function useWorkstationHeartbeat({
       
       // Also send registered device heartbeat to update lastAccessAt for connectivity tracking
       // Note: getAuthHeaders() already includes X-Device-Token from ops_device_token localStorage
+      const hbController = new AbortController();
+      const hbTimeout = setTimeout(() => hbController.abort(), 5000);
       await fetch("/api/registered-devices/heartbeat", {
         method: "POST",
         headers: {
           ...getAuthHeaders(),
         },
-      }).catch(() => {}); // Silently ignore errors
+        signal: hbController.signal,
+      }).catch(() => {});
+      clearTimeout(hbTimeout);
     } catch (error) {
       console.warn("Heartbeat failed:", error);
     }
