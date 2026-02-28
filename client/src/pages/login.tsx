@@ -184,33 +184,49 @@ export default function LoginPage() {
         return;
       }
 
-      // Check if employee has job codes assigned
-      // Fail-safe: if we can't determine job status, assume they need to clock in
-      let hasJobs = true; // Default to true for safety - require clock-in unless proven otherwise
+      const isOfflineLogin = !!(data as any).offlineAuth || getIsOfflineMode();
+      if (isOfflineLogin) {
+        setCurrentEmployee(data.employee);
+        setPrivileges(data.privileges);
+        setIsClockedIn(true);
+        setIsSalariedBypass(false);
+        const rvc = rvcs.find((r) => r.id === selectedRvcId);
+        if (rvc) setCurrentRvc(rvc);
+        navigate("/pos");
+        return;
+      }
+
+      let hasJobs = true;
       try {
-        const jobsRes = await fetch(`/api/employees/${data.employee.id}/job-codes/details`, { credentials: "include", headers: getAuthHeaders() });
+        const jobsController = new AbortController();
+        const jobsTimeout = setTimeout(() => jobsController.abort(), 5000);
+        const jobsRes = await fetch(`/api/employees/${data.employee.id}/job-codes/details`, { credentials: "include", headers: getAuthHeaders(), signal: jobsController.signal });
+        clearTimeout(jobsTimeout);
         if (jobsRes.ok) {
           const jobDetails = await jobsRes.json();
           hasJobs = jobDetails && jobDetails.length > 0;
           setEmployeeJobs(jobDetails.map((detail: { jobCode: JobCode }) => detail.jobCode));
         }
-        // If jobsRes is not ok, hasJobs stays true (fail-safe)
       } catch {
-        // Network error - fail-safe, require clock-in
         hasJobs = true;
       }
 
-      // Check clock status
-      const statusRes = await fetch(`/api/time-punches/status/${data.employee.id}`, { credentials: "include", headers: getAuthHeaders() });
       let isClockedIn = false;
       let todayTimecard = null;
-      if (statusRes.ok) {
-        const statusData = await statusRes.json();
-        isClockedIn = statusData.status === "clocked_in" || statusData.status === "on_break";
-        todayTimecard = statusData.todayTimecard || null;
+      try {
+        const statusController = new AbortController();
+        const statusTimeout = setTimeout(() => statusController.abort(), 5000);
+        const statusRes = await fetch(`/api/time-punches/status/${data.employee.id}`, { credentials: "include", headers: getAuthHeaders(), signal: statusController.signal });
+        clearTimeout(statusTimeout);
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          isClockedIn = statusData.status === "clocked_in" || statusData.status === "on_break";
+          todayTimecard = statusData.todayTimecard || null;
+        }
+      } catch {
+        isClockedIn = false;
       }
-      
-      // If employee has jobs but is not clocked in, require clock-in first
+
       if (hasJobs && !isClockedIn) {
         setClockEmployee(data.employee);
         setClockStatus({ status: "clocked_out", lastPunch: null, activeBreak: null, clockedInAt: null, isClockedIn: false });
