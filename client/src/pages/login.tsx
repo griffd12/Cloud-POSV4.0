@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { usePosContext } from "@/lib/pos-context";
 import { useDeviceContext } from "@/lib/device-context";
-import { apiRequest, getAuthHeaders, getIsOfflineMode } from "@/lib/queryClient";
+import { apiRequest, getAuthHeaders, getIsOfflineMode, onOfflineModeChange } from "@/lib/queryClient";
 import { offlineStore } from "@/lib/offline-store";
 import { ConnectionModeBanner } from "@/components/connection-mode-banner";
 import BreakAttestationDialog from "@/components/pos/break-attestation-dialog";
@@ -78,6 +78,11 @@ export default function LoginPage() {
 
   const { enterpriseId, clearDeviceConfig } = useDeviceContext();
   const employeeSyncDone = useRef(false);
+  const [isOffline, setIsOffline] = useState(getIsOfflineMode());
+
+  useEffect(() => {
+    return onOfflineModeChange((offline) => setIsOffline(offline));
+  }, []);
 
   useEffect(() => {
     if (!employeeSyncDone.current && !getIsOfflineMode()) {
@@ -871,15 +876,17 @@ export default function LoginPage() {
                   </CardContent>
                 </Card>
 
-                <Button
-                  variant="outline"
-                  className="w-full h-12"
-                  onClick={handleOpenClockModal}
-                  data-testid="button-open-clock"
-                >
-                  <Clock className="w-5 h-5 mr-2" />
-                  Clock In / Out
-                </Button>
+                {!isOffline && (
+                  <Button
+                    variant="outline"
+                    className="w-full h-12"
+                    onClick={handleOpenClockModal}
+                    data-testid="button-open-clock"
+                  >
+                    <Clock className="w-5 h-5 mr-2" />
+                    Clock In / Out
+                  </Button>
+                )}
               </>
             )}
           </div>
