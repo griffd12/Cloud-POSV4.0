@@ -3623,6 +3623,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           capsWorkstationId: property.capsWorkstationId || null,
           capsWorkstationName: capsWorkstation?.name || null,
           syncEnabled: workstation.allowOfflineOperation,
+          serviceHostToken: (workstation.id === property.capsWorkstationId && primaryServiceHost)
+            ? primaryServiceHost.registrationToken
+            : null,
         },
       });
     } catch (error) {
@@ -19505,15 +19508,15 @@ connect();
       let serviceHostToken: string;
       if (serviceHostId) {
         const existingHost = await storage.getServiceHost(serviceHostId);
-        if (existingHost && existingHost.token) {
+        if (existingHost && existingHost.registrationToken) {
           // Use existing service host token
-          serviceHostToken = existingHost.token;
-          existingServiceHostToken = existingHost.token;
+          serviceHostToken = existingHost.registrationToken;
+          existingServiceHostToken = existingHost.registrationToken;
         } else {
           // Generate new token and update the service host
           serviceHostToken = crypto.randomBytes(32).toString("hex");
           if (existingHost) {
-            await storage.updateServiceHost(serviceHostId, { token: serviceHostToken });
+            await storage.updateServiceHost(serviceHostId, { registrationToken: serviceHostToken });
           }
         }
       } else {
@@ -19749,7 +19752,7 @@ connect();
             workstationId,
             status: "offline",
             services: hostServices,
-            registrationToken: tokenHash,
+            registrationToken: rawToken,
             registrationTokenUsed: false,
           });
 
@@ -19759,7 +19762,7 @@ connect();
             config: {
               serviceHostId: serviceHost.id,
               serviceHostName: serviceHost.name,
-              serviceHostToken: rawToken, // Only returned during creation
+              serviceHostToken: rawToken,
               propertyId,
               services: hostServices,
               port: 3001,
@@ -19769,11 +19772,10 @@ connect();
         } else {
           // Service Host exists - regenerate token for wizard installation
           const rawToken = crypto.randomBytes(32).toString("hex");
-          const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
           
-          // Update the service host with the new token
+          // Update the service host with the new token (raw, not hashed)
           await storage.updateServiceHost(serviceHost.id, { 
-            registrationToken: tokenHash,
+            registrationToken: rawToken,
             registrationTokenUsed: false,
           });
 
@@ -24615,7 +24617,7 @@ connect();
       
       // Verify the token matches the Service Host
       const serviceHost = await storage.getServiceHost(serviceHostId);
-      if (!serviceHost || serviceHost.authToken !== token) {
+      if (!serviceHost || serviceHost.registrationToken !== token) {
         ws.send(JSON.stringify({ type: "error", error: "Invalid service host credentials" }));
         ws.close(4001, "Unauthorized");
         return;

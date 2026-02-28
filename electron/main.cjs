@@ -2010,6 +2010,7 @@ async function fetchActivationConfig() {
     const capsWorkstationId = connConfig.capsWorkstationId || null;
     const capsWorkstationName = connConfig.capsWorkstationName || null;
     const isCapsWorkstation = capsWorkstationId && capsWorkstationId === config.deviceId;
+    const serviceHostToken = connConfig.serviceHostToken || null;
 
     const effectiveServiceHostUrl = isCapsWorkstation ? 'http://127.0.0.1:3001' : serviceHostUrl;
 
@@ -2026,6 +2027,9 @@ async function fetchActivationConfig() {
     config.capsWorkstationId = capsWorkstationId;
     config.capsWorkstationName = capsWorkstationName;
     config.isCapsWorkstation = !!isCapsWorkstation;
+    if (serviceHostToken) {
+      config.serviceHostToken = serviceHostToken;
+    }
     saveConfig(config);
 
     if (offlineInterceptor) {
