@@ -1,4 +1,4 @@
-# Cloud POS System — V3.1.7
+# Cloud POS System — V3.1.8
 
 ## Overview
 This project is an enterprise cloud-based Point of Sale (POS) system for Quick Service Restaurants (QSRs) in high-volume environments. It provides a scalable solution with extensive administrative configuration and real-time operational features, supporting a multi-property hierarchy, KDS integration, and enterprise functionalities like fiscal close, cash management, gift cards, loyalty, inventory, forecasting, and online ordering integration. The system uses a Simphony-class design for configuration inheritance with override capabilities and offers an optional Central Application Processing Service (CAPS) for hybrid cloud/on-premise offline resilience. Its vision is to be a highly flexible and reliable POS system for various QSR operations, ensuring continuous service even offline, and supporting both web and native applications (Android & Windows).
@@ -106,3 +106,13 @@ Preferred communication style: Simple, everyday language.
 - `client/src/contexts/connection-mode-context.tsx`: When running in Electron, uses `onConnectionMode` IPC as single source of truth; HTTP polling completely disabled in Electron mode. `checkEndpoint()` checks for `X-Offline-Mode` header
 - `client/src/components/offline-status-banner.tsx`: `onOnlineStatus` IPC handler engages/releases `electronOfflineLock` directly
 - Architecture: Electron main → IPC `connection-mode` → ConnectionModeContext → `setElectronOfflineLock()` → queryClient locked — no split-brain possible
+
+### Device Monitoring (v3.1.8) — Unified Heartbeat & Visibility
+- **Heartbeat token guard:** `useWorkstationHeartbeat` now checks `X-Device-Token` before sending registered-device heartbeat — eliminates 400 errors from unregistered devices
+- **Unified status-summary:** `/api/registered-devices/status-summary` checks BOTH `registered_devices.lastAccessAt` AND `workstations.lastSeenAt` — device shows "connected" if either heartbeat is recent (5 min window)
+- **Cross-update:** Workstation heartbeat endpoint (`/api/system-status/workstation/heartbeat`) now also updates linked `registered_devices.lastAccessAt` — ensures devices appear connected even without device token
+- **Enriched status response:** Status summary now returns `lastHeartbeatAge`, `connectionMode`, `ipAddress`, `osInfo`, `workstationId`, `workstationName` for each device
+- **Server device logging:** `[DeviceTracker]` structured logs on every heartbeat (WS and device). Periodic 60-second summary: `[DeviceTracker] Online: WS01(green), EXPO1(green) | Disconnected: EXPO2`
+- **CAPS device tracking:** `service-host/src/index.ts` has `CapsDeviceTracker` class tracking devices proxying through CAPS. `GET /api/caps/connected-devices` endpoint. Periodic 60-second CAPS status log
+- **Electron enhanced logging:** `checkConnectivity()` logs mode transitions with detail. 60-second periodic status summary. Offline interceptor tracks request counts per period
+- **Feature Availability Matrix:** `POS_Feature_Availability_Matrix.csv` documents ~120 features across GREEN/YELLOW/RED modes

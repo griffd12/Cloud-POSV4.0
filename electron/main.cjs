@@ -344,7 +344,7 @@ async function checkConnectivity() {
     }
 
     if (wasOffline && isOnline) {
-      appLogger.info('Network', 'Connection restored, syncing offline data');
+      appLogger.info('Network', 'Cloud connection restored — resuming online operations');
       setConnectionMode('green');
       syncOfflineData();
       if (enhancedOfflineDb) {
@@ -363,7 +363,7 @@ async function checkConnectivity() {
     }
 
     if (wasOnline) {
-      appLogger.warn('Network', `Cloud connection lost: ${e.message}`);
+      appLogger.warn('Network', `Cloud connection lost — checking CAPS fallback | Error: ${e.message}`);
     }
 
     const config = loadConfig();
@@ -2178,7 +2178,11 @@ function setConnectionMode(newMode) {
   if (connectionMode === newMode) return;
   const oldMode = connectionMode;
   connectionMode = newMode;
-  appLogger.info('CAPS', `Connection mode: ${oldMode} -> ${newMode}`);
+  const config = loadConfig();
+  const cloudStatus = isOnline ? 'reachable' : 'unreachable';
+  const capsUrl = config.serviceHostUrl || 'not configured';
+  const capsStatus = newMode === 'yellow' ? 'reachable' : (newMode === 'red' ? 'unreachable' : 'n/a');
+  appLogger.info('Network', `Mode changed: ${oldMode.toUpperCase()} -> ${newMode.toUpperCase()} | Cloud: ${cloudStatus} | CAPS: ${capsUrl} (${capsStatus})`);
   if (mainWindow) {
     mainWindow.webContents.send('connection-mode', newMode);
   }
@@ -2506,6 +2510,27 @@ button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:13px;opacity:0.5
 
 let servicesInitialized = false;
 let syncTimer = null;
+let statusSummaryInterval = null;
+const appStartTime = Date.now();
+
+function startPeriodicStatusSummary() {
+  if (statusSummaryInterval) clearInterval(statusSummaryInterval);
+  statusSummaryInterval = setInterval(() => {
+    const uptimeMs = Date.now() - appStartTime;
+    const uptimeH = Math.floor(uptimeMs / 3600000);
+    const uptimeM = Math.floor((uptimeMs % 3600000) / 60000);
+    const uptimeStr = uptimeH > 0 ? `${uptimeH}h${uptimeM}m` : `${uptimeM}m`;
+    const pending = getPendingOperations().length;
+    const config = loadConfig();
+    const deviceName = config.deviceName || 'unknown';
+    const interceptorStats = offlineInterceptor ? offlineInterceptor.getAndResetStats() : null;
+    let interceptorInfo = '';
+    if (interceptorStats && interceptorStats.totalRequests > 0) {
+      interceptorInfo = ` | Interceptor (last 60s): ${interceptorStats.totalRequests} requests handled`;
+    }
+    appLogger.info('Status', `Mode: ${connectionMode.toUpperCase()} | Cloud: ${isOnline ? 'connected' : 'disconnected'} | Device: ${deviceName} | Uptime: ${uptimeStr} | Pending sync: ${pending}${interceptorInfo}`);
+  }, 60000);
+}
 
 async function initAllServices() {
   if (servicesInitialized) {
@@ -2574,6 +2599,8 @@ async function initAllServices() {
       }
     }
   }, 300000);
+
+  startPeriodicStatusSummary();
 
   await performInitialDataSync();
 
@@ -2649,6 +2676,7 @@ app.on('window-all-closed', () => {
   if (syncInterval) clearInterval(syncInterval);
   if (syncTimer) clearInterval(syncTimer);
   if (dataSyncInterval) clearInterval(dataSyncInterval);
+  if (statusSummaryInterval) clearInterval(statusSummaryInterval);
   if (printAgent) {
     printAgent.stop();
   }
