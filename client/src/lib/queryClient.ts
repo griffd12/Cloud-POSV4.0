@@ -22,6 +22,8 @@ export function setElectronOfflineLock(locked: boolean) {
   logToElectron('INFO', 'NETWORK', 'Lock', `Electron offline lock: ${locked ? 'ENGAGED' : 'RELEASED'}`);
   if (locked) {
     setOfflineMode(true);
+  } else {
+    setOfflineMode(false);
   }
 }
 
