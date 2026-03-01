@@ -501,8 +501,8 @@ if (process.argv[2] === 'verify-schema') {
     }
     
     if (!config.token) {
-      console.error('Error: Service Host token is required');
-      process.exit(1);
+      console.error('Error: Service Host token is required. Exiting with code 2 (token not available yet).');
+      process.exit(2);
     }
     
     const serviceHost = new ServiceHost(config);

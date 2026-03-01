@@ -69,7 +69,7 @@ if (process.env.SERVICE_HOST_PORT) {
   const _envArgs = ['node', 'service-host'];
   if (process.env.SERVICE_HOST_CLOUD_URL) _envArgs.push('--cloud', process.env.SERVICE_HOST_CLOUD_URL);
   if (process.env.SERVICE_HOST_ID) _envArgs.push('--service-host-id', process.env.SERVICE_HOST_ID);
-  if (process.env.SERVICE_HOST_TOKEN) _envArgs.push('--token', process.env.SERVICE_HOST_TOKEN || 'embedded');
+  if (process.env.SERVICE_HOST_TOKEN) _envArgs.push('--token', process.env.SERVICE_HOST_TOKEN);
   if (process.env.SERVICE_HOST_PROPERTY_ID) _envArgs.push('--property', process.env.SERVICE_HOST_PROPERTY_ID);
   if (process.env.SERVICE_HOST_PORT) _envArgs.push('--port', process.env.SERVICE_HOST_PORT);
   if (process.env.SERVICE_HOST_DATA_DIR) _envArgs.push('--data-dir', process.env.SERVICE_HOST_DATA_DIR);

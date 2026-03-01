@@ -2028,9 +2028,7 @@ async function fetchActivationConfig() {
     config.capsWorkstationId = capsWorkstationId;
     config.capsWorkstationName = capsWorkstationName;
     config.isCapsWorkstation = !!isCapsWorkstation;
-    if (serviceHostToken) {
-      config.serviceHostToken = serviceHostToken;
-    }
+    config.serviceHostToken = serviceHostToken || config.serviceHostToken || '';
     saveConfig(config);
 
     if (offlineInterceptor) {
@@ -2073,7 +2071,26 @@ async function startServiceHost() {
     return;
   }
 
-  const config = loadConfig();
+  let config = loadConfig();
+
+  if (!config.serviceHostToken) {
+    appLogger.info('ServiceHost', 'Service host token missing from local config, attempting fresh fetch from cloud...');
+    try {
+      await fetchActivationConfig();
+      config = loadConfig();
+    } catch (e) {
+      appLogger.warn('ServiceHost', `Failed to fetch activation config for token: ${e.message}`);
+    }
+    if (!config.serviceHostToken) {
+      appLogger.warn('ServiceHost', 'Service host token still unavailable after fresh fetch. Will retry in 60 seconds.');
+      setTimeout(() => {
+        appLogger.info('ServiceHost', 'Retrying service host start (token was missing)...');
+        startServiceHost();
+      }, 60000);
+      return;
+    }
+  }
+
   const serviceHostBundlePath = path.join(__dirname, 'service-host-embedded.cjs');
 
   if (!fs.existsSync(serviceHostBundlePath)) {
@@ -2124,7 +2141,15 @@ async function startServiceHost() {
     serviceHostProcess.on('exit', (code, signal) => {
       appLogger.warn('ServiceHost', `Service host process exited`, { code, signal });
       serviceHostProcess = null;
-      if (code !== 0 && code !== null) {
+      if (code === 2) {
+        appLogger.info('ServiceHost', 'Service host exited with code 2 (token not available). Retrying in 60 seconds with fresh config fetch...');
+        setTimeout(async () => {
+          try {
+            await fetchActivationConfig();
+          } catch (e) {}
+          startServiceHost();
+        }, 60000);
+      } else if (code !== 0 && code !== null) {
         setTimeout(() => {
           appLogger.info('ServiceHost', 'Restarting service host after crash...');
           startServiceHost();

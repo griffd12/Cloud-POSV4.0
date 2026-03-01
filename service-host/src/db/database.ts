@@ -65,11 +65,59 @@ export class Database {
   
   async initialize(): Promise<void> {
     this.createSchema();
+    this.ensureCriticalTables();
     this.checkSchemaVersion();
   }
   
   private createSchema(): void {
-    this.db.exec(CREATE_SCHEMA_SQL);
+    try {
+      this.db.exec(CREATE_SCHEMA_SQL);
+    } catch (e: any) {
+      console.warn(`[DB] Schema exec partially failed: ${e.message}. Will ensure critical tables exist individually.`);
+    }
+  }
+
+  private ensureCriticalTables(): void {
+    const criticalTables = [
+      `CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT DEFAULT (datetime('now'))
+      )`,
+      `CREATE TABLE IF NOT EXISTS sync_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      )`,
+      `CREATE TABLE IF NOT EXISTS config_cache (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        entity_type TEXT,
+        entity_id TEXT,
+        version INTEGER DEFAULT 1,
+        updated_at TEXT DEFAULT (datetime('now'))
+      )`,
+      `CREATE TABLE IF NOT EXISTS sync_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        priority INTEGER DEFAULT 0,
+        attempts INTEGER DEFAULT 0,
+        max_attempts INTEGER DEFAULT 10,
+        last_attempt_at TEXT,
+        next_attempt_at TEXT,
+        error_message TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      )`,
+    ];
+    for (const sql of criticalTables) {
+      try {
+        this.db.exec(sql);
+      } catch (e: any) {
+        console.error(`[DB] Failed to ensure critical table: ${e.message}`);
+      }
+    }
   }
   
   private checkSchemaVersion(): void {
