@@ -61,6 +61,7 @@ export class Database {
     this.db = new BetterSqlite3(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
+    this.ensureCriticalTables();
   }
   
   async initialize(): Promise<void> {
