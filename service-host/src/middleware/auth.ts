@@ -26,8 +26,13 @@ export function createAuthMiddleware(db: Database) {
       token = workstationToken;
     }
     
-    // Skip auth for health check
     if (req.path === '/health') {
+      return next();
+    }
+
+    const clientIp = req.ip || req.socket?.remoteAddress || '';
+    const isLocalhost = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1' || clientIp === 'localhost';
+    if (isLocalhost) {
       return next();
     }
     

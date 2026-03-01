@@ -114,6 +114,7 @@ class OfflineApiInterceptor {
         /^\/api\/system-status/,
         /^\/api\/option-flags/,
         /^\/api\/client-ip/,
+        /^\/api\/kds-tickets/,
       ];
       return readEndpoints.some(re => re.test(pathname));
     }
@@ -139,6 +140,9 @@ class OfflineApiInterceptor {
         /^\/api\/cash-drawer-kick/,
         /^\/api\/pos\//,
         /^\/api\/terminal-sessions/,
+        /^\/api\/kds-tickets/,
+        /^\/api\/check-service-charges/,
+        /^\/api\/item-availability/,
       ];
       return writeEndpoints.some(re => re.test(pathname));
     }
@@ -148,6 +152,8 @@ class OfflineApiInterceptor {
         /^\/api\/checks\/[^/]+$/,
         /^\/api\/check-items\/[^/]+$/,
         /^\/api\/pos\/checks\/[^/]+\/customer$/,
+        /^\/api\/check-items\/[^/]+\/discount$/,
+        /^\/api\/check-discounts\/[^/]+$/,
       ];
       return deleteEndpoints.some(re => re.test(pathname));
     }
@@ -481,6 +487,55 @@ class OfflineApiInterceptor {
       return { status: 200, data: { ip: '127.0.0.1', offline: true } };
     }
 
+    if (pathname === '/api/kds-tickets' || pathname === '/api/kds-tickets/') {
+      const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+      const tickets = checks
+        .filter(c => c.status === 'open' && c.items && c.items.some(i => i.sent && !i.voided))
+        .filter(c => !c._kdsBumped)
+        .map(c => ({
+          id: `kds_${c.id}`,
+          checkId: c.id,
+          checkNumber: c.checkNumber,
+          orderType: c.orderType || 'dine-in',
+          status: 'active',
+          createdAt: c.createdAt,
+          items: (c.items || []).filter(i => i.sent && !i.voided).map(i => ({
+            name: i.menuItemName || i.name,
+            quantity: i.quantity || 1,
+            modifiers: (i.modifiers || []).map(m => m.name || m),
+            seatNumber: i.seatNumber,
+          })),
+        }));
+      return { status: 200, data: tickets };
+    }
+
+    const kdsTicketMatch = pathname.match(/^\/api\/kds-tickets\/([^/]+)$/);
+    if (kdsTicketMatch) {
+      const ticketId = kdsTicketMatch[1];
+      const checkId = ticketId.startsWith('kds_') ? ticketId.substring(4) : ticketId;
+      const check = this.db.getOfflineCheck(checkId);
+      if (check) {
+        return {
+          status: 200,
+          data: {
+            id: ticketId,
+            checkId: check.id,
+            checkNumber: check.checkNumber,
+            orderType: check.orderType,
+            status: check._kdsBumped ? 'bumped' : 'active',
+            createdAt: check.createdAt,
+            items: (check.items || []).filter(i => i.sent && !i.voided).map(i => ({
+              name: i.menuItemName || i.name,
+              quantity: i.quantity || 1,
+              modifiers: (i.modifiers || []).map(m => m.name || m),
+              seatNumber: i.seatNumber,
+            })),
+          },
+        };
+      }
+      return { status: 404, data: { message: 'KDS ticket not found (offline)' } };
+    }
+
     if (pathname.startsWith('/api/checks')) {
       const rvcId = query?.rvcId;
       const status = query?.status;
@@ -642,6 +697,83 @@ class OfflineApiInterceptor {
       return { status: 503, data: { error: 'Check transfer requires cloud connectivity', offline: true } };
     }
 
+    if (pathname.match(/^\/api\/kds-tickets\/[^/]+\/bump/)) {
+      const bumpMatch = pathname.match(/^\/api\/kds-tickets\/([^/]+)\/bump/);
+      if (bumpMatch) {
+        const ticketId = bumpMatch[1];
+        const checkId = ticketId.startsWith('kds_') ? ticketId.substring(4) : ticketId;
+        const check = this.db.getOfflineCheck(checkId);
+        if (check) {
+          check._kdsBumped = true;
+          check._kdsBumpedAt = new Date().toISOString();
+          check.updatedAt = new Date().toISOString();
+          this.db.saveOfflineCheck(check);
+        }
+        appLogger.info('Interceptor', `RED mode: KDS ticket bumped ${ticketId}`);
+        return { status: 200, data: { success: true, offline: true } };
+      }
+    }
+
+    if (pathname.match(/^\/api\/kds-tickets\/[^/]+\/recall/)) {
+      const recallMatch = pathname.match(/^\/api\/kds-tickets\/([^/]+)\/recall/);
+      if (recallMatch) {
+        const ticketId = recallMatch[1];
+        const checkId = ticketId.startsWith('kds_') ? ticketId.substring(4) : ticketId;
+        const check = this.db.getOfflineCheck(checkId);
+        if (check) {
+          check._kdsBumped = false;
+          check._kdsBumpedAt = null;
+          check.updatedAt = new Date().toISOString();
+          this.db.saveOfflineCheck(check);
+        }
+        appLogger.info('Interceptor', `RED mode: KDS ticket recalled ${ticketId}`);
+        return { status: 200, data: { success: true, offline: true } };
+      }
+    }
+
+    if (pathname.match(/^\/api\/checks\/[^/]+\/cancel-transaction/)) {
+      const cancelMatch = pathname.match(/^\/api\/checks\/([^/]+)\/cancel-transaction/);
+      if (cancelMatch) {
+        const checkId = cancelMatch[1];
+        const check = this.db.getOfflineCheck(checkId);
+        if (check) {
+          check.status = 'cancelled';
+          check.updatedAt = new Date().toISOString();
+          this.db.saveOfflineCheck(check);
+          this.db.queueOperation('cancel_transaction', `/api/checks/${checkId}/cancel-transaction`, 'POST', body || {}, 1);
+        }
+        return { status: 200, data: { success: true, offline: true, message: 'Transaction cancelled (offline)' } };
+      }
+    }
+
+    if (pathname.match(/^\/api\/checks\/[^/]+\/reopen/)) {
+      const reopenMatch = pathname.match(/^\/api\/checks\/([^/]+)\/reopen/);
+      if (reopenMatch) {
+        const checkId = reopenMatch[1];
+        const check = this.db.getOfflineCheck(checkId);
+        if (check) {
+          check.status = 'open';
+          check.closedAt = null;
+          check.updatedAt = new Date().toISOString();
+          this.db.saveOfflineCheck(check);
+          this.db.queueOperation('reopen_check', `/api/checks/${checkId}/reopen`, 'POST', body || {}, 1);
+        }
+        return { status: 200, data: { success: true, offline: true, message: 'Check reopened (offline)' } };
+      }
+    }
+
+    if (pathname.match(/^\/api\/check-service-charges\/[^/]+\/void/)) {
+      const scMatch = pathname.match(/^\/api\/check-service-charges\/([^/]+)\/void/);
+      if (scMatch) {
+        this.db.queueOperation('void_service_charge', pathname, 'POST', body || {}, 2);
+        return { status: 200, data: { success: true, offline: true, message: 'Service charge voided (offline)' } };
+      }
+    }
+
+    if (pathname.match(/^\/api\/item-availability\/decrement/)) {
+      return { status: 200, data: { success: true, offline: true } };
+    }
+
     if (pathname.match(/^\/api\/checks\/[^/]+\/split/)) {
       return this.splitCheckOffline(pathname, body);
     }
@@ -669,13 +801,85 @@ class OfflineApiInterceptor {
     }
 
     if (pathname.match(/^\/api\/check-payments\/[^/]+\/void/)) {
-      this.db.queueOperation('void_payment', pathname, 'PATCH', body, 1);
-      return { status: 200, data: { success: true, offline: true, message: 'Payment void queued for sync' } };
+      const payVoidMatch = pathname.match(/^\/api\/check-payments\/([^/]+)\/void/);
+      if (payVoidMatch) {
+        const paymentId = payVoidMatch[1];
+        const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+        for (const c of checks) {
+          if (c.payments) {
+            const payment = c.payments.find(p => p.id === paymentId);
+            if (payment) {
+              payment.voided = true;
+              payment.voidedAt = new Date().toISOString();
+              if (c.status === 'closed') {
+                c.status = 'open';
+                c.closedAt = null;
+              }
+              c.updatedAt = new Date().toISOString();
+              this.db.saveOfflineCheck(c);
+              break;
+            }
+          }
+        }
+        this.db.queueOperation('void_payment', pathname, 'PATCH', body, 1);
+        return { status: 200, data: { success: true, offline: true, message: 'Payment voided (offline)' } };
+      }
+    }
+
+    if (pathname.match(/^\/api\/check-payments\/[^/]+\/restore/)) {
+      const payRestoreMatch = pathname.match(/^\/api\/check-payments\/([^/]+)\/restore/);
+      if (payRestoreMatch) {
+        const paymentId = payRestoreMatch[1];
+        const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+        for (const c of checks) {
+          if (c.payments) {
+            const payment = c.payments.find(p => p.id === paymentId);
+            if (payment) {
+              payment.voided = false;
+              payment.voidedAt = null;
+              let totalPaid = 0;
+              c.payments.filter(p => !p.voided).forEach(p => totalPaid += parseFloat(p.amount || 0));
+              const totalDue = parseFloat(c.total || c.subtotal || 0);
+              if (totalPaid >= totalDue) {
+                c.status = 'closed';
+                c.closedAt = new Date().toISOString();
+              }
+              c.updatedAt = new Date().toISOString();
+              this.db.saveOfflineCheck(c);
+              break;
+            }
+          }
+        }
+        this.db.queueOperation('restore_payment', pathname, 'PATCH', body, 1);
+        return { status: 200, data: { success: true, offline: true, message: 'Payment restored (offline)' } };
+      }
+    }
+
+    if (pathname.match(/^\/api\/check-items\/[^/]+\/modifiers/)) {
+      const modMatch = pathname.match(/^\/api\/check-items\/([^/]+)\/modifiers/);
+      if (modMatch) {
+        const itemId = modMatch[1];
+        const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+        for (const c of checks) {
+          if (c.items) {
+            const item = c.items.find(i => i.id === itemId);
+            if (item) {
+              item.modifiers = body.modifiers || body || [];
+              item.updatedAt = new Date().toISOString();
+              this._recalcCheckTotals(c);
+              this.db.saveOfflineCheck(c);
+              break;
+            }
+          }
+        }
+        this.db.queueOperation('update_modifiers', pathname, 'PATCH', body, 2);
+        return { status: 200, data: { success: true, offline: true, message: 'Modifiers updated (offline)' } };
+      }
     }
 
     if (pathname.match(/^\/api\/check-service-charges\/[^/]+\/void/)) {
-      this.db.queueOperation('void_service_charge', pathname, 'POST', body, 2);
-      return { status: 200, data: { success: true, offline: true, message: 'Service charge void queued for sync' } };
+      this.db.queueOperation('void_service_charge', pathname, 'PATCH', body, 2);
+      return { status: 200, data: { success: true, offline: true, message: 'Service charge voided (offline)' } };
     }
 
     this.db.queueOperation('offline_update', pathname, 'PATCH', body, 5);
@@ -1281,6 +1485,48 @@ class OfflineApiInterceptor {
       }
       this.db.queueOperation('delete_check_item', pathname, 'DELETE', null, 3);
       return { status: 200, data: { message: 'Item removed (offline)', offline: true } };
+    }
+
+    const itemDiscountDeleteMatch = pathname.match(/^\/api\/check-items\/([^/]+)\/discount$/);
+    if (itemDiscountDeleteMatch) {
+      const itemId = itemDiscountDeleteMatch[1];
+      const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+      for (const c of checks) {
+        if (c.items) {
+          const item = c.items.find(i => i.id === itemId);
+          if (item) {
+            item.discount = null;
+            item.discountAmount = null;
+            this._recalcCheckTotals(c);
+            this.db.saveOfflineCheck(c);
+            break;
+          }
+        }
+      }
+      this.db.queueOperation('remove_item_discount', pathname, 'DELETE', null, 2);
+      return { status: 200, data: { success: true, offline: true, message: 'Item discount removed (offline)' } };
+    }
+
+    const checkDiscountDeleteMatch = pathname.match(/^\/api\/check-discounts\/([^/]+)$/);
+    if (checkDiscountDeleteMatch) {
+      const discountId = checkDiscountDeleteMatch[1];
+      const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+      for (const c of checks) {
+        if (c.discounts) {
+          c.discounts = c.discounts.filter(d => d.id !== discountId);
+          let discountTotal = 0;
+          c.discounts.forEach(d => discountTotal += parseFloat(d.amount || 0));
+          c.discountTotal = discountTotal.toFixed(2);
+          const subtotal = parseFloat(c.subtotal) || 0;
+          const taxTotal = parseFloat(c.taxTotal) || 0;
+          c.total = Math.max(0, subtotal - discountTotal + taxTotal).toFixed(2);
+          c.updatedAt = new Date().toISOString();
+          this.db.saveOfflineCheck(c);
+          break;
+        }
+      }
+      this.db.queueOperation('remove_check_discount', pathname, 'DELETE', null, 2);
+      return { status: 200, data: { success: true, offline: true, message: 'Check discount removed (offline)' } };
     }
 
     if (pathname.match(/^\/api\/pos\/checks\/[^/]+\/customer$/)) {

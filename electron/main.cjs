@@ -329,7 +329,7 @@ async function checkConnectivity() {
   try {
     const serverUrl = getServerUrl();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), 3000);
     const response = await fetch(`${serverUrl}/api/health`, { signal: controller.signal });
     clearTimeout(timeout);
     const wasOffline = !isOnline;
@@ -2390,6 +2390,7 @@ function registerProtocolInterceptor() {
 
     if (!isOnline && isApiRequest) {
       const capsUrl = getCapsServiceHostUrl();
+      let capsHandled = false;
       if (capsUrl && connectionMode === 'yellow') {
         try {
           const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
@@ -2398,17 +2399,27 @@ function registerProtocolInterceptor() {
           for (const [key, value] of request.headers.entries()) {
             if (key.toLowerCase() !== 'host') capsHeaders[key] = value;
           }
+          const config = loadConfig();
+          if (config.serviceHostToken) {
+            capsHeaders['x-workstation-token'] = config.serviceHostToken;
+          }
           const capsResponse = await fetch(capsApiUrl, {
             method: request.method,
             headers: capsHeaders,
             body: request.method !== 'GET' && request.method !== 'HEAD' ? await request.arrayBuffer() : undefined,
             signal: AbortSignal.timeout(3000),
           });
-          return new Response(capsResponse.body, {
-            status: capsResponse.status,
-            statusText: capsResponse.statusText,
-            headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': 'yellow' },
-          });
+          appLogger.info('Interceptor', `YELLOW mode -> CAPS: ${request.method} ${url.pathname} -> ${capsResponse.status}`);
+          if (capsResponse.status === 401 || capsResponse.status === 404) {
+            appLogger.warn('Interceptor', `YELLOW->RED fallback: CAPS returned ${capsResponse.status} for ${request.method} ${url.pathname}`);
+          } else {
+            capsHandled = true;
+            return new Response(capsResponse.body, {
+              status: capsResponse.status,
+              statusText: capsResponse.statusText,
+              headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': 'yellow' },
+            });
+          }
         } catch (capsError) {
           appLogger.warn('Interceptor', `CAPS proxy failed: ${capsError.message}, falling to RED`);
           setConnectionMode('red');
@@ -2436,15 +2447,15 @@ function registerProtocolInterceptor() {
     try {
       let fetchSignal;
       if (typeof AbortSignal.timeout === 'function') {
-        fetchSignal = AbortSignal.timeout(8000);
+        fetchSignal = AbortSignal.timeout(4000);
       } else {
         const ac = new AbortController();
-        setTimeout(() => ac.abort(), 8000);
+        setTimeout(() => ac.abort(), 4000);
         fetchSignal = ac.signal;
       }
       const response = await Promise.race([
         electronNet.fetch(request, { bypassCustomProtocolHandlers: true, signal: fetchSignal }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Protocol fetch timeout (8s)')), 8500)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Protocol fetch timeout (4s)')), 4500)),
       ]);
 
       if (response.ok && request.method === 'GET' && !isApiRequest) {
@@ -2468,6 +2479,7 @@ function registerProtocolInterceptor() {
         if (offlineInterceptor) offlineInterceptor.setOffline(true);
         if (mainWindow) mainWindow.webContents.send('online-status', false);
         appLogger.warn('Network', `Connection lost: ${networkError.message}`);
+        checkConnectivity().catch(() => {});
       }
 
       if (isApiRequest) {
@@ -2482,6 +2494,10 @@ function registerProtocolInterceptor() {
                 if (key.toLowerCase() !== 'host') capsHeaders[key] = value;
               }
             }
+            const failoverConfig = loadConfig();
+            if (failoverConfig.serviceHostToken) {
+              capsHeaders['x-workstation-token'] = failoverConfig.serviceHostToken;
+            }
             const capsBody = failoverClone && request.method !== 'GET' && request.method !== 'HEAD'
               ? await failoverClone.arrayBuffer()
               : undefined;
@@ -2491,13 +2507,18 @@ function registerProtocolInterceptor() {
               body: capsBody,
               signal: AbortSignal.timeout(3000),
             });
-            setConnectionMode('yellow');
-            if (offlineInterceptor) offlineInterceptor.setConnectionMode('yellow');
-            return new Response(capsResponse.body, {
-              status: capsResponse.status,
-              statusText: capsResponse.statusText,
-              headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': 'yellow' },
-            });
+            appLogger.info('Interceptor', `FAILOVER YELLOW -> CAPS: ${request.method} ${url.pathname} -> ${capsResponse.status}`);
+            if (capsResponse.status === 401 || capsResponse.status === 404) {
+              appLogger.warn('Interceptor', `YELLOW->RED fallback: CAPS returned ${capsResponse.status} for ${request.method} ${url.pathname}`);
+            } else {
+              setConnectionMode('yellow');
+              if (offlineInterceptor) offlineInterceptor.setConnectionMode('yellow');
+              return new Response(capsResponse.body, {
+                status: capsResponse.status,
+                statusText: capsResponse.statusText,
+                headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': 'yellow' },
+              });
+            }
           } catch (capsErr) {
             appLogger.warn('Interceptor', `CAPS also unreachable: ${capsErr.message}, falling to RED`);
             setConnectionMode('red');
@@ -2603,7 +2624,7 @@ async function initAllServices() {
   let lastConnectivityMode = 'green';
   function scheduleConnectivityCheck() {
     if (syncInterval) clearInterval(syncInterval);
-    const interval = lastConnectivityMode === 'green' ? 30000 : 15000;
+    const interval = lastConnectivityMode === 'green' ? 15000 : 8000;
     appLogger.info('Connectivity', `Check interval set to ${interval / 1000}s (mode: ${lastConnectivityMode})`);
     syncInterval = setInterval(async () => {
       await checkConnectivity();
