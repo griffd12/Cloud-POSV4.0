@@ -1034,10 +1034,12 @@ class OfflineApiInterceptor {
           item.voided = true;
           item.voidedAt = new Date().toISOString();
           item.voidReason = body?.reason || 'Offline void';
+          if (!c.voidedItems) c.voidedItems = [];
+          c.voidedItems.push({ ...item });
         }
-        c.items = c.items.filter(i => !i.voided);
+        const activeItems = c.items.filter(i => !i.voided);
         let subtotal = 0;
-        c.items.forEach(i => {
+        activeItems.forEach(i => {
           subtotal += parseFloat(i.totalPrice || i.unitPrice || 0) * (i.quantity || 1);
         });
         c.subtotal = subtotal.toFixed(2);
@@ -1213,7 +1215,8 @@ class OfflineApiInterceptor {
 
   _recalcCheckTotals(check) {
     let subtotal = 0;
-    (check.items || []).forEach(i => {
+    const activeItems = (check.items || []).filter(i => !i.voided);
+    activeItems.forEach(i => {
       subtotal += parseFloat(i.totalPrice || i.unitPrice || 0) * (i.quantity || 1);
     });
     check.subtotal = subtotal.toFixed(2);
