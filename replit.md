@@ -1,4 +1,4 @@
-# Cloud POS System — V3.1.5
+# Cloud POS System — V3.1.6
 
 ## Overview
 This project is an enterprise cloud-based Point of Sale (POS) system for Quick Service Restaurants (QSRs) in high-volume environments. It provides a scalable solution with extensive administrative configuration and real-time operational features, supporting a multi-property hierarchy, KDS integration, and enterprise functionalities like fiscal close, cash management, gift cards, loyalty, inventory, forecasting, and online ordering integration. The system uses a Simphony-class design for configuration inheritance with override capabilities and offers an optional Central Application Processing Service (CAPS) for hybrid cloud/on-premise offline resilience. Its vision is to be a highly flexible and reliable POS system for various QSR operations, ensuring continuous service even offline, and supporting both web and native applications (Android & Windows).
@@ -87,3 +87,13 @@ Preferred communication style: Simple, everyday language.
 - `Promise.race` backup on `electronNet.fetch` in case `AbortSignal.timeout` is ignored
 - All frontend raw `fetch()` calls have 5-second AbortController timeouts
 - Offline handlers exist for: auth/login, time-punches/status, employees/job-codes, heartbeat, checks, payments, workstation context, break-rules, health
+
+### Offline Mode (v3.1.6) — Full POS FOH Support
+- Clock In/Out button reactively hidden when offline (uses `onOfflineModeChange` listener)
+- Clock-in, scheduling, and labor features completely disabled in offline/standalone mode
+- New offline handlers: cash-drawer-kick, capture-with-tip, check-payments void, service-charge void, customer removal, service charges GET, client-ip GET
+- Card processing / Stripe / terminal sessions return clear "requires cloud" error offline
+- Check merge / loyalty earn return clear "requires cloud" error offline
+- External payment recording queued for sync when back online
+- Service charges fetch has 5-second timeout with try/catch fallback to empty array
+- Expanded write/delete endpoint whitelists to cover all POS operations

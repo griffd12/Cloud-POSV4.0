@@ -809,9 +809,17 @@ export default function PosPage() {
     queryKey: ["/api/checks", currentCheck?.id, "service-charges"],
     queryFn: async () => {
       if (!currentCheck?.id) return [];
-      const res = await fetch(`/api/checks/${currentCheck.id}/service-charges`);
-      if (!res.ok) return [];
-      return res.json();
+      const scController = new AbortController();
+      const scTimeout = setTimeout(() => scController.abort(), 5000);
+      try {
+        const res = await fetch(`/api/checks/${currentCheck.id}/service-charges`, { signal: scController.signal });
+        clearTimeout(scTimeout);
+        if (!res.ok) return [];
+        return res.json();
+      } catch {
+        clearTimeout(scTimeout);
+        return [];
+      }
     },
     enabled: !!currentCheck?.id,
   });
