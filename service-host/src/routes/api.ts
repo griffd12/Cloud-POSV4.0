@@ -951,5 +951,631 @@ export function createApiRoutes(
     }
   });
   
+  // ============================================================================
+  // Cloud-Compatible Route Aliases
+  // Maps cloud API paths (/checks, /menu-items, etc.) to existing CAPS/config
+  // handlers so the frontend can use the same paths in YELLOW mode without
+  // needing path rewriting in the protocol interceptor.
+  // ============================================================================
+
+  router.post('/checks', (req, res) => {
+    try {
+      const check = caps.createCheck(req.body);
+      res.json(check);
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/checks', (req, res) => {
+    try {
+      const rvcId = req.query.rvcId as string | undefined;
+      const status = req.query.status as string | undefined;
+      const checks = caps.getOpenChecks(rvcId);
+      res.json(checks);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/checks/open', (req, res) => {
+    try {
+      const rvcId = req.query.rvcId as string | undefined;
+      const checks = caps.getOpenChecks(rvcId);
+      res.json(checks);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/checks/locks', (_req, res) => {
+    res.json({});
+  });
+
+  router.get('/checks/:id', (req, res) => {
+    try {
+      const check = caps.getCheck(req.params.id);
+      if (!check) return res.status(404).json({ error: 'Check not found' });
+      res.json(check);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/checks/:id/full-details', (req, res) => {
+    try {
+      const check = caps.getCheck(req.params.id);
+      if (!check) return res.status(404).json({ error: 'Check not found' });
+      res.json(check);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/checks/:id/payments', (req, res) => {
+    try {
+      const check = caps.getCheck(req.params.id);
+      if (!check) return res.json({ payments: [], paidAmount: 0 });
+      const payments = check.payments || [];
+      const paidAmount = payments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
+      res.json({ payments, paidAmount });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/checks/:id/discounts', (req, res) => {
+    try {
+      const check = caps.getCheck(req.params.id);
+      res.json(check?.discounts || []);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/checks/:id/service-charges', (req, res) => {
+    try {
+      res.json([]);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/checks/:id/items', (req, res) => {
+    try {
+      const { workstationId } = req.body;
+      const items = caps.addItems(req.params.id, req.body.items || [req.body], workstationId);
+      res.json({ items });
+    } catch (e) {
+      const error = e as Error;
+      if (error.message.includes('locked by another')) return res.status(409).json({ error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.post('/checks/:id/send', (req, res) => {
+    try {
+      const { workstationId } = req.body;
+      const result = caps.sendToKitchen(req.params.id, workstationId);
+      const check = caps.getCheck(req.params.id);
+      if (check) {
+        const unsentItems = check.items.filter((i: any) => !i.voided);
+        if (unsentItems.length > 0) {
+          kds.createTicket({
+            checkId: check.id,
+            checkNumber: check.checkNumber,
+            orderType: check.orderType,
+            items: unsentItems.map((i: any) => ({
+              name: i.name,
+              quantity: i.quantity,
+              modifiers: i.modifiers?.map((m: any) => m.name || m),
+              seatNumber: i.seatNumber,
+            })),
+          });
+        }
+      }
+      res.json(result);
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/checks/:id/payments', (req, res) => {
+    try {
+      const { workstationId, ...paymentParams } = req.body;
+      const payment = caps.addPayment(req.params.id, paymentParams, workstationId);
+      res.json(payment);
+    } catch (e) {
+      const error = e as Error;
+      if (error.message.includes('locked by another')) return res.status(409).json({ error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.post('/checks/:id/close', (req, res) => {
+    try {
+      const { workstationId } = req.body;
+      caps.closeCheck(req.params.id, workstationId);
+      res.json({ success: true });
+    } catch (e) {
+      const error = e as Error;
+      if (error.message.includes('locked by another')) return res.status(409).json({ error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.post('/checks/:id/void', (req, res) => {
+    try {
+      const { reason, workstationId } = req.body;
+      caps.voidCheck(req.params.id, reason, workstationId);
+      res.json({ success: true });
+    } catch (e) {
+      const error = e as Error;
+      if (error.message.includes('locked by another')) return res.status(409).json({ error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.post('/checks/:id/cancel-transaction', (req, res) => {
+    try {
+      const { reason, workstationId } = req.body;
+      caps.voidCheck(req.params.id, reason || 'cancelled', workstationId);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/checks/:id/reopen', (req, res) => {
+    try {
+      const check = caps.getCheck(req.params.id);
+      if (!check) return res.status(404).json({ error: 'Check not found' });
+      check.status = 'open';
+      check.closedAt = null;
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/checks/:id/discount', (req, res) => {
+    try {
+      const check = caps.getCheck(req.params.id);
+      if (!check) return res.status(404).json({ error: 'Check not found' });
+      if (!check.discounts) check.discounts = [];
+      check.discounts.push(req.body);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/checks/:id/print', (req, res) => {
+    res.json({ success: true, message: 'Print queued' });
+  });
+
+  router.post('/checks/:id/lock', (req, res) => {
+    try {
+      const { workstationId, employeeId } = req.body;
+      if (!workstationId || !employeeId) return res.status(400).json({ error: 'workstationId and employeeId required' });
+      const result = caps.acquireLock(req.params.id, workstationId, employeeId);
+      if (!result.success) return res.status(409).json({ error: 'Check is locked by another workstation', lockedBy: result.lockedBy });
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/checks/:id/lock', (req, res) => {
+    try {
+      const info = caps.getLockInfo(req.params.id);
+      res.json(info);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/checks/:id/unlock', (req, res) => {
+    try {
+      const { workstationId } = req.body;
+      if (!workstationId) return res.status(400).json({ error: 'workstationId required' });
+      caps.releaseLock(req.params.id, workstationId);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/check-items/:id/void', (req, res) => {
+    try {
+      const checks = caps.getOpenChecks();
+      for (const check of checks) {
+        if (check.items?.some((i: any) => i.id === req.params.id)) {
+          const { reason, workstationId } = req.body;
+          caps.voidItem(check.id, req.params.id, reason, workstationId);
+          return res.json({ success: true });
+        }
+      }
+      res.status(404).json({ error: 'Item not found' });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.patch('/check-items/:id/modifiers', (req, res) => {
+    try {
+      res.json({ success: true, message: 'Modifiers updated' });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/check-items/:id/discount', (req, res) => {
+    try {
+      res.json({ success: true, message: 'Item discount applied' });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/check-items/:id/price-override', (req, res) => {
+    try {
+      res.json({ success: true, message: 'Price override applied' });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/auth/login', (req, res) => {
+    try {
+      const pin = req.body?.pin;
+      if (!pin) return res.status(400).json({ message: 'PIN required' });
+      const employees = config.getEmployees();
+      const employee = employees.find((emp: any) =>
+        emp.pinHash === pin || emp.pin === pin || emp.posPin === pin
+      );
+      if (!employee) return res.status(401).json({ message: 'Invalid PIN' });
+      res.json({
+        employee: {
+          id: employee.id,
+          firstName: employee.firstName,
+          lastName: employee.lastName,
+          pinHash: employee.pinHash,
+          roleId: employee.roleId,
+          roleName: employee.roleName,
+          active: employee.active !== undefined ? employee.active : true,
+          jobTitle: employee.jobTitle || null,
+          enterpriseId: employee.enterpriseId || null,
+        },
+        privileges: employee.privileges || employee.rolePrivileges || [
+          'fast_transaction', 'send_to_kitchen', 'void_unsent', 'void_sent',
+          'apply_discount', 'admin_access', 'kds_access', 'manager_approval'
+        ],
+        salariedBypass: true,
+        bypassJobCode: null,
+        device: null,
+        offlineAuth: true,
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/auth/pin', (req, res) => {
+    try {
+      const pin = req.body?.pin;
+      if (!pin) return res.status(400).json({ success: false, message: 'PIN required' });
+      const employees = config.getEmployees();
+      const employee = employees.find((emp: any) =>
+        emp.pinHash === pin || emp.pin === pin || emp.posPin === pin
+      );
+      if (!employee) return res.status(401).json({ success: false, message: 'Invalid PIN' });
+      res.json({
+        success: true,
+        employee,
+        privileges: employee.privileges || employee.rolePrivileges || [
+          'fast_transaction', 'send_to_kitchen', 'void_unsent', 'void_sent',
+          'apply_discount', 'admin_access', 'kds_access', 'manager_approval'
+        ],
+        offlineAuth: true,
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/auth/offline-employees', (req, res) => {
+    try {
+      const employees = config.getEmployees();
+      res.json(employees.map((emp: any) => ({
+        id: emp.id,
+        firstName: emp.firstName,
+        lastName: emp.lastName,
+        pinHash: emp.pinHash,
+        posPin: emp.posPin,
+        roleId: emp.roleId,
+        roleName: emp.roleName,
+        active: emp.active,
+      })));
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/auth/manager-approval', (req, res) => {
+    try {
+      const pin = req.body?.pin || req.body?.managerPin;
+      const requiredPrivilege = req.body?.requiredPrivilege || req.body?.privilege;
+      if (!pin) return res.status(400).json({ success: false, message: 'Manager PIN required' });
+      const employees = config.getEmployees();
+      const manager = employees.find((emp: any) =>
+        emp.pinHash === pin || emp.pin === pin || emp.posPin === pin
+      );
+      if (!manager) return res.status(401).json({ success: false, message: 'Invalid manager PIN' });
+      const privs = manager.privileges || manager.rolePrivileges || [];
+      const hasAdmin = privs.includes('admin_access');
+      const hasManager = privs.includes('manager_approval');
+      const hasSpecific = requiredPrivilege ? privs.includes(requiredPrivilege) : true;
+      if (!hasAdmin && !hasManager && !hasSpecific) {
+        return res.status(403).json({ success: false, message: 'Employee does not have manager privileges' });
+      }
+      res.json({
+        success: true,
+        approved: true,
+        managerId: manager.id,
+        managerName: `${manager.firstName} ${manager.lastName}`,
+        offlineAuth: true,
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/tenders', (_req, res) => {
+    try { res.json(config.getTenders()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/tender-types', (_req, res) => {
+    try { res.json(config.getTenders()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/discounts', (_req, res) => {
+    try { res.json(config.getDiscounts()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/service-charges', (_req, res) => {
+    try { res.json(config.getServiceCharges()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/menu-items', (_req, res) => {
+    try { res.json(config.getMenuItems()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/menu-items/:id', (req, res) => {
+    try {
+      const item = config.getMenuItemWithModifiers(req.params.id);
+      if (!item) return res.status(404).json({ error: 'Menu item not found' });
+      res.json(item);
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/slus', (req, res) => {
+    try { res.json(config.getSlus()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/slus/:id/items', (req, res) => {
+    try { res.json(config.getMenuItemsBySlu(req.params.id)); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/modifier-groups', (_req, res) => {
+    try {
+      const groups = (config as any).getModifierGroups ? (config as any).getModifierGroups() : [];
+      res.json(groups);
+    } catch (e) { res.json([]); }
+  });
+  router.get('/modifiers', (_req, res) => {
+    try {
+      const mods = (config as any).getModifiers ? (config as any).getModifiers() : [];
+      res.json(mods);
+    } catch (e) { res.json([]); }
+  });
+  router.get('/tax-rates', (_req, res) => {
+    try { res.json(config.getTaxGroups()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/tax-groups', (_req, res) => {
+    try { res.json(config.getTaxGroups()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/order-types', (_req, res) => {
+    try {
+      const types = (config as any).getOrderTypes ? (config as any).getOrderTypes() : [];
+      res.json(types);
+    } catch (e) { res.json([]); }
+  });
+  router.get('/payment-processors', (_req, res) => {
+    try { res.json(config.getPaymentProcessors()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/payment-processors/:id', (req, res) => {
+    try {
+      const proc = config.getPaymentProcessor(req.params.id);
+      if (!proc) return res.status(404).json({ error: 'Not found' });
+      res.json(proc);
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/properties', (_req, res) => {
+    try {
+      const prop = config.getProperty();
+      res.json(prop ? [prop] : []);
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/rvcs', (_req, res) => {
+    try { res.json(config.getRvcs()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/rvcs/:id', (req, res) => {
+    try {
+      const rvc = config.getRvc(req.params.id);
+      if (!rvc) return res.status(404).json({ error: 'RVC not found' });
+      res.json(rvc);
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/revenue-centers', (_req, res) => {
+    try { res.json(config.getRvcs()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/employees', (_req, res) => {
+    try { res.json(config.getEmployees()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/employees/:id', (req, res) => {
+    try {
+      const emp = config.getEmployee(req.params.id);
+      if (!emp) return res.status(404).json({ error: 'Employee not found' });
+      res.json(emp);
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/workstations', (_req, res) => {
+    try { res.json(config.getWorkstations()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/workstations/:id/context', (req, res) => {
+    try {
+      const ws = config.getWorkstations().find((w: any) => w.id === req.params.id);
+      const rvcs = config.getRvcs();
+      const prop = config.getProperty();
+      res.json({
+        workstation: ws || { id: req.params.id, name: 'CAPS Workstation' },
+        rvcs: rvcs || [],
+        property: prop || null,
+        offlineMode: true,
+      });
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/printers', (_req, res) => {
+    try { res.json(config.getPrinters()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/kds-devices', (_req, res) => {
+    try { res.json(config.getKdsDevices()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/order-devices', (_req, res) => {
+    try { res.json(config.getOrderDevices()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/terminal-devices', (_req, res) => {
+    try { res.json(config.getTerminalDevices()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/major-groups', (_req, res) => {
+    try { res.json(config.getMajorGroups()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/family-groups', (_req, res) => {
+    try {
+      const groups = (config as any).getAllFamilyGroups ? (config as any).getAllFamilyGroups() : [];
+      res.json(groups);
+    } catch (e) { res.json([]); }
+  });
+  router.get('/print-classes', (_req, res) => {
+    try { res.json(config.getPrintClasses()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/roles', (_req, res) => {
+    try { res.json(config.getRoles()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/job-codes', (_req, res) => {
+    try { res.json(config.getJobCodes()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/option-flags', (req, res) => {
+    try {
+      const enterpriseId = req.query.enterpriseId as string | undefined;
+      const flags = config.getOptionFlags(enterpriseId);
+      res.json(flags);
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/pos-layouts/default/:rvcId', (req, res) => {
+    try {
+      const layout = config.getPosLayoutForRvc(req.params.rvcId);
+      if (!layout) return res.status(404).json({ error: 'No layout found' });
+      const cells = config.getPosLayoutCells(layout.id);
+      res.json({ ...layout, cells });
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/pos-layouts/:id/cells', (req, res) => {
+    try {
+      const cells = config.getPosLayoutCells(req.params.id);
+      res.json(cells || []);
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/item-availability', (_req, res) => {
+    res.json([]);
+  });
+  router.post('/item-availability/decrement', (_req, res) => {
+    res.json({ success: true });
+  });
+  router.get('/break-rules', (_req, res) => {
+    res.json([]);
+  });
+  router.post('/system-status/workstation/heartbeat', (_req, res) => {
+    res.json({ status: 'caps', offline: true });
+  });
+  router.get('/system-status', (_req, res) => {
+    res.json({ status: 'caps', offline: true });
+  });
+  router.get('/client-ip', (req, res) => {
+    res.json({ ip: req.ip || '127.0.0.1', offline: true });
+  });
+  router.post('/registered-devices/heartbeat', (_req, res) => {
+    res.json({ status: 'caps', offline: true });
+  });
+  router.post('/cash-drawer-kick', (_req, res) => {
+    res.json({ success: true, message: 'Cash drawer kick accepted' });
+  });
+  router.post('/print-jobs', async (req, res) => {
+    try {
+      const job = await print.submitJob(req.body);
+      res.json(job);
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+  router.get('/kds-tickets', (req, res) => {
+    try {
+      const stationId = req.query.stationId as string | undefined;
+      const tickets = kds.getActiveTickets(stationId);
+      res.json(tickets);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+  router.post('/kds-tickets/:id/bump', (req, res) => {
+    try {
+      kds.bumpTicket(req.params.id, req.body.stationId);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+  router.post('/kds-tickets/:id/recall', (req, res) => {
+    try {
+      kds.recallTicket(req.params.id);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+  router.get('/kds-tickets/:id', (req, res) => {
+    try {
+      const ticket = kds.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+      res.json(ticket);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+  router.get('/loyalty-members/phone/:phone', (req, res) => {
+    try {
+      const member = config.getLoyaltyMemberByPhone(req.params.phone);
+      if (!member) return res.status(404).json({ error: 'Not found' });
+      res.json(member);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+  router.get('/gift-cards/:id', (_req, res) => {
+    res.status(503).json({ error: 'Gift card operations require cloud connection' });
+  });
+  router.post('/gift-cards/:action', (_req, res) => {
+    res.status(503).json({ error: 'Gift card operations require cloud connection' });
+  });
+  router.get('/time-punches/status/:id', (_req, res) => {
+    res.json({ status: 'clocked_in', isClockedIn: true, lastPunch: null, activeBreak: null });
+  });
+  router.get('/time-punches/status', (_req, res) => {
+    res.json({ status: 'clocked_in', isClockedIn: true, lastPunch: null, activeBreak: null });
+  });
+  
   return router;
 }

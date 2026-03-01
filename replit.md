@@ -7,6 +7,15 @@ This project is an enterprise cloud-based Point of Sale (POS) system designed fo
 Preferred communication style: Simple, everyday language.
 - **Release Notes Requirement**: Whenever a new Electron installer version is created (version bump in `electron/electron-builder.json`), always generate release notes summarizing all changes included in that version. Format them for use as GitHub Release descriptions.
 - **Database Schema Documentation**: The file `DATABASE_SCHEMA.md` in the project root is a living reference document that must be kept up to date whenever any database schema changes are made (new tables, columns, constraints, indexes, or relationship changes).
+- **MANDATORY: System-Wide Thinking**: Every change, bug fix, or feature MUST be evaluated for its impact across the ENTIRE system — not just the immediate component. Before making any change, always ask and answer:
+  1. **All device types**: Does this affect WS (POS terminals), KDS (kitchen displays), and any future device types?
+  2. **All connection modes**: Does this work in GREEN (cloud), YELLOW (CAPS/service host), and RED (full offline) modes?
+  3. **Multi-workstation**: Does this work when multiple workstations are connected? What about WS02+ connecting to CAPS over LAN?
+  4. **All POS functions**: Beyond the immediate fix, what other operations could break? Check: login, ring items, modifiers, discounts, payments, voids, cancels, reopens, splits, merges, transfers, send-to-kitchen, KDS bump/recall, print, gift cards, loyalty, manager approvals, reports.
+  5. **Logging**: Can we see what happened in the logs when something goes wrong? Every offline request must be logged with method, path, and response status.
+  6. **Data sync**: When connectivity restores, will offline operations sync correctly to the cloud? Are they queued properly?
+  7. **Error recovery**: What happens if this operation fails? Does the user see a clear error, or does the UI freeze/break silently?
+  Never fix a single symptom in isolation. Always trace the full impact chain.
 
 ## System Architecture
 
@@ -44,6 +53,7 @@ Preferred communication style: Simple, everyday language.
 - **Offline Mode Resilience**: Features protocol interceptors, cached HTML/JS/CSS, and robust handling of offline transactions and manager approvals. CAPS auto-discovery and Yellow Mode provide seamless failover, while an immutable transaction journal ensures data integrity during synchronization.
 - **Workstation Identity and RVC Switching**: Workstation ID is locked after setup, and the login screen allows interactive Revenue Center selection.
 - **Device Tracker**: Unified device tracking for both WS and KDS Electron devices. KDS devices automatically tracked via ticket polling (kdsDeviceId fallback), WS devices tracked from login screen heartbeat. DeviceTracker summary shows device type (WS/KDS) and connection mode. Throttled DB writes (30s) to avoid excessive updates from 2s KDS polling.
+- **CAPS Service Host Resilience**: Service host SQLite schema creation uses `ensureCriticalTables()` fallback to individually create essential tables (schema_version, sync_metadata, config_cache, sync_queue) if the main schema exec partially fails. Critical tables are also ensured in the Database constructor (not just `initialize()`) so they exist before ConfigSync or other constructors query them. Missing token triggers exit code 2 with patient 60-second retry instead of 5-second crash loop. Token is fetched fresh from cloud on each startup if missing from local config. Service host logger resolves log directory from `SERVICE_HOST_DATA_DIR` env var to avoid EPERM errors when running from Program Files.
 
 ## External Dependencies
 
