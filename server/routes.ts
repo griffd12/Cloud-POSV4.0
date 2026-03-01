@@ -17709,16 +17709,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const devices = await storage.getRegisteredDevices();
       const properties = await storage.getProperties();
+      const allWorkstations = await storage.getWorkstations();
       
-      // Consider a device connected if last access was within 5 minutes
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       
       const summary = devices.map(d => {
         let status: 'connected' | 'pending' | 'disconnected';
         
+        const linkedWs = d.workstationId
+          ? allWorkstations.find(ws => ws.id === d.workstationId)
+          : undefined;
+        
+        const deviceLastSeen = d.lastAccessAt ? new Date(d.lastAccessAt) : null;
+        const wsLastSeen = linkedWs?.lastSeenAt ? new Date(linkedWs.lastSeenAt) : null;
+        const effectiveLastSeen = [deviceLastSeen, wsLastSeen]
+          .filter((t): t is Date => t !== null)
+          .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+        
         if (d.status === 'pending') {
           status = 'pending';
-        } else if (d.status === 'enrolled' && d.lastAccessAt && new Date(d.lastAccessAt) > fiveMinutesAgo) {
+        } else if (d.status === 'enrolled' && effectiveLastSeen && effectiveLastSeen > fiveMinutesAgo) {
           status = 'connected';
         } else if (d.status === 'enrolled') {
           status = 'disconnected';
@@ -17728,12 +17738,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         
         const property = properties.find(p => p.id === d.propertyId);
         
+        const lastHeartbeatAge = effectiveLastSeen
+          ? Math.round((Date.now() - effectiveLastSeen.getTime()) / 1000)
+          : null;
+        
         return {
           id: d.id,
           name: d.name,
           type: d.deviceType === 'kds_display' ? 'kds' : 'workstation',
           status,
-          lastSeen: d.lastAccessAt,
+          lastSeen: effectiveLastSeen?.toISOString() || d.lastAccessAt,
+          lastHeartbeatAge,
+          connectionMode: linkedWs?.isOnline ? 'green' : (status === 'connected' ? 'unknown' : null),
+          ipAddress: linkedWs?.ipAddress || d.ipAddress || null,
+          osInfo: d.osInfo || null,
+          workstationId: d.workstationId || null,
+          workstationName: linkedWs?.name || null,
           propertyId: d.propertyId,
           propertyName: property?.name || 'Unknown',
         };
@@ -17790,10 +17810,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(401).json({ message: "Invalid device token" });
       }
       
-      // Update last access time
       await storage.updateRegisteredDevice(device.id, {
         lastAccessAt: new Date(),
       });
+      
+      console.log(`[DeviceTracker] Device heartbeat: ${device.name} (${device.id})`);
       
       res.json({ success: true, timestamp: new Date().toISOString() });
     } catch (error) {
@@ -25564,7 +25585,6 @@ connect();
         return res.status(400).json({ error: "workstationId is required" });
       }
 
-      // Update workstation status in database
       const workstation = await storage.getWorkstation(workstationId);
       if (workstation) {
         const wasOffline = !workstation.isOnline;
@@ -25574,10 +25594,19 @@ connect();
           ipAddress: ipAddress || workstation.ipAddress,
         });
         
-        // Broadcast status update to connected clients
+        console.log(`[DeviceTracker] WS heartbeat: ${workstation.name} (${workstationId}) mode=${connectionMode || 'unknown'}`);
+        
+        const devices = await storage.getRegisteredDevices();
+        const linkedDevice = devices.find(d => d.workstationId === workstationId && d.status === 'enrolled');
+        if (linkedDevice) {
+          await storage.updateRegisteredDevice(linkedDevice.id, {
+            lastAccessAt: new Date(),
+            ipAddress: ipAddress || linkedDevice.ipAddress,
+          });
+        }
+        
         broadcastDeviceStatus('workstation', workstationId, 'online', workstation.propertyId);
         
-        // If device came back online, broadcast a recovery alert
         if (wasOffline) {
           broadcastAlert({
             id: `ws-online-${workstationId}`,
@@ -25864,6 +25893,46 @@ connect();
       // Ignore recovery errors
     }
   }, 30 * 1000);
+
+  // Periodic device status summary - every 60 seconds
+  setInterval(async () => {
+    try {
+      const devices = await storage.getRegisteredDevices();
+      const workstations = await storage.getWorkstations();
+      if (devices.length === 0) return;
+      
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const online: string[] = [];
+      const disconnected: string[] = [];
+      const pending: string[] = [];
+      
+      for (const d of devices) {
+        if (d.status === 'pending') {
+          pending.push(d.name);
+          continue;
+        }
+        const linkedWs = d.workstationId ? workstations.find(ws => ws.id === d.workstationId) : undefined;
+        const deviceLastSeen = d.lastAccessAt ? new Date(d.lastAccessAt) : null;
+        const wsLastSeen = linkedWs?.lastSeenAt ? new Date(linkedWs.lastSeenAt) : null;
+        const latest = [deviceLastSeen, wsLastSeen].filter((t): t is Date => t !== null).sort((a, b) => b.getTime() - a.getTime())[0];
+        
+        if (latest && latest > fiveMinutesAgo) {
+          const mode = linkedWs?.isOnline ? 'green' : '?';
+          online.push(`${d.name}(${mode})`);
+        } else {
+          disconnected.push(d.name);
+        }
+      }
+      
+      const parts: string[] = [];
+      if (online.length > 0) parts.push(`Online: ${online.join(', ')}`);
+      if (disconnected.length > 0) parts.push(`Disconnected: ${disconnected.join(', ')}`);
+      if (pending.length > 0) parts.push(`Pending: ${pending.join(', ')}`);
+      console.log(`[DeviceTracker] ${parts.join(' | ')}`);
+    } catch (e) {
+      // Ignore tracker errors
+    }
+  }, 60 * 1000);
 
   return httpServer;
 }

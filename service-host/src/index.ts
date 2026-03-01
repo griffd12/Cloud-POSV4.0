@@ -36,6 +36,88 @@ import { createAuthMiddleware, createPropertyScopeMiddleware } from './middlewar
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+interface TrackedDevice {
+  deviceId: string;
+  deviceName: string;
+  lastSeen: number;
+  requestCount: number;
+}
+
+class CapsDeviceTracker {
+  private devices: Map<string, TrackedDevice> = new Map();
+  private startTime: number = Date.now();
+  private logInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly ACTIVE_THRESHOLD_MS = 5 * 60 * 1000;
+
+  trackDevice(deviceId: string, deviceName: string): void {
+    const existing = this.devices.get(deviceId);
+    if (existing) {
+      existing.lastSeen = Date.now();
+      existing.requestCount++;
+      existing.deviceName = deviceName || existing.deviceName;
+    } else {
+      this.devices.set(deviceId, {
+        deviceId,
+        deviceName: deviceName || deviceId,
+        lastSeen: Date.now(),
+        requestCount: 1,
+      });
+    }
+  }
+
+  getConnectedDevices(): Array<TrackedDevice & { status: string }> {
+    const now = Date.now();
+    const result: Array<TrackedDevice & { status: string }> = [];
+    for (const device of this.devices.values()) {
+      const age = now - device.lastSeen;
+      result.push({
+        ...device,
+        status: age <= this.ACTIVE_THRESHOLD_MS ? 'active' : 'stale',
+      });
+    }
+    return result;
+  }
+
+  getUptimeMinutes(): number {
+    return Math.floor((Date.now() - this.startTime) / 60000);
+  }
+
+  startPeriodicLog(): void {
+    this.logInterval = setInterval(() => {
+      const now = Date.now();
+      const active: string[] = [];
+      const stale: string[] = [];
+      for (const device of this.devices.values()) {
+        const age = now - device.lastSeen;
+        if (age <= this.ACTIVE_THRESHOLD_MS) {
+          active.push(`${device.deviceName}(active)`);
+        } else {
+          stale.push(device.deviceName);
+        }
+      }
+      const parts: string[] = [];
+      if (active.length > 0) {
+        parts.push(`Connected devices: ${active.join(', ')}`);
+      }
+      if (stale.length > 0) {
+        parts.push(`Stale: ${stale.join(', ')}`);
+      }
+      if (parts.length === 0) {
+        parts.push('No devices tracked');
+      }
+      parts.push(`CAPS uptime: ${this.getUptimeMinutes()}min`);
+      console.log(`[CAPS] ${parts.join(' | ')}`);
+    }, 60_000);
+  }
+
+  stop(): void {
+    if (this.logInterval) {
+      clearInterval(this.logInterval);
+      this.logInterval = null;
+    }
+  }
+}
+
 interface Config {
   cloudUrl: string;
   token: string;
@@ -125,6 +207,7 @@ class ServiceHost {
   private printController: PrintController;
   private kdsController: KdsController;
   private paymentController: PaymentController;
+  private deviceTracker: CapsDeviceTracker;
   
   constructor(config: Config) {
     this.config = config;
@@ -151,6 +234,9 @@ class ServiceHost {
     this.kdsController = new KdsController(this.db);
     this.paymentController = new PaymentController(this.db, this.transactionSync);
     
+    // Initialize CAPS device tracker
+    this.deviceTracker = new CapsDeviceTracker();
+    
     // Initialize Express app
     this.app = express();
     this.app.use(express.json());
@@ -159,9 +245,25 @@ class ServiceHost {
     this.app.use((req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Device-Token, X-Workstation-Id');
       if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
+      }
+      next();
+    });
+    
+    // CAPS device tracking middleware — logs incoming requests with device identity
+    this.app.use((req, res, next) => {
+      if (req.path === '/health' || req.method === 'OPTIONS') {
+        return next();
+      }
+      const deviceToken = req.headers['x-device-token'] as string | undefined;
+      const workstationId = req.headers['x-workstation-id'] as string | undefined;
+      const deviceId = deviceToken || workstationId;
+      if (deviceId) {
+        const deviceName = (req.headers['x-device-name'] as string) || deviceId;
+        this.deviceTracker.trackDevice(deviceId, deviceName);
+        console.log(`[CAPS] Request: ${req.method} ${req.path} from ${deviceName} (${deviceToken ? 'token' : 'wsId'}=${deviceId})`);
       }
       next();
     });
@@ -176,6 +278,18 @@ class ServiceHost {
         propertyId: this.config.propertyId,
         uptime: process.uptime(),
         installedPackages: this.calSync.getInstalledPackages(),
+      });
+    });
+    
+    // CAPS connected devices endpoint (unauthenticated for local network visibility)
+    this.app.get('/api/caps/connected-devices', (req, res) => {
+      const devices = this.deviceTracker.getConnectedDevices();
+      res.json({
+        serviceHostId: this.config.serviceHostId,
+        uptimeMinutes: this.deviceTracker.getUptimeMinutes(),
+        devices,
+        totalTracked: devices.length,
+        activeCount: devices.filter(d => d.status === 'active').length,
       });
     });
     
@@ -300,6 +414,10 @@ class ServiceHost {
     // Start transaction sync worker
     this.transactionSync.startWorker();
     
+    // Start CAPS device tracker periodic logging
+    this.deviceTracker.startPeriodicLog();
+    console.log('CAPS device tracker started');
+    
     // Start HTTP server
     this.server.listen(this.config.port, '0.0.0.0', () => {
       console.log('');
@@ -315,6 +433,7 @@ class ServiceHost {
       console.log('  POST /api/print/jobs      - Submit print job');
       console.log('  GET  /api/kds/tickets     - Get KDS tickets');
       console.log('  POST /api/payment/authorize - Authorize payment');
+      console.log('  GET  /api/caps/connected-devices - CAPS device tracker');
       console.log('  WS   /ws                  - Real-time updates');
       console.log('');
     });
@@ -326,6 +445,7 @@ class ServiceHost {
   
   private shutdown() {
     console.log('\nShutting down Service Host...');
+    this.deviceTracker.stop();
     this.calSync.stop();
     this.transactionSync.stopWorker();
     this.cloudConnection.disconnect();

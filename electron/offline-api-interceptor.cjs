@@ -9,6 +9,24 @@ class OfflineApiInterceptor {
     this.serviceHostUrl = null;
     this.capsConfig = null;
     this._connectionMode = 'green';
+    this._statsRequests = 0;
+    this._statsGetRequests = 0;
+    this._statsPostRequests = 0;
+    this._statsOtherRequests = 0;
+  }
+
+  getAndResetStats() {
+    const stats = {
+      totalRequests: this._statsRequests,
+      getRequests: this._statsGetRequests,
+      postRequests: this._statsPostRequests,
+      otherRequests: this._statsOtherRequests,
+    };
+    this._statsRequests = 0;
+    this._statsGetRequests = 0;
+    this._statsPostRequests = 0;
+    this._statsOtherRequests = 0;
+    return stats;
   }
 
   setOffline(offline) {
@@ -138,13 +156,18 @@ class OfflineApiInterceptor {
   }
 
   handleRequest(method, pathname, query, body) {
+    this._statsRequests++;
     if (method === 'GET') {
+      this._statsGetRequests++;
       return this.handleGet(pathname, query);
     } else if (method === 'POST') {
+      this._statsPostRequests++;
       return this.handlePost(pathname, body);
     } else if (method === 'PUT' || method === 'PATCH') {
+      this._statsOtherRequests++;
       return this.handleUpdate(pathname, body);
     } else if (method === 'DELETE') {
+      this._statsOtherRequests++;
       return this.handleDelete(pathname);
     }
     return null;
