@@ -1,0 +1,53 @@
+[2026-03-01T09:04:58.589Z] [INFO ] [UPDATER     ] [Check] App is up to date (v3.1.10)
+[2026-03-01T09:05:01.978Z] [WARN ] [APP         ] [ServiceHost] Service host started but health check not responding yet
+[2026-03-01T09:05:02.803Z] [INFO ] [APP         ] [ServiceHost] Restarting service host after crash...
+[2026-03-01T09:05:02.807Z] [INFO ] [APP         ] [ServiceHost] Starting embedded service host (CAPS mode) | DATA: {"dataDir":"C:\\Users\\SNS-001\\AppData\\Local\\Cloud POS\\data\\service-host","port":3001,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev"}
+[2026-03-01T09:05:03.442Z] [WARN ] [APP         ] [ServiceHost] node:fs:1349
+  const result = binding.mkdir(
+                         ^
+
+Error: EPERM: operation not permitted, mkdir 'C:\Program Files\Cloud POS\Cloud POS\data\logs'
+    at mkdirSync (node:fs:1349:26)
+    at t.mkdirSync (node:electron/js2c/node_init:2:17243)
+    at _Logger.ensureLogDirectory (C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\service-host-embedded.cjs:32520:10)
+    at new _Logger (C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\service-host-embedded.cjs:32516:10)
+    at getLogger (C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\service-host-embedded.cjs:32661:21)
+    at Object.<anonymous> (C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\service-host-embedded.cjs:32673:14)
+    at Module._compile (node:internal/modules/cjs/loader:1769:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1902:10)
+    at Module.load (node:internal/modules/cjs/loader:1488:32)
+    at Module._load (node:internal/modules/cjs/loader:1307:12) {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'mkdir',
+  path: 'C:\\Program Files\\Cloud POS\\Cloud POS\\data\\logs'
+}
+
+Node.js v24.11.1
+[2026-03-01T09:05:03.455Z] [WARN ] [APP         ] [ServiceHost] Service host process exited | DATA: {"code":1,"signal":null}
+[2026-03-01T09:05:07.638Z] [WARN ] [APP         ] [ServiceHost] Service host started but health check not responding yet
+[2026-03-01T09:05:08.465Z] [INFO ] [APP         ] [ServiceHost] Restarting service host after crash...
+[2026-03-01T09:05:08.470Z] [INFO ] [APP         ] [ServiceHost] Starting embedded service host (CAPS mode) | DATA: {"dataDir":"C:\\Users\\SNS-001\\AppData\\Local\\Cloud POS\\data\\service-host","port":3001,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev"}
+[2026-03-01T09:05:09.094Z] [WARN ] [APP         ] [ServiceHost] node:fs:1349
+  const result = binding.mkdir(
+                         ^
+
+Error: EPERM: operation not permitted, mkdir 'C:\Program Files\Cloud POS\Cloud POS\data\logs'
+    at mkdirSync (node:fs:1349:26)
+    at t.mkdirSync (node:electron/js2c/node_init:2:17243)
+    at _Logger.ensureLogDirectory (C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\service-host-embedded.cjs:32520:10)
+    at new _Logger (C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\service-host-embedded.cjs:32516:10)
+    at getLogger (C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\service-host-embedded.cjs:32661:21)
+    at Object.<anonymous> (C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\service-host-embedded.cjs:32673:14)
+    at Module._compile (node:internal/modules/cjs/loader:1769:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1902:10)
+    at Module.load (node:internal/modules/cjs/loader:1488:32)
+    at Module._load (node:internal/modules/cjs/loader:1307:12) {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'mkdir',
+  path: 'C:\\Program Files\\Cloud POS\\Cloud POS\\data\\logs'
+}
+
+Node.js v24.11.1
+[2026-03-01T09:05:09.111Z] [WARN ] [APP         ] [ServiceHost] Service host process exited | DATA: {"code":1,"signal":null}
