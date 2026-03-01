@@ -811,10 +811,15 @@ export default function PosPage() {
       if (!currentCheck?.id) return [];
       const scController = new AbortController();
       const scTimeout = setTimeout(() => scController.abort(), 5000);
-      const res = await fetch(`/api/checks/${currentCheck.id}/service-charges`, { signal: scController.signal });
-      clearTimeout(scTimeout);
-      if (!res.ok) return [];
-      return res.json();
+      try {
+        const res = await fetch(`/api/checks/${currentCheck.id}/service-charges`, { signal: scController.signal });
+        clearTimeout(scTimeout);
+        if (!res.ok) return [];
+        return res.json();
+      } catch {
+        clearTimeout(scTimeout);
+        return [];
+      }
     },
     enabled: !!currentCheck?.id,
   });
