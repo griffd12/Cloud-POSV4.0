@@ -43,6 +43,7 @@ Preferred communication style: Simple, everyday language.
 - **Delivery Platform Integration APIs**: Direct API integrations with Uber Eats, DoorDash, and Grubhub.
 - **Offline Mode Resilience**: Features protocol interceptors, cached HTML/JS/CSS, and robust handling of offline transactions and manager approvals. CAPS auto-discovery and Yellow Mode provide seamless failover, while an immutable transaction journal ensures data integrity during synchronization.
 - **Workstation Identity and RVC Switching**: Workstation ID is locked after setup, and the login screen allows interactive Revenue Center selection.
+- **Device Tracker**: Unified device tracking for both WS and KDS Electron devices. KDS devices automatically tracked via ticket polling (kdsDeviceId fallback), WS devices tracked from login screen heartbeat. DeviceTracker summary shows device type (WS/KDS) and connection mode. Throttled DB writes (30s) to avoid excessive updates from 2s KDS polling.
 
 ## External Dependencies
 

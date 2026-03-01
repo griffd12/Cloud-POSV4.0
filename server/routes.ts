@@ -1042,6 +1042,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Track connected Service Hosts
   const connectedServiceHosts: Map<string, { ws: WebSocket; propertyId: string; lastHeartbeat: Date }> = new Map();
 
+  // Throttle KDS ticket poll heartbeat updates (polls every 2s, update DB every 30s)
+  const kdsHeartbeatThrottle: Map<string, number> = new Map();
+
   // Handle WebSocket upgrade requests manually to route to correct server
   httpServer.on("upgrade", (request, socket, head) => {
     const pathname = request.url?.split("?")[0];
@@ -7407,14 +7410,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     };
     
     // Update device lastAccessAt for connectivity tracking when device polls
+    // Throttle to once per 30 seconds per device to avoid excessive DB writes (polls every 2s)
+    const now = Date.now();
+    let deviceTracked = false;
     const deviceToken = req.headers["x-device-token"] as string;
     if (deviceToken) {
-      // Hash the token to match stored hash
       const crypto = await import("crypto");
       const deviceTokenHash = crypto.createHash("sha256").update(deviceToken).digest("hex");
       const device = await storage.getRegisteredDeviceByToken(deviceTokenHash);
       if (device) {
-        await storage.updateRegisteredDevice(device.id, { lastAccessAt: new Date() });
+        const lastUpdate = kdsHeartbeatThrottle.get(device.id) || 0;
+        if (now - lastUpdate > 30000) {
+          await storage.updateRegisteredDevice(device.id, { lastAccessAt: new Date() });
+          kdsHeartbeatThrottle.set(device.id, now);
+        }
+        deviceTracked = true;
+      }
+    }
+    if (!deviceTracked && filters.kdsDeviceId) {
+      const throttleKey = `kds_${filters.kdsDeviceId}`;
+      const lastUpdate = kdsHeartbeatThrottle.get(throttleKey) || 0;
+      if (now - lastUpdate > 30000) {
+        const allDevices = await storage.getRegisteredDevices();
+        const kdsRegistered = allDevices.find(d => d.kdsDeviceId === filters.kdsDeviceId && d.status !== 'revoked');
+        if (kdsRegistered) {
+          await storage.updateRegisteredDevice(kdsRegistered.id, { lastAccessAt: new Date() });
+          kdsHeartbeatThrottle.set(throttleKey, now);
+        }
       }
     }
     
@@ -25907,8 +25929,9 @@ connect();
       const pending: string[] = [];
       
       for (const d of devices) {
+        const typeLabel = d.deviceType === 'kds_display' ? 'KDS' : 'WS';
         if (d.status === 'pending') {
-          pending.push(d.name);
+          pending.push(`${d.name}(${typeLabel})`);
           continue;
         }
         const linkedWs = d.workstationId ? workstations.find(ws => ws.id === d.workstationId) : undefined;
@@ -25917,10 +25940,10 @@ connect();
         const latest = [deviceLastSeen, wsLastSeen].filter((t): t is Date => t !== null).sort((a, b) => b.getTime() - a.getTime())[0];
         
         if (latest && latest > fiveMinutesAgo) {
-          const mode = linkedWs?.isOnline ? 'green' : '?';
-          online.push(`${d.name}(${mode})`);
+          const mode = linkedWs?.isOnline ? 'green' : (d.deviceType === 'kds_display' ? 'active' : '?');
+          online.push(`${d.name}(${typeLabel}/${mode})`);
         } else {
-          disconnected.push(d.name);
+          disconnected.push(`${d.name}(${typeLabel})`);
         }
       }
       
