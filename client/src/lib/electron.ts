@@ -27,6 +27,7 @@ declare global {
         setupComplete?: boolean;
       }>;
       getOnlineStatus: () => Promise<boolean>;
+      getConnectionMode: () => Promise<string>;
       printRaw: (address: string, port: number, data: ArrayBuffer) => Promise<{ success: boolean; error?: string }>;
       printEscPos: (address: string, port: number, commands: EscPosCommand[]) => Promise<{ success: boolean; error?: string }>;
       getLocalPrinters: () => Promise<LocalPrinter[]>;
@@ -110,6 +111,7 @@ declare global {
       emvGetPendingPayments: () => Promise<OfflinePayment[]>;
       emvMarkPaymentSynced: (id: string) => Promise<{ success: boolean }>;
       onOnlineStatus: (callback: (status: boolean) => void) => () => void;
+      onConnectionMode: (callback: (mode: string) => void) => () => void;
       onSyncStatus: (callback: (status: { pending: number; lastSync: string }) => void) => () => void;
       onPrintAgentStatus: (callback: (status: PrintAgentStatus) => void) => () => void;
       onPrintAgentJobCompleted: (callback: (info: { jobId: string; printer: string }) => void) => () => void;

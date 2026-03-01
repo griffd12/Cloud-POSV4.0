@@ -109,11 +109,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   emvGetPendingPayments: () => ipcRenderer.invoke('emv-get-pending-payments'),
   emvMarkPaymentSynced: (id) => ipcRenderer.invoke('emv-mark-payment-synced', { id }),
 
+  getConnectionMode: () => ipcRenderer.invoke('get-connection-mode'),
+
   // === Event Listeners ===
   onOnlineStatus: (callback) => {
     const handler = (event, status) => callback(status);
     ipcRenderer.on('online-status', handler);
     return () => ipcRenderer.removeListener('online-status', handler);
+  },
+
+  onConnectionMode: (callback) => {
+    const handler = (event, mode) => callback(mode);
+    ipcRenderer.on('connection-mode', handler);
+    return () => ipcRenderer.removeListener('connection-mode', handler);
   },
 
   onSyncStatus: (callback) => {

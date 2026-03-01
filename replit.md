@@ -1,4 +1,4 @@
-# Cloud POS System — V3.1.6
+# Cloud POS System — V3.1.7
 
 ## Overview
 This project is an enterprise cloud-based Point of Sale (POS) system for Quick Service Restaurants (QSRs) in high-volume environments. It provides a scalable solution with extensive administrative configuration and real-time operational features, supporting a multi-property hierarchy, KDS integration, and enterprise functionalities like fiscal close, cash management, gift cards, loyalty, inventory, forecasting, and online ordering integration. The system uses a Simphony-class design for configuration inheritance with override capabilities and offers an optional Central Application Processing Service (CAPS) for hybrid cloud/on-premise offline resilience. Its vision is to be a highly flexible and reliable POS system for various QSR operations, ensuring continuous service even offline, and supporting both web and native applications (Android & Windows).
@@ -97,3 +97,12 @@ Preferred communication style: Simple, everyday language.
 - External payment recording queued for sync when back online
 - Service charges fetch has 5-second timeout with try/catch fallback to empty array
 - Expanded write/delete endpoint whitelists to cover all POS operations
+
+### Offline Mode (v3.1.7) — Split-Brain Fix
+- **Root cause fixed:** Frontend had three independent systems (queryClient, ConnectionModeContext, offline-status-banner) all competing to determine online/offline state, with none listening to Electron's authoritative IPC
+- `electron/preload.cjs`: Added `onConnectionMode` IPC listener and `getConnectionMode` invoke handler — renderer can now receive Electron's connection-mode events ('green'/'yellow'/'red')
+- `electron/main.cjs`: Added `get-connection-mode` IPC handler returning current `connectionMode`
+- `client/src/lib/queryClient.ts`: Added `electronOfflineLock` flag — when Electron says offline, fetch responses cannot override back to online. Added `X-Offline-Mode` and `X-Offline-Cache` header checks so interceptor-originated 200 responses don't trigger `setOfflineMode(false)`
+- `client/src/contexts/connection-mode-context.tsx`: When running in Electron, uses `onConnectionMode` IPC as single source of truth; HTTP polling completely disabled in Electron mode. `checkEndpoint()` checks for `X-Offline-Mode` header
+- `client/src/components/offline-status-banner.tsx`: `onOnlineStatus` IPC handler engages/releases `electronOfflineLock` directly
+- Architecture: Electron main → IPC `connection-mode` → ConnectionModeContext → `setElectronOfflineLock()` → queryClient locked — no split-brain possible

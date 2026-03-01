@@ -12,6 +12,7 @@ export function OfflineStatusBanner() {
 
   useEffect(() => {
     const w = window as any;
+    if (w.electronAPI?.onConnectionMode) return;
     if (w.electronAPI?.onOnlineStatus) {
       const unsub = w.electronAPI.onOnlineStatus((online: boolean) => {
         setOfflineModeExternal(!online);
@@ -22,6 +23,7 @@ export function OfflineStatusBanner() {
 
   useEffect(() => {
     const w = window as any;
+    if (w.electronAPI?.onConnectionMode) return;
     if (w.electronAPI?.getOnlineStatus) {
       w.electronAPI.getOnlineStatus().then((online: boolean) => {
         if (!online) {

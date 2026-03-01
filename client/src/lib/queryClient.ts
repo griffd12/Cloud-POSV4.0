@@ -7,6 +7,7 @@ const FETCH_TIMEOUT_MS = 8000;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 let isOfflineMode = false;
+let electronOfflineLock = false;
 let offlineListeners: ((offline: boolean) => void)[] = [];
 
 export function getIsOfflineMode() { return isOfflineMode; }
@@ -16,11 +17,30 @@ export function onOfflineModeChange(cb: (offline: boolean) => void) {
   return () => { offlineListeners = offlineListeners.filter(l => l !== cb); };
 }
 
+export function setElectronOfflineLock(locked: boolean) {
+  electronOfflineLock = locked;
+  logToElectron('INFO', 'NETWORK', 'Lock', `Electron offline lock: ${locked ? 'ENGAGED' : 'RELEASED'}`);
+  if (locked) {
+    setOfflineMode(true);
+  } else {
+    setOfflineMode(false);
+  }
+}
+
 export function setOfflineModeExternal(val: boolean) {
-  setOfflineMode(val);
+  if (val) {
+    setElectronOfflineLock(true);
+  } else {
+    setElectronOfflineLock(false);
+    setOfflineMode(false);
+  }
 }
 
 function setOfflineMode(val: boolean) {
+  if (electronOfflineLock && !val) {
+    logToElectron('DEBUG', 'NETWORK', 'Mode', 'Blocked online flip — Electron offline lock is engaged');
+    return;
+  }
   if (isOfflineMode !== val) {
     isOfflineMode = val;
     offlineListeners.forEach(cb => cb(val));
@@ -58,7 +78,10 @@ export async function fetchWithTimeout(url: string, options: RequestInit = {}): 
       signal: createTimeoutSignal(FETCH_TIMEOUT_MS),
     });
     if (res.ok) {
-      setOfflineMode(false);
+      const isInterceptedOffline = res.headers.get('X-Offline-Mode') === 'true' || res.headers.get('X-Offline-Cache') === 'true';
+      if (!isInterceptedOffline) {
+        setOfflineMode(false);
+      }
       if (isGetRequest(options)) {
         cacheResponseInBackground(url, res.clone());
       }
@@ -179,7 +202,10 @@ export const getQueryFn: <T>(options: {
       });
 
       if (res.ok) {
-        setOfflineMode(false);
+        const isInterceptedOffline = res.headers.get('X-Offline-Mode') === 'true' || res.headers.get('X-Offline-Cache') === 'true';
+        if (!isInterceptedOffline) {
+          setOfflineMode(false);
+        }
         const data = await res.json();
         cacheResponseInBackground(url, new Response(JSON.stringify(data), {
           status: 200,

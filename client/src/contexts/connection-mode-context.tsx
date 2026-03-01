@@ -5,7 +5,8 @@
  * and manages automatic mode detection and switching.
  */
 
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import { setElectronOfflineLock } from '@/lib/queryClient';
 
 export type ConnectionMode = 'green' | 'yellow' | 'orange' | 'red';
 
@@ -42,8 +43,13 @@ interface ConnectionModeProviderProps {
   checkInterval?: number;
 }
 
+function isRunningInElectron(): boolean {
+  return !!(window as any).electronAPI?.isElectron;
+}
+
 export function ConnectionModeProvider({ children, checkInterval = 15000 }: ConnectionModeProviderProps) {
   const [status, setStatus] = useState<ConnectionModeStatus>(defaultStatus);
+  const electronControlled = useRef(false);
   const [serviceHostUrl, setServiceHostUrlState] = useState(
     () => localStorage.getItem('serviceHostUrl') || 'http://service-host.local:3001'
   );
@@ -65,6 +71,10 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
       });
       
       clearTimeout(timeoutId);
+      const isInterceptedOffline = response.headers.get('X-Offline-Mode') === 'true' || response.headers.get('X-Offline-Cache') === 'true';
+      if (isInterceptedOffline) {
+        return false;
+      }
       return response.ok || response.status === 401;
     } catch {
       return false;
@@ -78,7 +88,44 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
     return 'red';
   };
 
+  const applyConnectionMode = useCallback((mode: ConnectionMode) => {
+    const isOffline = mode !== 'green';
+    setElectronOfflineLock(isOffline);
+    setStatus({
+      mode,
+      cloudReachable: mode === 'green',
+      serviceHostReachable: mode === 'yellow',
+      printAgentAvailable: mode === 'orange',
+      paymentAppAvailable: false,
+      lastChecked: new Date(),
+      isChecking: false,
+    });
+    localStorage.setItem('connectionMode', mode);
+  }, []);
+
+  useEffect(() => {
+    const w = window as any;
+    if (!isRunningInElectron()) return;
+
+    electronControlled.current = true;
+
+    if (w.electronAPI.getConnectionMode) {
+      w.electronAPI.getConnectionMode().then((mode: string) => {
+        applyConnectionMode(mode as ConnectionMode);
+      }).catch(() => {});
+    }
+
+    if (w.electronAPI.onConnectionMode) {
+      const unsub = w.electronAPI.onConnectionMode((mode: string) => {
+        applyConnectionMode(mode as ConnectionMode);
+      });
+      return unsub;
+    }
+  }, [applyConnectionMode]);
+
   const checkNow = useCallback(async () => {
+    if (electronControlled.current) return;
+
     setStatus(prev => ({ ...prev, isChecking: true }));
 
     try {
@@ -109,6 +156,8 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
   }, [serviceHostUrl]);
 
   useEffect(() => {
+    if (electronControlled.current) return;
+
     checkNow();
 
     const interval = setInterval(checkNow, checkInterval);
@@ -116,6 +165,8 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
   }, [checkNow, checkInterval]);
 
   useEffect(() => {
+    if (electronControlled.current) return;
+
     const handleOnline = () => checkNow();
     const handleOffline = () => {
       setStatus(prev => ({

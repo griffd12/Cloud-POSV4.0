@@ -824,6 +824,7 @@ function setupIpcHandlers() {
   });
 
   ipcMain.handle('get-online-status', () => isOnline);
+  ipcMain.handle('get-connection-mode', () => connectionMode);
 
   ipcMain.handle('open-log-directory', () => {
     appLogger.info('App', 'Opening log directory via IPC');
