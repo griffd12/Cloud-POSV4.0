@@ -126,6 +126,7 @@ class OfflineApiInterceptor {
         /^\/api\/checks/,
         /^\/api\/check-items/,
         /^\/api\/check-payments/,
+        /^\/api\/check-discounts/,
         /^\/api\/check-service-charges/,
         /^\/api\/payments/,
         /^\/api\/time-punches/,
@@ -141,7 +142,6 @@ class OfflineApiInterceptor {
         /^\/api\/pos\//,
         /^\/api\/terminal-sessions/,
         /^\/api\/kds-tickets/,
-        /^\/api\/check-service-charges/,
         /^\/api\/item-availability/,
       ];
       return writeEndpoints.some(re => re.test(pathname));
@@ -344,6 +344,12 @@ class OfflineApiInterceptor {
     if (pathname === '/api/checks/open') {
       const rvcId = query?.rvcId || this.config.rvcId;
       const checks = this.db.getOfflineChecks(rvcId, 'open');
+      checks.forEach(c => {
+        c.items = c.items || [];
+        c.payments = c.payments || [];
+        c.serviceCharges = c.serviceCharges || [];
+        c.discounts = c.discounts || [];
+      });
       return { status: 200, data: checks };
     }
 
@@ -355,7 +361,13 @@ class OfflineApiInterceptor {
       const detailMatch = pathname.match(/^\/api\/checks\/([^/]+)\/full-details$/);
       if (detailMatch) {
         const check = this.db.getOfflineCheck(detailMatch[1]);
-        if (check) return { status: 200, data: check };
+        if (check) {
+          check.items = check.items || [];
+          check.payments = check.payments || [];
+          check.serviceCharges = check.serviceCharges || [];
+          check.discounts = check.discounts || [];
+          return { status: 200, data: check };
+        }
         return { status: 404, data: { message: 'Check not found (offline)' } };
       }
     }
@@ -540,6 +552,12 @@ class OfflineApiInterceptor {
       const rvcId = query?.rvcId;
       const status = query?.status;
       const checks = this.db.getOfflineChecks(rvcId, status);
+      checks.forEach(c => {
+        c.items = c.items || [];
+        c.payments = c.payments || [];
+        c.serviceCharges = c.serviceCharges || [];
+        c.discounts = c.discounts || [];
+      });
       return { status: 200, data: checks };
     }
 
@@ -694,7 +712,18 @@ class OfflineApiInterceptor {
     }
 
     if (pathname.match(/^\/api\/checks\/[^/]+\/transfer/)) {
-      return { status: 503, data: { error: 'Check transfer requires cloud connectivity', offline: true } };
+      const transferMatch = pathname.match(/^\/api\/checks\/([^/]+)\/transfer/);
+      if (transferMatch) {
+        const checkId = transferMatch[1];
+        const check = this.db.getOfflineCheck(checkId);
+        if (check) {
+          check.employeeId = body.employeeId || check.employeeId;
+          check.updatedAt = new Date().toISOString();
+          this.db.saveOfflineCheck(check);
+          this.db.queueOperation('transfer_check', `/api/checks/${checkId}/transfer`, 'POST', body || {}, 2);
+        }
+        return { status: 200, data: { success: true, offline: true, message: 'Check transferred (offline)' } };
+      }
     }
 
     if (pathname.match(/^\/api\/kds-tickets\/[^/]+\/bump/)) {
@@ -902,6 +931,8 @@ class OfflineApiInterceptor {
       guestCount: body.guestCount || 1,
       items: [],
       payments: [],
+      serviceCharges: [],
+      discounts: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isOffline: true,
@@ -924,17 +955,29 @@ class OfflineApiInterceptor {
     const check = this.db.getOfflineCheck(checkId);
     if (!check) return { status: 404, data: { message: 'Check not found (offline)' } };
 
+    const modifiers = body.modifiers || body.selectedModifiers || [];
+    const condiments = body.condiments || [];
+    const unitPrice = parseFloat(body.unitPrice || '0.00');
+    let modifierTotal = 0;
+    modifiers.forEach(m => {
+      modifierTotal += parseFloat(m.priceDelta || m.price || 0);
+    });
+    const quantity = body.quantity || 1;
+    const itemTotalPrice = body.totalPrice
+      ? parseFloat(body.totalPrice)
+      : (unitPrice + modifierTotal) * quantity;
+
     const itemId = `offline_item_${crypto.randomUUID()}`;
     const item = {
       id: itemId,
       checkId,
       menuItemId: body.menuItemId,
       menuItemName: body.menuItemName,
-      quantity: body.quantity || 1,
-      unitPrice: body.unitPrice || '0.00',
-      totalPrice: body.totalPrice || body.unitPrice || '0.00',
-      modifiers: body.modifiers || [],
-      condiments: body.condiments || [],
+      quantity,
+      unitPrice: unitPrice.toFixed(2),
+      totalPrice: itemTotalPrice.toFixed(2),
+      modifiers,
+      condiments,
       seatNumber: body.seatNumber || 1,
       createdAt: new Date().toISOString(),
     };
@@ -1421,7 +1464,10 @@ class OfflineApiInterceptor {
     let subtotal = 0;
     const activeItems = (check.items || []).filter(i => !i.voided);
     activeItems.forEach(i => {
-      subtotal += parseFloat(i.totalPrice || i.unitPrice || 0) * (i.quantity || 1);
+      const unitPrice = parseFloat(i.unitPrice || 0);
+      const modTotal = (i.modifiers || []).reduce((s, m) => s + parseFloat(m.priceDelta || m.price || 0), 0);
+      const itemTotal = parseFloat(i.totalPrice || 0) || ((unitPrice + modTotal) * (i.quantity || 1));
+      subtotal += itemTotal;
     });
     check.subtotal = subtotal.toFixed(2);
     let taxTotal = 0;

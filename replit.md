@@ -24,6 +24,7 @@ Preferred communication style: Simple, everyday language.
 - **Simphony-Class Configuration**: Configuration inheritance with override capabilities.
 - **Touch-First UI**: High-contrast theming optimized for POS terminals.
 - **Real-time Operations**: Utilizes WebSocket communication for KDS updates and CAPS synchronization.
+- **Local-First Architecture (v3.1.16+)**: ALL POS write operations (checks, items, payments, voids, discounts, transfers, reopens) commit to local SQLite FIRST, regardless of connection mode. Cloud sync is background-only and never blocks the UI. Mode detection uses real DB probes (`/api/health/db-probe` with actual SELECT query), not just health pings. Status bar shows truth: mode + pending sync count + local DB health.
 - **Offline Resilience**: Features an optional on-premise CAPS with local SQLite for offline operations and cloud synchronization, ensuring an immutable `transaction_journal` for audit trails and exactly-once sync semantics.
 - **Non-Destructive Changes**: System modifications are additive, with new features defaulting to OFF/NULL/false to prevent impact on existing enterprises.
 - **Context Help Requirement**: Every configuration field in EMC panels requires a corresponding entry in the config help text registry for functional descriptions.

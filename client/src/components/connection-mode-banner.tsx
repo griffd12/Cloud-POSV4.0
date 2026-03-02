@@ -1,12 +1,21 @@
 import { useConnectionMode, type ConnectionMode } from "@/lib/api-client";
-import { Wifi, Signal, WifiOff, AlertTriangle } from "lucide-react";
+import { Wifi, Signal, WifiOff } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useState, useEffect } from "react";
 
 interface ConnectionModeBannerProps {
   className?: string;
 }
 
-const modeConfig: Record<ConnectionMode, {
+interface SyncStatus {
+  pending: number;
+  lastSync: string | null;
+  lastError: string | null;
+  localDbHealthy: boolean;
+  mode: string;
+}
+
+const modeConfig: Record<Exclude<ConnectionMode, 'orange'>, {
   bgColor: string;
   textColor: string;
   label: string;
@@ -16,37 +25,74 @@ const modeConfig: Record<ConnectionMode, {
   green: {
     bgColor: "bg-green-500",
     textColor: "text-white",
-    label: "Cloud Connected - All features available",
+    label: "Cloud Syncing - All data syncing to cloud",
     shortLabel: "CLOUD",
     Icon: Wifi,
   },
   yellow: {
     bgColor: "bg-yellow-500",
     textColor: "text-black",
-    label: "LAN Only - Using local services (Cloud offline)",
+    label: "LAN Only - Using local CAPS server",
     shortLabel: "LAN",
     Icon: Signal,
-  },
-  orange: {
-    bgColor: "bg-orange-500",
-    textColor: "text-white",
-    label: "Local Agents Only - Limited functionality",
-    shortLabel: "LOCAL",
-    Icon: WifiOff,
   },
   red: {
     bgColor: "bg-red-500",
     textColor: "text-white",
-    label: "Emergency Mode - Browser storage only",
+    label: "Standalone - Local database only",
     shortLabel: "OFFLINE",
-    Icon: AlertTriangle,
+    Icon: WifiOff,
   },
 };
 
 export function ConnectionModeBanner({ className = "" }: ConnectionModeBannerProps) {
   const { mode, status } = useConnectionMode();
-  const config = modeConfig[mode];
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [localDbCritical, setLocalDbCritical] = useState(false);
+
+  useEffect(() => {
+    const w = window as any;
+    if (w.electronAPI?.onSyncStatus) {
+      const unsub = w.electronAPI.onSyncStatus((s: SyncStatus) => {
+        setSyncStatus(s);
+        if (s && s.localDbHealthy === false) {
+          setLocalDbCritical(true);
+        }
+      });
+      return unsub;
+    }
+  }, []);
+
+  useEffect(() => {
+    const w = window as any;
+    if (w.electronAPI?.onLocalDbCritical) {
+      const unsub = w.electronAPI.onLocalDbCritical(() => {
+        setLocalDbCritical(true);
+      });
+      return unsub;
+    }
+  }, []);
+
+  const effectiveMode = mode === 'orange' ? 'red' : mode;
+  const config = modeConfig[effectiveMode as keyof typeof modeConfig] || modeConfig.red;
   const Icon = config.Icon;
+  const pendingCount = syncStatus?.pending || 0;
+
+  if (localDbCritical) {
+    return (
+      <div
+        data-testid="local-db-critical-overlay"
+        className="fixed inset-0 z-[9999] bg-red-900 flex items-center justify-center"
+      >
+        <div className="text-center text-white p-8 max-w-md">
+          <WifiOff className="h-16 w-16 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold mb-4">Local Database Error</h1>
+          <p className="text-lg opacity-90">POS cannot operate. Contact support immediately.</p>
+          <p className="mt-4 text-sm opacity-70">The local SQLite database is not responding. No transactions can be processed.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Tooltip>
@@ -57,19 +103,25 @@ export function ConnectionModeBanner({ className = "" }: ConnectionModeBannerPro
         >
           <Icon className="h-3.5 w-3.5" />
           <span>{config.shortLabel}</span>
+          {pendingCount > 0 && (
+            <span data-testid="text-pending-sync-count" className="opacity-80">| {pendingCount} pending</span>
+          )}
         </div>
       </TooltipTrigger>
       <TooltipContent side="bottom" className="max-w-xs">
         <div className="space-y-1">
           <p className="font-medium">{config.label}</p>
-          {status && (
-            <div className="text-xs text-muted-foreground space-y-0.5">
-              <p>Cloud: {status.cloudReachable ? "Connected" : "Offline"}</p>
-              <p>Local Services: {status.serviceHostReachable ? "Connected" : "Offline"}</p>
-              <p>Print Agent: {status.printAgentAvailable ? "Available" : "Unavailable"}</p>
-              <p>Last checked: {status.lastChecked?.toLocaleTimeString() || "Never"}</p>
-            </div>
-          )}
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            <p>Cloud: {status?.cloudReachable ? "Connected" : "Disconnected"}</p>
+            <p>Local DB: {syncStatus?.localDbHealthy !== false ? "Healthy" : "ERROR"}</p>
+            <p>Pending sync: {pendingCount} items</p>
+            {syncStatus?.lastSync && (
+              <p>Last sync: {new Date(syncStatus.lastSync).toLocaleTimeString()}</p>
+            )}
+            {syncStatus?.lastError && (
+              <p className="text-red-400">Last error: {syncStatus.lastError}</p>
+            )}
+          </div>
         </div>
       </TooltipContent>
     </Tooltip>

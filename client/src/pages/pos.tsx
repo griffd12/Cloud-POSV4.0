@@ -1018,7 +1018,7 @@ export default function PosPage() {
 
   // Smart send handler - handles pending reopen checks specially
   const handleSmartSend = useCallback(async () => {
-    const unsentItems = checkItems.filter(item => !item.sent && !item.voided);
+    const unsentItems = (checkItems || []).filter(item => !item.sent && !item.voided);
     
     // If viewing a pending reopen check with no unsent items, just exit without changes
     if (pendingReopenCheckId && unsentItems.length === 0) {
@@ -1199,7 +1199,7 @@ export default function PosPage() {
 
   const printCheckMutation = useMutation({
     mutationFn: async (checkId: string) => {
-      const unsentItems = checkItems.filter(item => !item.sent && !item.voided);
+      const unsentItems = (checkItems || []).filter(item => !item.sent && !item.voided);
       if (unsentItems.length > 0) {
         await apiRequest("POST", `/api/checks/${checkId}/send`, {
           employeeId: currentEmployee?.id,
@@ -1616,7 +1616,7 @@ export default function PosPage() {
   };
 
   const calculateTotals = () => {
-    const activeItems = checkItems.filter((item) => !item.voided);
+    const activeItems = (checkItems || []).filter((item) => !item.voided);
     let displaySubtotal = 0;  // Pre-discount subtotal (what items would cost without discounts)
     let discountTotalCalc = 0;  // Total of all discounts
     let addOnTax = 0;

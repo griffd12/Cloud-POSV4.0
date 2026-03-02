@@ -28,6 +28,88 @@ let protocolInterceptorRegistered = false;
 let serviceHostProcess = null;
 let connectionMode = 'green';
 let capsConfig = null;
+let localDbHealthy = true;
+let pendingSyncCount = 0;
+let lastSyncAt = null;
+let lastSyncError = null;
+let backgroundSyncTimer = null;
+
+const LOCAL_FIRST_WRITE_PATTERNS = [
+  /^\/api\/checks(\/|$)/,
+  /^\/api\/check-items(\/|$)/,
+  /^\/api\/check-payments(\/|$)/,
+  /^\/api\/check-discounts(\/|$)/,
+  /^\/api\/check-service-charges(\/|$)/,
+  /^\/api\/auth\/login(\/|$)/,
+  /^\/api\/auth\/pin(\/|$)/,
+  /^\/api\/auth\/manager-approval(\/|$)/,
+  /^\/api\/employees\/[^/]+\/authenticate(\/|$)/,
+  /^\/api\/payments(\/|$)/,
+  /^\/api\/time-punches(\/|$)/,
+  /^\/api\/time-clock(\/|$)/,
+  /^\/api\/print-jobs(\/|$)/,
+  /^\/api\/cash-drawer-kick(\/|$)/,
+  /^\/api\/pos\//,
+  /^\/api\/kds-tickets(\/|$)/,
+  /^\/api\/item-availability\/decrement/,
+  /^\/api\/registered-devices\/heartbeat/,
+  /^\/api\/system-status/,
+  /^\/api\/terminal-sessions(\/|$)/,
+  /^\/api\/gift-cards(\/|$)/,
+  /^\/api\/loyalty(\/|$)/,
+];
+
+function isLocalFirstWrite(method, pathname) {
+  if (method === 'GET' || method === 'HEAD') return false;
+  return LOCAL_FIRST_WRITE_PATTERNS.some(re => re.test(pathname));
+}
+
+function checkLocalDbHealth() {
+  try {
+    if (enhancedOfflineDb && enhancedOfflineDb.db && enhancedOfflineDb.usingSqlite) {
+      enhancedOfflineDb.db.prepare('SELECT 1').get();
+      localDbHealthy = true;
+      return true;
+    }
+    if (offlineDb) {
+      offlineDb.prepare('SELECT 1').get();
+      localDbHealthy = true;
+      return true;
+    }
+    localDbHealthy = false;
+    return false;
+  } catch (e) {
+    localDbHealthy = false;
+    appLogger.error('LocalDB', 'Local SQLite health check FAILED', e.message);
+    return false;
+  }
+}
+
+function updatePendingSyncCount() {
+  try {
+    if (enhancedOfflineDb) {
+      const ops = enhancedOfflineDb.getPendingOperations();
+      pendingSyncCount = ops ? ops.length : 0;
+    } else {
+      pendingSyncCount = getPendingOperations().length;
+    }
+  } catch (e) {
+    pendingSyncCount = 0;
+  }
+}
+
+function broadcastSyncStatus() {
+  updatePendingSyncCount();
+  if (mainWindow) {
+    mainWindow.webContents.send('sync-status', {
+      pending: pendingSyncCount,
+      lastSync: lastSyncAt,
+      lastError: lastSyncError,
+      localDbHealthy,
+      mode: connectionMode,
+    });
+  }
+}
 
 const APP_DATA_ROOT = process.platform === 'win32'
   ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Cloud POS')
@@ -316,24 +398,82 @@ async function syncOfflineData() {
       break;
     }
   }
+  broadcastSyncStatus();
+}
 
-  if (mainWindow) {
-    mainWindow.webContents.send('sync-status', {
-      pending: getPendingOperations().length,
-      lastSync: new Date().toISOString(),
-    });
+async function triggerBackgroundSync() {
+  if (!isOnline) return;
+  const serverUrl = getServerUrl();
+
+  try {
+    if (enhancedOfflineDb) {
+      const result = await enhancedOfflineDb.syncToCloud(serverUrl);
+      lastSyncAt = new Date().toISOString();
+      if (result.failed > 0) {
+        lastSyncError = `${result.failed} operations failed`;
+      } else {
+        lastSyncError = null;
+      }
+      appLogger.info('Sync', `Background sync: ${result.synced} synced, ${result.failed} failed, ${result.remaining || 0} remaining`);
+    }
+
+    await syncOfflineData();
+  } catch (e) {
+    lastSyncError = e.message;
+    appLogger.warn('Sync', `Background sync error: ${e.message}`);
   }
+
+  broadcastSyncStatus();
+}
+
+function startBackgroundSyncWorker() {
+  if (backgroundSyncTimer) clearInterval(backgroundSyncTimer);
+  backgroundSyncTimer = setInterval(async () => {
+    if (connectionMode === 'green' && isOnline) {
+      await triggerBackgroundSync();
+    }
+  }, 5000);
+  appLogger.info('Sync', 'Background sync worker started (5s interval when GREEN)');
 }
 
 async function checkConnectivity() {
+  checkLocalDbHealth();
+
+  if (!localDbHealthy) {
+    appLogger.error('Network', 'Local SQLite UNHEALTHY — POS cannot operate');
+    setConnectionMode('red');
+    if (offlineInterceptor) {
+      offlineInterceptor.setOffline(true);
+      offlineInterceptor.setConnectionMode('red');
+    }
+    if (mainWindow) {
+      mainWindow.webContents.send('online-status', false);
+      mainWindow.webContents.send('connection-mode', 'red');
+      mainWindow.webContents.send('local-db-critical', { healthy: false, message: 'Local database error — POS cannot operate. Contact support.' });
+    }
+    broadcastSyncStatus();
+    return;
+  }
+
   try {
     const serverUrl = getServerUrl();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
-    const response = await fetch(`${serverUrl}/api/health`, { signal: controller.signal });
+    const response = await fetch(`${serverUrl}/api/health/db-probe`, { signal: controller.signal });
     clearTimeout(timeout);
+
+    let dbHealthy = false;
+    if (response.ok) {
+      try {
+        const data = await response.json();
+        dbHealthy = data.dbHealthy === true;
+      } catch {
+        dbHealthy = false;
+      }
+    }
+
     const wasOffline = !isOnline;
-    isOnline = response.ok;
+    isOnline = dbHealthy;
 
     if (offlineInterceptor) {
       offlineInterceptor.setOffline(!isOnline);
@@ -341,19 +481,15 @@ async function checkConnectivity() {
 
     if (isOnline) {
       setConnectionMode('green');
+    } else {
+      appLogger.warn('Network', `Cloud DB probe failed (HTTP ${response.status}) — cloud reachable but DB unhealthy`);
+      throw new Error('DB probe failed — cloud DB not functional');
     }
 
     if (wasOffline && isOnline) {
-      appLogger.info('Network', 'Cloud connection restored — resuming online operations');
+      appLogger.info('Network', 'Cloud connection restored with healthy DB — triggering sync');
       setConnectionMode('green');
-      syncOfflineData();
-      if (enhancedOfflineDb) {
-        enhancedOfflineDb.syncToCloud(serverUrl).then(result => {
-          appLogger.info('OfflineDB', `Cloud sync completed`, { synced: result.synced, failed: result.failed });
-        }).catch(e => {
-          appLogger.warn('OfflineDB', 'Cloud sync error', e.message);
-        });
-      }
+      triggerBackgroundSync();
     }
   } catch (e) {
     const wasOnline = isOnline;
@@ -403,6 +539,7 @@ async function checkConnectivity() {
     mainWindow.webContents.send('online-status', isOnline);
     mainWindow.webContents.send('connection-mode', connectionMode);
   }
+  broadcastSyncStatus();
 }
 
 function createWindow() {
@@ -952,11 +1089,22 @@ function setupIpcHandlers() {
     return { success: true, pending: getPendingOperations().length };
   });
 
-  ipcMain.handle('get-pending-sync-count', () => getPendingOperations().length);
+  ipcMain.handle('get-pending-sync-count', () => {
+    updatePendingSyncCount();
+    return pendingSyncCount;
+  });
+
+  ipcMain.handle('get-connection-mode-detail', () => ({
+    mode: connectionMode,
+    pendingSyncCount,
+    localDbHealthy,
+    lastSyncAt,
+    cloudProbeResult: isOnline,
+  }));
 
   ipcMain.handle('force-sync', async () => {
-    await syncOfflineData();
-    return { pending: getPendingOperations().length };
+    await triggerBackgroundSync();
+    return { pending: pendingSyncCount };
   });
 
   ipcMain.handle('cache-data', async (event, { key, data }) => {
@@ -2216,8 +2364,16 @@ function setConnectionMode(newMode) {
   const capsUrl = config.serviceHostUrl || 'not configured';
   const capsStatus = newMode === 'yellow' ? 'reachable' : (newMode === 'red' ? 'unreachable' : 'n/a');
   appLogger.info('Network', `Mode changed: ${oldMode.toUpperCase()} -> ${newMode.toUpperCase()} | Cloud: ${cloudStatus} | CAPS: ${capsUrl} (${capsStatus})`);
+  updatePendingSyncCount();
   if (mainWindow) {
     mainWindow.webContents.send('connection-mode', newMode);
+    mainWindow.webContents.send('connection-mode-detail', {
+      mode: newMode,
+      pendingSyncCount,
+      localDbHealthy,
+      lastSyncAt,
+      cloudProbeResult: isOnline,
+    });
   }
 }
 
@@ -2388,9 +2544,29 @@ function registerProtocolInterceptor() {
 
     const isApiRequest = url.pathname.startsWith('/api/');
 
+    if (isApiRequest && offlineInterceptor && isLocalFirstWrite(request.method, url.pathname)) {
+      const body = await parseRequestBody(request);
+      const queryParams = Object.fromEntries(url.searchParams);
+      if (offlineInterceptor.canHandleOffline(request.method, url.pathname)) {
+        const result = offlineInterceptor.handleRequest(request.method, url.pathname, queryParams, body);
+        if (result) {
+          appLogger.info('Interceptor', `LOCAL-FIRST: ${request.method} ${url.pathname} -> ${result.status} [mode=${connectionMode}]`);
+          broadcastSyncStatus();
+          return new Response(JSON.stringify(result.data), {
+            status: result.status,
+            headers: { 'Content-Type': 'application/json', 'X-Local-First': 'true', 'X-Connection-Mode': connectionMode },
+          });
+        }
+      }
+      appLogger.warn('Interceptor', `LOCAL-FIRST: no handler for ${request.method} ${url.pathname}, queuing for sync`);
+      if (enhancedOfflineDb && enhancedOfflineDb.queueOperation) {
+        enhancedOfflineDb.queueOperation('unhandled_write', url.pathname, request.method, body || {}, 3);
+        broadcastSyncStatus();
+      }
+    }
+
     if (!isOnline && isApiRequest) {
       const capsUrl = getCapsServiceHostUrl();
-      let capsHandled = false;
       if (capsUrl && connectionMode === 'yellow') {
         try {
           const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
@@ -2413,7 +2589,6 @@ function registerProtocolInterceptor() {
           if (capsResponse.status === 401 || capsResponse.status === 404) {
             appLogger.warn('Interceptor', `YELLOW->RED fallback: CAPS returned ${capsResponse.status} for ${request.method} ${url.pathname}`);
           } else {
-            capsHandled = true;
             return new Response(capsResponse.body, {
               status: capsResponse.status,
               statusText: capsResponse.statusText,
@@ -2469,7 +2644,7 @@ function registerProtocolInterceptor() {
         setConnectionMode('green');
         if (mainWindow) mainWindow.webContents.send('online-status', true);
         appLogger.info('Network', 'Connection restored via protocol handler');
-        syncOfflineData();
+        triggerBackgroundSync();
       }
 
       return response;
@@ -2640,6 +2815,7 @@ async function initAllServices() {
   checkConnectivity();
 
   syncTimer = setInterval(syncOfflineData, 60000);
+  startBackgroundSyncWorker();
 
   dataSyncInterval = setInterval(async () => {
     if (isOnline && enhancedOfflineDb) {

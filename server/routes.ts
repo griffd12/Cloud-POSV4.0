@@ -1668,7 +1668,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       timestamp: new Date().toISOString()
     });
   });
-  
+
+  app.get("/api/health/db-probe", async (req, res) => {
+    try {
+      const result = await db.execute(sql`SELECT id FROM enterprises LIMIT 1`);
+      if (result.rows && result.rows.length > 0) {
+        res.json({ status: "ok", dbHealthy: true, timestamp: new Date().toISOString() });
+      } else {
+        res.json({ status: "ok", dbHealthy: true, timestamp: new Date().toISOString(), note: "no enterprises yet" });
+      }
+    } catch (e: any) {
+      res.status(503).json({ status: "error", dbHealthy: false, error: e.message, timestamp: new Date().toISOString() });
+    }
+  });
+
   // DEV ONLY: Generate claim code for testing (simulates wizard registration)
   app.post("/api/dev/generate-claim-code", async (req, res) => {
     if (process.env.NODE_ENV === "production") {

@@ -112,6 +112,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   emvMarkPaymentSynced: (id) => ipcRenderer.invoke('emv-mark-payment-synced', { id }),
 
   getConnectionMode: () => ipcRenderer.invoke('get-connection-mode'),
+  getConnectionModeDetail: () => ipcRenderer.invoke('get-connection-mode-detail'),
 
   // === Event Listeners ===
   onOnlineStatus: (callback) => {
@@ -126,10 +127,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('connection-mode', handler);
   },
 
+  onConnectionModeDetail: (callback) => {
+    const handler = (event, detail) => callback(detail);
+    ipcRenderer.on('connection-mode-detail', handler);
+    return () => ipcRenderer.removeListener('connection-mode-detail', handler);
+  },
+
   onSyncStatus: (callback) => {
     const handler = (event, status) => callback(status);
     ipcRenderer.on('sync-status', handler);
     return () => ipcRenderer.removeListener('sync-status', handler);
+  },
+
+  onLocalDbCritical: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('local-db-critical', handler);
+    return () => ipcRenderer.removeListener('local-db-critical', handler);
   },
 
   onPrintAgentStatus: (callback) => {

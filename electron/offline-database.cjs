@@ -937,7 +937,14 @@ class OfflineDatabase {
         if (rvcId) { query += ' AND rvc_id = ?'; params.push(rvcId); }
         if (status) { query += ' AND status = ?'; params.push(status); }
         query += ' ORDER BY created_at DESC';
-        return this.db.prepare(query).all(...params).map(r => JSON.parse(r.data));
+        return this.db.prepare(query).all(...params).map(r => {
+          const check = JSON.parse(r.data);
+          check.items = check.items || [];
+          check.payments = check.payments || [];
+          check.serviceCharges = check.serviceCharges || [];
+          check.discounts = check.discounts || [];
+          return check;
+        });
       } else {
         const checksPath = path.join(this.dataDir, 'offline_checks.json');
         let checks = JSON.parse(fs.readFileSync(checksPath, 'utf-8'));
@@ -957,14 +964,51 @@ class OfflineDatabase {
         if (!row) {
           row = this.db.prepare('SELECT data FROM offline_checks WHERE cloud_id = ?').get(id);
         }
-        return row ? JSON.parse(row.data) : null;
+        if (row) {
+          const check = JSON.parse(row.data);
+          check.items = check.items || [];
+          check.payments = check.payments || [];
+          check.serviceCharges = check.serviceCharges || [];
+          check.discounts = check.discounts || [];
+          return check;
+        }
+        return null;
       } else {
         const checksPath = path.join(this.dataDir, 'offline_checks.json');
         const checks = JSON.parse(fs.readFileSync(checksPath, 'utf-8'));
-        return checks.find(c => c.id === id || c.cloud_id === id) || null;
+        const check = checks.find(c => c.id === id || c.cloud_id === id) || null;
+        if (check) {
+          check.items = check.items || [];
+          check.payments = check.payments || [];
+          check.serviceCharges = check.serviceCharges || [];
+          check.discounts = check.discounts || [];
+        }
+        return check;
       }
     } catch (e) {
       return null;
+    }
+  }
+
+  getAllOfflineChecks() {
+    try {
+      if (this.usingSqlite) {
+        const rows = this.db.prepare('SELECT data FROM offline_checks ORDER BY created_at DESC').all();
+        return rows.map(r => {
+          const check = JSON.parse(r.data);
+          check.items = check.items || [];
+          check.payments = check.payments || [];
+          check.serviceCharges = check.serviceCharges || [];
+          check.discounts = check.discounts || [];
+          return check;
+        });
+      } else {
+        const checksPath = path.join(this.dataDir, 'offline_checks.json');
+        if (!fs.existsSync(checksPath)) return [];
+        return JSON.parse(fs.readFileSync(checksPath, 'utf-8'));
+      }
+    } catch (e) {
+      return [];
     }
   }
 
