@@ -585,6 +585,8 @@ class OfflineDatabase {
     } catch (e) {
       offlineDbLogger.warn('Migration', `Index idx_offline_checks_rvc_check_number skipped: ${e.message}`);
     }
+
+    this.updateCheckCountersAfterSync();
   }
 
   initJsonStorage() {
