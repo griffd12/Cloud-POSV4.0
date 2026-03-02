@@ -1,0 +1,186 @@
+You’re right to be concerned — what you described (green status while data writes are failing, modifiers prompt works but check shows blanks/0.00, pickup check crashes) is exactly what happens when the system is not local-authoritative and your mode detection is lying.
+
+Here’s the clean way to get Replit to understand the architecture and what works in each mode, without “going back to the drawing board” for weeks.
+
+1) Reality check: your problem is not “cloud vs offline vs standalone”
+
+It’s two specific issues:
+
+A) The POS UI is still depending on cloud/CAPS for write-path operations.
+So when cloud/CAPS is flaky or unreachable, the UI proceeds, but the data is incomplete or inconsistent.
+
+B) Mode detection is wrong.
+“Server responds to /health” ≠ “I can read/write my required tables.”
+So you get GREEN while the POS is actually dead.
+
+Fix those two and the architecture will behave.
+
+2) The correct architecture for your hybrid system
+
+Replit AI’s redesigned principle is correct, but I’m going to tighten it into a non-negotiable contract:
+
+Non-negotiable contract: Local-first always
+
+Every FOH POS action must commit to local SQLite first (service-host).
+Only after local commit succeeds do we attempt to sync upward.
+
+This means:
+
+Green/Yellow/Red changes sync routing only.
+
+The cashier experience is the same in all modes.
+
+If it can’t commit locally, the POS must show a hard error (don’t pretend).
+
+What “CAPS” is in this model
+
+CAPS/service-host is simply the local POS engine + SQLite + sync worker.
+
+Cloud is for:
+
+config distribution
+
+cross-device reconciliation
+
+enterprise reporting
+
+remote admin
+
+Cloud is never on the critical path for ringing a sale.
+
+3) The 3-mode model that makes sense (and how to detect it)
+
+You’re also right: if you’re at a cafe with internet, you should not be “GREEN” if you can’t reach your own service-host (or if you choose not to).
+
+Mode definitions (simple and accurate)
+
+GREEN (Online Syncing)
+
+Local service-host is healthy
+
+AND cloud sync endpoint passes a real read/write probe
+
+YELLOW (LAN Syncing / Limited Cloud)
+
+Local service-host healthy
+
+Cloud probe fails
+
+Optional: LAN peer sync available (only if you truly have multi-WS LAN sync)
+
+RED (Standalone)
+
+Local service-host healthy
+
+Cloud probe fails
+
+No LAN sync
+
+Everything runs local + queues for later
+
+Critical point
+
+A workstation should never be GREEN purely because it has “internet.”
+It’s GREEN only if it can reach cloud AND validate cloud is usable.
+
+4) Feature matrix (what must work in pilot)
+
+You said: everything FOH + KDS + reporting must work in pilot offline. Gift/loyalty can wait.
+
+Here’s the exact matrix to lock with Replit:
+
+Must work in ALL modes (Green/Yellow/Red)
+
+Sign-in (local cached PIN/users)
+
+Menu + modifiers + pricing
+
+Check lifecycle: open/add/send/close
+
+Core function keys you named:
+
+reopen closed check (if option allows)
+
+pickup check
+
+transfer check
+
+KDS:
+
+ticket creation from send
+
+bump/recall/priority
+
+local updates (WS broadcast locally)
+
+Offline reporting:
+
+daily totals: sales/tax/discounts/payments
+
+KDS counts: open tickets, bumped items
+
+Allowed to be ONLINE ONLY (not pilot blockers)
+
+Gift/loyalty balances & redemption
+
+Enterprise-wide reports across locations
+
+Online ordering integrations
+
+Central EMC edits pushed instantly (can sync later)
+
+This matrix prevents scope creep while meeting your pilot reality.
+
+5) Why your “DB downloaded to all devices” instinct is correct
+
+Yes — every WS needs a local operational dataset (not necessarily “entire cloud DB,” but the needed subset):
+
+employees + roles + PIN hashes
+
+menu + items + modifiers + pricing
+
+taxes + tenders + option bits
+
+KDS routing tables
+
+That is exactly what Simphony CAL did, and that’s what you want.
+
+But the key is: download is not the magic.
+The magic is: all writes are local first.
+
+6) The single instruction to send Replit AI (architectural contract)
+
+This is the one message that aligns everyone and stops the confusion:
+
+ARCHITECTURE CONTRACT — implement this, no debate:
+
+1) Local-first write path: ALL FOH POS operations (login, ring items/modifiers, check functions, payments, send to kitchen, pickup/transfer/reopen) MUST commit to service-host SQLite first. UI returns success only after local commit succeeds. Cloud/CAPS can never be on the blocking write path.
+
+2) Modes affect sync only:
+   - GREEN = local OK + cloud read/write probe OK (not just /health)
+   - YELLOW/RED = local OK + cloud probe fails; transactions queue and later sync.
+   - If local service-host is unreachable, POS must refuse to operate (hard fail), not “pretend offline.”
+
+3) Truthful status bar: show (a) local engine health, (b) cloud sync health, (c) pending journal count. Never show GREEN if cloud probe fails or local engine isn’t reachable.
+
+4) Pilot feature matrix:
+   - Must work in GREEN/YELLOW/RED: sign-in, menu+modifiers, check lifecycle, pickup/transfer/reopen (permissioned), payments (cash + card stub), KDS ticket create+bump/recall/priority, offline daily summary reporting.
+   - Gift/loyalty may be online-only for pilot.
+
+Implement/adjust Proof Mode to validate these exact requirements and fail loudly when violated.
+
+Send that. It’s not a new plan — it’s the operating contract.
+
+7) Immediate diagnosis of your specific symptoms
+
+Modifiers prompt shows but check shows blank/0.00: UI is letting you select modifiers, but the write to local (or to upstream) isn’t persisting the modifier lines. This is either:
+
+the addItem payload not including modifiers correctly
+
+local DB schema not storing modifiers
+
+or the write is failing and UI isn’t validating the response
+
+Pickup check .filter crash: returned check payload had missing items[] because the check was never saved correctly or returned partial data. That should be impossible if local-first commits and returns validated shape.
+
+Green when you weren’t “really online”: health check isn’t a DB probe. That’s a known anti-pattern. Fix mode detection to require a read/write probe.
