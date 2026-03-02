@@ -414,7 +414,9 @@ async function triggerBackgroundSync() {
       } else {
         lastSyncError = null;
       }
-      appLogger.info('Sync', `Background sync: ${result.synced} synced, ${result.failed} failed, ${result.remaining || 0} remaining`);
+      const failedCount = enhancedOfflineDb.getFailedOperationCount ? enhancedOfflineDb.getFailedOperationCount() : 0;
+      const remaining = result.remaining || 0;
+      appLogger.info('Sync', `Background sync: ${result.synced} synced, ${result.failed} failed, ${remaining} pending` + (failedCount > 0 ? `, ${failedCount} permanently failed` : ''));
     }
 
     await syncOfflineData();
@@ -1105,6 +1107,23 @@ function setupIpcHandlers() {
   ipcMain.handle('force-sync', async () => {
     await triggerBackgroundSync();
     return { pending: pendingSyncCount };
+  });
+
+  ipcMain.handle('clear-failed-sync-ops', () => {
+    if (enhancedOfflineDb && enhancedOfflineDb.clearFailedOperations) {
+      const cleared = enhancedOfflineDb.clearFailedOperations();
+      updatePendingSyncCount();
+      broadcastSyncStatus();
+      return { cleared, pending: pendingSyncCount };
+    }
+    return { cleared: 0, pending: pendingSyncCount };
+  });
+
+  ipcMain.handle('get-failed-sync-ops', () => {
+    if (enhancedOfflineDb && enhancedOfflineDb.getFailedOperations) {
+      return enhancedOfflineDb.getFailedOperations();
+    }
+    return [];
   });
 
   ipcMain.handle('cache-data', async (event, { key, data }) => {

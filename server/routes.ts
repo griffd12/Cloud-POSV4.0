@@ -11,7 +11,7 @@ import archiver from "archiver";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, ne, sql, inArray, and, desc } from "drizzle-orm";
-import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, serviceHostTransactions } from "@shared/schema";
+import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, serviceHostTransactions, printClassRouting as printClassRoutingTable } from "@shared/schema";
 import { uberEatsIntegration } from "./integrations/uber-eats";
 import { grubhubIntegration } from "./integrations/grubhub";
 import { doorDashIntegration } from "./integrations/doordash";
@@ -24329,8 +24329,8 @@ connect();
         storage.getPrintClasses(),
         storage.getOrderDevices(),
         storage.getOrderDevicePrinters(),
-        storage.getOrderDeviceKds(),
-        storage.getPrintClassRouting(),
+        storage.getOrderDeviceKdsList(),
+        db.select().from(printClassRoutingTable),
         storage.getJobCodes(),
       ]);
 

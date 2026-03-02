@@ -874,14 +874,51 @@ class OfflineDatabase {
   getPendingOperations() {
     try {
       if (this.usingSqlite) {
-        return this.db.prepare('SELECT * FROM offline_queue WHERE synced = 0 ORDER BY priority ASC, created_at ASC').all();
+        return this.db.prepare('SELECT * FROM offline_queue WHERE synced = 0 AND retry_count < 10 ORDER BY priority ASC, created_at ASC').all();
       } else {
         const queuePath = path.join(this.dataDir, 'offline_queue.json');
         const queue = JSON.parse(fs.readFileSync(queuePath, 'utf-8'));
-        return queue.filter(op => !op.synced);
+        return queue.filter(op => !op.synced && (op.retry_count || 0) < 10);
       }
     } catch (e) {
       return [];
+    }
+  }
+
+  getFailedOperations() {
+    try {
+      if (this.usingSqlite) {
+        return this.db.prepare('SELECT * FROM offline_queue WHERE synced = 0 AND retry_count >= 10 ORDER BY created_at DESC').all();
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  getFailedOperationCount() {
+    try {
+      if (this.usingSqlite) {
+        return this.db.prepare('SELECT COUNT(*) as c FROM offline_queue WHERE synced = 0 AND retry_count >= 10').get().c;
+      }
+      return 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  clearFailedOperations() {
+    try {
+      if (this.usingSqlite) {
+        const count = this.db.prepare('SELECT COUNT(*) as c FROM offline_queue WHERE synced = 0 AND retry_count >= 10').get().c;
+        this.db.prepare("UPDATE offline_queue SET synced = 2, synced_at = datetime('now') WHERE synced = 0 AND retry_count >= 10").run();
+        offlineDbLogger.info('Sync', `Cleared ${count} permanently failed operations`);
+        return count;
+      }
+      return 0;
+    } catch (e) {
+      offlineDbLogger.error('Sync', 'Clear failed ops error', e.message);
+      return 0;
     }
   }
 
@@ -905,6 +942,15 @@ class OfflineDatabase {
     try {
       if (this.usingSqlite) {
         this.db.prepare("UPDATE offline_queue SET retry_count = retry_count + 1, error = ? WHERE id = ?").run(error, id);
+      }
+    } catch (e) {}
+  }
+
+  markOperationPermanentlyFailed(id, error) {
+    try {
+      if (this.usingSqlite) {
+        this.db.prepare("UPDATE offline_queue SET retry_count = 10, error = ? WHERE id = ?").run(error, id);
+        offlineDbLogger.warn('Sync', `Operation ${id} permanently failed: ${error}`);
       }
     } catch (e) {}
   }
@@ -1451,6 +1497,9 @@ class OfflineDatabase {
           this.markOperationSynced(op.id);
           synced++;
           offlineDbLogger.info('Sync', `Synced: ${op.type} -> ${op.endpoint}`);
+        } else if (response.status === 400 || response.status === 404) {
+          this.markOperationPermanentlyFailed(op.id, `HTTP ${response.status} (permanent)`);
+          failed++;
         } else {
           this.markOperationFailed(op.id, `HTTP ${response.status}`);
           failed++;
