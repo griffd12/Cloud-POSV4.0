@@ -126,6 +126,7 @@ class OfflineApiInterceptor {
         /^\/api\/checks/,
         /^\/api\/check-items/,
         /^\/api\/check-payments/,
+        /^\/api\/check-discounts/,
         /^\/api\/check-service-charges/,
         /^\/api\/payments/,
         /^\/api\/time-punches/,
@@ -141,7 +142,6 @@ class OfflineApiInterceptor {
         /^\/api\/pos\//,
         /^\/api\/terminal-sessions/,
         /^\/api\/kds-tickets/,
-        /^\/api\/check-service-charges/,
         /^\/api\/item-availability/,
       ];
       return writeEndpoints.some(re => re.test(pathname));

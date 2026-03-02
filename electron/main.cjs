@@ -2558,7 +2558,11 @@ function registerProtocolInterceptor() {
           });
         }
       }
-      appLogger.warn('Interceptor', `LOCAL-FIRST: no handler for ${request.method} ${url.pathname}, falling through`);
+      appLogger.warn('Interceptor', `LOCAL-FIRST: no handler for ${request.method} ${url.pathname}, queuing for sync`);
+      if (enhancedOfflineDb && enhancedOfflineDb.queueOperation) {
+        enhancedOfflineDb.queueOperation('unhandled_write', url.pathname, request.method, body || {}, 3);
+        broadcastSyncStatus();
+      }
     }
 
     if (!isOnline && isApiRequest) {
