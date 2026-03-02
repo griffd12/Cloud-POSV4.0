@@ -343,11 +343,11 @@ function queueOfflineOperation(type, endpoint, method, body) {
 function getPendingOperations() {
   try {
     if (offlineDb) {
-      return offlineDb.prepare('SELECT * FROM offline_queue WHERE synced = 0 ORDER BY created_at').all();
+      return offlineDb.prepare('SELECT * FROM offline_queue WHERE synced = 0 AND retry_count < 10 ORDER BY created_at').all();
     } else {
       const queuePath = path.join(DATA_DIR, 'offline_queue.json');
       const queue = JSON.parse(fs.readFileSync(queuePath, 'utf-8'));
-      return queue.filter(op => !op.synced);
+      return queue.filter(op => !op.synced && (op.retry_count || 0) < 10);
     }
   } catch (e) {
     appLogger.error('Sync', 'Failed to get pending operations', e.message);
@@ -390,7 +390,15 @@ async function syncOfflineData() {
       if (response.ok) {
         markOperationSynced(op.id || op.created_at);
         appLogger.info('Sync', `Synced: ${op.type} -> ${op.endpoint}`);
+      } else if (response.status === 400 || response.status === 404) {
+        if (offlineDb) {
+          offlineDb.prepare("UPDATE offline_queue SET retry_count = 10, error = ? WHERE id = ?").run(`HTTP ${response.status} (permanent)`, op.id);
+        }
+        appLogger.warn('Sync', `Permanently failed: ${op.endpoint}`, { status: response.status });
       } else {
+        if (offlineDb) {
+          offlineDb.prepare("UPDATE offline_queue SET retry_count = retry_count + 1, error = ? WHERE id = ?").run(`HTTP ${response.status}`, op.id);
+        }
         appLogger.warn('Sync', `Sync failed: ${op.endpoint}`, { status: response.status });
       }
     } catch (e) {
