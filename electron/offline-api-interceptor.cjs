@@ -1037,7 +1037,18 @@ class OfflineApiInterceptor {
 
     const modifiers = body.modifiers || body.selectedModifiers || [];
     const condiments = body.condiments || [];
-    const unitPrice = parseFloat(body.unitPrice || '0.00');
+    let unitPrice = parseFloat(body.unitPrice || '0.00');
+    if (unitPrice === 0 && body.menuItemId) {
+      try {
+        const menuItem = this.db.getEntity ? this.db.getEntity('menu_items', body.menuItemId) : null;
+        if (menuItem && (menuItem.price || menuItem.defaultPrice)) {
+          unitPrice = parseFloat(menuItem.price || menuItem.defaultPrice);
+          appLogger.debug('Interceptor', `Price lookup for ${body.menuItemId}: $${unitPrice.toFixed(2)}`);
+        }
+      } catch (e) {
+        appLogger.debug('Interceptor', `Menu item price lookup failed: ${e.message}`);
+      }
+    }
     let modifierTotal = 0;
     modifiers.forEach(m => {
       modifierTotal += parseFloat(m.priceDelta || m.price || 0);

@@ -64,6 +64,19 @@ function isLocalFirstWrite(method, pathname) {
   return LOCAL_FIRST_WRITE_PATTERNS.some(re => re.test(pathname));
 }
 
+const LOCAL_FIRST_READ_PATTERNS = [
+  /^\/api\/checks\/open(\?|$)/,
+  /^\/api\/checks\?/,
+  /^\/api\/checks\/[^/]+\/full-details/,
+  /^\/api\/checks\/[^/]+$/,
+];
+
+function isLocalFirstRead(method, pathname, search) {
+  if (method !== 'GET') return false;
+  const full = pathname + (search || '');
+  return LOCAL_FIRST_READ_PATTERNS.some(re => re.test(full));
+}
+
 function checkLocalDbHealth() {
   try {
     if (enhancedOfflineDb && enhancedOfflineDb.db && enhancedOfflineDb.usingSqlite) {
@@ -2605,6 +2618,18 @@ function registerProtocolInterceptor() {
       if (enhancedOfflineDb && enhancedOfflineDb.queueOperation) {
         enhancedOfflineDb.queueOperation('unhandled_write', url.pathname, request.method, body || {}, 3);
         broadcastSyncStatus();
+      }
+    }
+
+    if (isApiRequest && offlineInterceptor && isLocalFirstRead(request.method, url.pathname, url.search)) {
+      const queryParams = Object.fromEntries(url.searchParams);
+      const result = offlineInterceptor.handleRequest('GET', url.pathname, queryParams, null);
+      if (result) {
+        appLogger.info('Interceptor', `LOCAL-FIRST-READ: GET ${url.pathname} -> ${result.status} [mode=${connectionMode}]`);
+        return new Response(JSON.stringify(result.data), {
+          status: result.status,
+          headers: { 'Content-Type': 'application/json', 'X-Local-First': 'true', 'X-Connection-Mode': connectionMode },
+        });
       }
     }
 
