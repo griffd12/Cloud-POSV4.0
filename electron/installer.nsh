@@ -74,9 +74,16 @@
   Pop $1
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Cloud POS Print Agent Inbound" dir=in action=allow protocol=tcp localport=9100 program="$INSTDIR\Cloud POS.exe"'
   Pop $2
+
+  ; Add Windows Firewall exception for CAPS service (port 3001) - allows LAN workstations to reach CAPS
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Cloud POS CAPS Inbound" dir=in action=allow protocol=tcp localport=3001 profile=private,domain'
+  Pop $3
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Cloud POS CAPS Program" dir=in action=allow program="$INSTDIR\Cloud POS.exe" profile=private,domain'
+  Pop $4
+
   FileOpen $0 "$LOCALAPPDATA\Cloud POS\logs\installer.log" a
   FileSeek $0 0 END
-  FileWrite $0 "[OK] Firewall rules added (outbound port 9100 result: $1, inbound port 9100 result: $2)$\r$\n"
+  FileWrite $0 "[OK] Firewall rules added (print out:$1, print in:$2, CAPS port:$3, CAPS exe:$4)$\r$\n"
   FileWrite $0 "================================================================================$\r$\n"
   FileWrite $0 "  INSTALLATION COMPLETE$\r$\n"
   FileWrite $0 "  Install Path: $INSTDIR$\r$\n"
@@ -121,6 +128,8 @@
   ; Remove firewall rules
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Cloud POS Print Agent"'
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Cloud POS Print Agent Inbound"'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Cloud POS CAPS Inbound"'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Cloud POS CAPS Program"'
 
   ; Switch back to current user for logging
   SetShellVarContext current
