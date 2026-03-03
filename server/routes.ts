@@ -17033,6 +17033,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Invalid session data", errors: parsed.error.flatten().fieldErrors });
       }
 
+      if (parsed.data.checkId && parsed.data.checkId.startsWith("offline_")) {
+        const offlineId = parsed.data.checkId;
+        console.log(`[terminal-sessions] Resolving offline checkId: ${offlineId}`);
+        const shTx = await db.select()
+          .from(serviceHostTransactions)
+          .where(
+            and(
+              eq(serviceHostTransactions.localId, offlineId),
+              eq(serviceHostTransactions.transactionType, "check")
+            )
+          )
+          .limit(1);
+
+        if (shTx.length > 0 && shTx[0].data) {
+          const txData = shTx[0].data as any;
+          const checkNumber = txData.checkNumber || txData.check_number;
+          const rvcId = txData.rvcId || txData.rvc_id;
+          if (checkNumber && rvcId) {
+            const cloudCheck = await db.select().from(checks)
+              .where(and(eq(checks.checkNumber, checkNumber), eq(checks.rvcId, rvcId)))
+              .orderBy(desc(checks.createdAt))
+              .limit(1);
+            if (cloudCheck.length > 0) {
+              console.log(`[terminal-sessions] Resolved offline ${offlineId} -> cloud ${cloudCheck[0].id} (check #${checkNumber})`);
+              parsed.data.checkId = cloudCheck[0].id;
+            } else {
+              console.warn(`[terminal-sessions] No cloud check found for checkNumber=${checkNumber}, rvcId=${rvcId}`);
+              return res.status(400).json({ message: "Check not yet synced to cloud. Please wait a moment and retry." });
+            }
+          } else {
+            console.warn(`[terminal-sessions] Transaction data missing checkNumber/rvcId for ${offlineId}`);
+            return res.status(400).json({ message: "Check not yet synced to cloud. Please wait a moment and retry." });
+          }
+        } else {
+          console.warn(`[terminal-sessions] No service_host_transaction found for ${offlineId}`);
+          return res.status(400).json({ message: "Check not yet synced to cloud. Please wait a moment and retry." });
+        }
+      }
+
       // Check if terminal has an active session
       const activeSession = await storage.getActiveTerminalSession(parsed.data.terminalDeviceId);
       if (activeSession) {
@@ -17139,9 +17178,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       res.status(201).json(session);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Create terminal session error:", error);
-      res.status(500).json({ message: "Failed to create terminal session" });
+      const errMsg = error?.message || "Unknown error";
+      const isFK = errMsg.includes("foreign key") || errMsg.includes("violates") || errMsg.includes("constraint");
+      res.status(500).json({ 
+        message: isFK ? "Check not yet synced to cloud. Please wait and retry." : "Failed to create terminal session",
+        detail: errMsg,
+      });
     }
   });
 
