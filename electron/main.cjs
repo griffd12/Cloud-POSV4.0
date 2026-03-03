@@ -2154,9 +2154,15 @@ async function initEnhancedOfflineDb() {
     dataDir: DATA_DIR,
   });
   await enhancedOfflineDb.initialize();
+  const config = loadConfig();
+  enhancedOfflineDb.config = {
+    deviceId: config.deviceId || null,
+    deviceName: config.deviceName || null,
+    enterpriseId: config.enterpriseId || null,
+    propertyId: config.propertyId || null,
+  };
 
   offlineInterceptor = new OfflineApiInterceptor(enhancedOfflineDb);
-  const config = loadConfig();
   offlineInterceptor.setConfig({
     enterpriseId: config.enterpriseId || null,
     propertyId: config.propertyId || null,
@@ -2609,6 +2615,29 @@ function registerProtocolInterceptor() {
         if (result) {
           appLogger.info('Interceptor', `LOCAL-FIRST: ${request.method} ${url.pathname} -> ${result.status} [mode=${connectionMode}]`);
           broadcastSyncStatus();
+          const sendMatch = url.pathname.match(/^\/api\/checks\/([^/]+)\/send/);
+          if (sendMatch) {
+            const capsUrl = getCapsServiceHostUrl();
+            if (capsUrl) {
+              const capsCheckId = sendMatch[1];
+              const capsSendUrl = `${capsUrl}/api/caps/checks/${capsCheckId}/send`;
+              const fwdConfig = loadConfig();
+              const fwdHeaders = { 'Content-Type': 'application/json' };
+              if (fwdConfig.deviceId) fwdHeaders['x-workstation-id'] = fwdConfig.deviceId;
+              if (fwdConfig.deviceName) fwdHeaders['x-device-name'] = fwdConfig.deviceName;
+              if (fwdConfig.serviceHostToken) fwdHeaders['x-workstation-token'] = fwdConfig.serviceHostToken;
+              fetch(capsSendUrl, {
+                method: 'POST',
+                headers: fwdHeaders,
+                body: JSON.stringify(body || {}),
+                signal: AbortSignal.timeout(5000),
+              }).then(r => {
+                appLogger.info('Interceptor', `CAPS send-to-kitchen forwarded: ${capsCheckId} -> ${r.status}`);
+              }).catch(e => {
+                appLogger.warn('Interceptor', `CAPS send-to-kitchen forward failed: ${e.message}`);
+              });
+            }
+          }
           return new Response(JSON.stringify(result.data), {
             status: result.status,
             headers: { 'Content-Type': 'application/json', 'X-Local-First': 'true', 'X-Connection-Mode': connectionMode },

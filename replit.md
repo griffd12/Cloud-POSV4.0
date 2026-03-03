@@ -58,6 +58,7 @@ Preferred communication style: Simple, everyday language.
 - **Offline Database Fixes**: Enhancements for offline payment, check, and item handling, including schema migrations for older databases, check counter reconciliation, atomic check creation retries, and correct configuration parsing for CAPS.
 - **WS→CAPS→Cloud Architecture**: Background sync routes all data through CAPS instead of directly to the cloud, ensuring consistent data flow and resilience. This includes check state synchronization and queuing of non-check operations, with comprehensive API support for various POS functions.
 - **Offline Interceptor Fixes**: Addresses regressions related to modifier handling, open check data retrieval, check reopening, payment processing, and offline check creation.
+- **v3.1.26 Offline/KDS/CAPS Fixes**: Role-based privilege resolution for offline auth (syncs roles + role_privileges from cloud), corrected void/discount response shapes for UI updates, KDS send-to-kitchen CAPS forwarding, activation-config KDS device support, CAPS modifier_groups `code` column migration, and CAPS device tracking headers.
 
 ## External Dependencies
 

@@ -1259,6 +1259,28 @@ class OfflineApiInterceptor {
     return { status: 201, data: payment };
   }
 
+  resolveEmployeePrivileges(employee) {
+    if (!employee) return [];
+    try {
+      if (this.db && this.db.getRolePrivileges && employee.roleId) {
+        const rolePrivs = this.db.getRolePrivileges(employee.roleId);
+        if (rolePrivs && rolePrivs.length > 0) return rolePrivs;
+      }
+    } catch (e) {}
+    if (employee.privileges && employee.privileges.length > 0) return employee.privileges;
+    if (employee.rolePrivileges && employee.rolePrivileges.length > 0) return employee.rolePrivileges;
+    return [
+      'open_check', 'close_check', 'split_check', 'merge_checks', 'transfer_check', 'reopen_check',
+      'change_order_type', 'assign_table', 'add_item', 'void_item', 'void_item_no_reason',
+      'modify_price', 'add_modifier', 'remove_modifier', 'apply_tender', 'split_payment',
+      'refund', 'force_tender', 'offline_payment', 'approve_void', 'approve_discount',
+      'approve_refund', 'approve_price_override', 'manager_approval',
+      'view_sales_reports', 'view_labor_reports', 'export_reports', 'view_audit_logs',
+      'admin_access', 'kds_access', 'fast_transaction', 'send_to_kitchen', 'void_unsent',
+      'void_sent', 'apply_discount', 'clock_in_out'
+    ];
+  }
+
   authenticateByPin(body) {
     const pin = body?.pin;
     if (!pin) {
@@ -1281,14 +1303,7 @@ class OfflineApiInterceptor {
         data: {
           success: true,
           employee,
-          privileges: (employee.privileges && employee.privileges.length > 0)
-            ? employee.privileges
-            : (employee.rolePrivileges && employee.rolePrivileges.length > 0)
-              ? employee.rolePrivileges
-              : [
-                  'fast_transaction', 'send_to_kitchen', 'void_unsent', 'void_sent',
-                  'apply_discount', 'admin_access', 'kds_access', 'manager_approval'
-                ],
+          privileges: this.resolveEmployeePrivileges(employee),
           offlineAuth: true,
         },
       };
@@ -1328,14 +1343,7 @@ class OfflineApiInterceptor {
             jobTitle: employee.jobTitle || null,
             enterpriseId: employee.enterpriseId || null,
           },
-          privileges: (employee.privileges && employee.privileges.length > 0)
-            ? employee.privileges
-            : (employee.rolePrivileges && employee.rolePrivileges.length > 0)
-              ? employee.rolePrivileges
-              : [
-                  'fast_transaction', 'send_to_kitchen', 'void_unsent', 'void_sent',
-                  'apply_discount', 'admin_access', 'kds_access', 'manager_approval'
-                ],
+          privileges: this.resolveEmployeePrivileges(employee),
           salariedBypass: true,
           bypassJobCode: null,
           device: null,
@@ -1436,7 +1444,7 @@ class OfflineApiInterceptor {
       return { status: 401, data: { success: false, message: 'Invalid manager PIN (offline)' } };
     }
 
-    const privs = manager.privileges || manager.rolePrivileges || [];
+    const privs = this.resolveEmployeePrivileges(manager);
     const hasAdmin = privs.includes('admin_access');
     const hasManagerApproval = privs.includes('manager_approval');
     const hasSpecific = requiredPrivilege ? privs.includes(requiredPrivilege) : true;
@@ -1506,7 +1514,17 @@ class OfflineApiInterceptor {
       }
     }
     this.db.queueOperation('void_check_item', pathname, 'POST', body, 2);
-    return { status: 200, data: { success: true, offline: true, message: 'Item voided (offline)' } };
+    const voidedItem = (() => {
+      const allChecks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+      for (const ch of allChecks) {
+        if (ch.items) {
+          const found = ch.items.find(i => i.id === itemId);
+          if (found) return found;
+        }
+      }
+      return { id: itemId, voided: true, voidedAt: new Date().toISOString(), voidReason: body?.reason || 'Offline void', offline: true };
+    })();
+    return { status: 200, data: voidedItem };
   }
 
   applyItemDiscountOffline(pathname, body) {
@@ -1549,7 +1567,17 @@ class OfflineApiInterceptor {
     }
 
     this.db.queueOperation('item_discount', pathname, 'POST', body, 2);
-    return { status: 200, data: { success: true, offline: true, message: 'Item discount applied (offline)' } };
+    const discountedItem = (() => {
+      const allChecks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+      for (const ch of allChecks) {
+        if (ch.items) {
+          const found = ch.items.find(i => i.id === itemId);
+          if (found) return { item: found, check: ch };
+        }
+      }
+      return { item: { id: itemId, discountId: body.discountId, offline: true }, check: {} };
+    })();
+    return { status: 200, data: discountedItem };
   }
 
   priceOverrideOffline(pathname, body) {

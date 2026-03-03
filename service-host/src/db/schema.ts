@@ -363,6 +363,7 @@ CREATE TABLE IF NOT EXISTS modifier_groups (
   property_id TEXT REFERENCES properties(id),
   rvc_id TEXT REFERENCES rvcs(id),
   name TEXT NOT NULL,
+  code TEXT,
   required INTEGER DEFAULT 0,
   min_select INTEGER DEFAULT 0,
   max_select INTEGER DEFAULT 99,
