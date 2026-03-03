@@ -1503,6 +1503,153 @@ class OfflineDatabase {
     }
   }
 
+  async syncToCaps(capsUrl) {
+    if (this.syncInProgress) return { synced: 0, failed: 0, reason: 'sync already in progress' };
+    this.syncInProgress = true;
+
+    let synced = 0;
+    let failed = 0;
+
+    try {
+      const dirtyChecks = this.getUnsyncedChecks();
+      if (dirtyChecks.length > 0) {
+        offlineDbLogger.info('Sync', `Syncing ${dirtyChecks.length} check(s) to CAPS at ${capsUrl}...`);
+      }
+
+      for (const check of dirtyChecks) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10000);
+          const response = await fetch(`${capsUrl}/api/caps/sync/check-state`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(check),
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+
+          if (response.ok) {
+            this.markCheckSynced(check.id);
+            synced++;
+            offlineDbLogger.info('Sync', `CAPS check synced: ${check.id} (check #${check.checkNumber || '?'})`);
+          } else {
+            offlineDbLogger.warn('Sync', `CAPS check sync failed: ${check.id} -> HTTP ${response.status}`);
+            failed++;
+          }
+        } catch (e) {
+          failed++;
+          offlineDbLogger.warn('Sync', `CAPS check sync error: ${check.id} -> ${e.message}`);
+          if (e.name === 'AbortError' || e.message.includes('network') || e.message.includes('ECONNREFUSED')) {
+            offlineDbLogger.warn('Sync', 'CAPS unreachable, stopping sync...');
+            break;
+          }
+        }
+      }
+
+      const pending = this.getPendingOperations();
+      const nonCheckOps = pending.filter(op => !this.isCheckRelatedOperation(op.type));
+      if (nonCheckOps.length > 0) {
+        offlineDbLogger.info('Sync', `Forwarding ${nonCheckOps.length} non-check operation(s) to CAPS...`);
+      }
+
+      const maxBatchSize = 50;
+      const batchOps = nonCheckOps.slice(0, maxBatchSize);
+
+      for (const op of batchOps) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10000);
+          const response = await fetch(`${capsUrl}/api/caps/sync/queue-operation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: op.type,
+              endpoint: op.endpoint,
+              method: op.method || 'POST',
+              body: op.body,
+              priority: op.priority || 5,
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+
+          if (response.ok) {
+            this.markOperationSynced(op.id);
+            synced++;
+            offlineDbLogger.info('Sync', `CAPS op synced: ${op.type} -> ${op.endpoint}`);
+          } else {
+            this.markOperationFailed(op.id, `CAPS HTTP ${response.status}`);
+            failed++;
+          }
+        } catch (e) {
+          this.markOperationFailed(op.id, e.message);
+          failed++;
+          if (e.name === 'AbortError' || e.message.includes('network') || e.message.includes('ECONNREFUSED')) {
+            break;
+          }
+        }
+      }
+
+      const checkRelatedOps = pending.filter(op => this.isCheckRelatedOperation(op.type));
+      for (const op of checkRelatedOps) {
+        this.markOperationSynced(op.id);
+      }
+    } catch (e) {
+      offlineDbLogger.error('Sync', `CAPS sync error: ${e.message}`);
+    }
+
+    this.syncInProgress = false;
+    const remaining = this.getPendingOperations().length;
+    if (synced > 0 || failed > 0) {
+      offlineDbLogger.info('Sync', `CAPS sync results: ${synced} synced, ${failed} failed, ${remaining} pending`);
+    }
+    return { synced, failed, remaining };
+  }
+
+  isCheckRelatedOperation(type) {
+    const checkOps = [
+      'create_check', 'add_check_item', 'send_check', 'update_check',
+      'transfer_check', 'cancel_transaction', 'reopen_check', 'void_check',
+      'void_check_item', 'item_discount', 'check_discount', 'price_override',
+      'split_check', 'update_modifiers', 'delete_check_item',
+      'remove_item_discount', 'remove_check_discount', 'remove_customer',
+      'void_payment', 'restore_payment', 'void_service_charge',
+      'create_payment', 'external_payment', 'capture_with_tip',
+      'print_check', 'offline_update', 'offline_delete',
+    ];
+    return checkOps.includes(type);
+  }
+
+  getUnsyncedChecks() {
+    try {
+      if (this.usingSqlite) {
+        const rows = this.db.prepare('SELECT data FROM offline_checks WHERE synced = 0 ORDER BY created_at ASC LIMIT 50').all();
+        return rows.map(r => {
+          const check = JSON.parse(r.data);
+          check.items = check.items || [];
+          check.payments = check.payments || [];
+          check.serviceCharges = check.serviceCharges || [];
+          check.discounts = check.discounts || [];
+          return check;
+        });
+      }
+      return [];
+    } catch (e) {
+      offlineDbLogger.error('Sync', 'Get unsynced checks error', e.message);
+      return [];
+    }
+  }
+
+  markCheckSynced(checkId) {
+    try {
+      if (this.usingSqlite) {
+        this.db.prepare("UPDATE offline_checks SET synced = 1, synced_at = datetime('now') WHERE id = ?").run(checkId);
+      }
+    } catch (e) {
+      offlineDbLogger.error('Sync', 'Mark check synced error', e.message);
+    }
+  }
+
   async syncToCloud(serverUrl) {
     if (this.syncInProgress) return { synced: 0, failed: 0, reason: 'sync already in progress' };
     this.syncInProgress = true;

@@ -691,6 +691,23 @@ class OfflineApiInterceptor {
     }
 
     if (pathname.match(/^\/api\/pos\/capture-with-tip/)) {
+      const paymentId = body?.paymentId;
+      const tipAmount = parseFloat(body?.tipAmount || 0);
+      if (paymentId) {
+        const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+        for (const c of checks) {
+          if (c.payments) {
+            const payment = c.payments.find(p => p.id === paymentId);
+            if (payment) {
+              payment.tipAmount = tipAmount.toFixed(2);
+              c.updatedAt = new Date().toISOString();
+              this.db.saveOfflineCheck(c);
+              break;
+            }
+          }
+        }
+      }
+      this.db.queueOperation('capture_with_tip', pathname, 'POST', body || {}, 2);
       return { status: 200, data: { success: true, offline: true, message: 'Tip capture queued for sync' } };
     }
 
@@ -699,8 +716,38 @@ class OfflineApiInterceptor {
     }
 
     if (pathname.match(/^\/api\/pos\/record-external-payment/)) {
+      const checkId = body?.checkId;
+      if (checkId) {
+        const check = this.db.getOfflineCheck(checkId);
+        if (check) {
+          if (!check.payments) check.payments = [];
+          const paymentId = `offline_pay_${crypto.randomUUID()}`;
+          const paymentAmount = parseFloat(body.amount || 0);
+          const payment = {
+            id: paymentId,
+            checkId,
+            amount: paymentAmount.toFixed(2),
+            tipAmount: '0.00',
+            tenderType: body.tenderType || body.paymentMethod || 'external',
+            status: 'captured',
+            createdAt: new Date().toISOString(),
+            isOffline: true,
+          };
+          check.payments.push(payment);
+          const totalPaid = check.payments
+            .filter(p => !p.voided)
+            .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+          const totalDue = parseFloat(check.total || check.subtotal || 0);
+          if (totalPaid >= totalDue && totalDue > 0) {
+            check.status = 'closed';
+            check.closedAt = new Date().toISOString();
+          }
+          check.updatedAt = new Date().toISOString();
+          this.db.saveOfflineCheck(check);
+        }
+      }
       this.db.queueOperation('external_payment', pathname, 'POST', body, 1);
-      return { status: 202, data: { success: true, offline: true, message: 'External payment queued for sync' } };
+      return { status: 202, data: { success: true, offline: true, message: 'External payment recorded (offline)' } };
     }
 
     if (pathname.match(/^\/api\/pos\/process-card-payment/) || pathname.match(/^\/api\/stripe/) || pathname.match(/^\/api\/terminal-sessions/)) {
@@ -737,6 +784,7 @@ class OfflineApiInterceptor {
           check._kdsBumpedAt = new Date().toISOString();
           check.updatedAt = new Date().toISOString();
           this.db.saveOfflineCheck(check);
+          this.db.queueOperation('bump_kds_ticket', pathname, 'POST', body || {}, 3);
         }
         appLogger.info('Interceptor', `RED mode: KDS ticket bumped ${ticketId}`);
         return { status: 200, data: { success: true, offline: true } };
@@ -754,6 +802,7 @@ class OfflineApiInterceptor {
           check._kdsBumpedAt = null;
           check.updatedAt = new Date().toISOString();
           this.db.saveOfflineCheck(check);
+          this.db.queueOperation('recall_kds_ticket', pathname, 'POST', body || {}, 3);
         }
         appLogger.info('Interceptor', `RED mode: KDS ticket recalled ${ticketId}`);
         return { status: 200, data: { success: true, offline: true } };
@@ -794,6 +843,20 @@ class OfflineApiInterceptor {
     if (pathname.match(/^\/api\/check-service-charges\/[^/]+\/void/)) {
       const scMatch = pathname.match(/^\/api\/check-service-charges\/([^/]+)\/void/);
       if (scMatch) {
+        const scId = scMatch[1];
+        const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+        for (const c of checks) {
+          if (c.serviceCharges) {
+            const sc = c.serviceCharges.find(s => s.id === scId);
+            if (sc) {
+              sc.voided = true;
+              sc.voidedAt = new Date().toISOString();
+              this._recalcCheckTotals(c);
+              this.db.saveOfflineCheck(c);
+              break;
+            }
+          }
+        }
         this.db.queueOperation('void_service_charge', pathname, 'POST', body || {}, 2);
         return { status: 200, data: { success: true, offline: true, message: 'Service charge voided (offline)' } };
       }
@@ -907,6 +970,23 @@ class OfflineApiInterceptor {
     }
 
     if (pathname.match(/^\/api\/check-service-charges\/[^/]+\/void/)) {
+      const scPatchMatch = pathname.match(/^\/api\/check-service-charges\/([^/]+)\/void/);
+      if (scPatchMatch) {
+        const scId = scPatchMatch[1];
+        const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+        for (const c of checks) {
+          if (c.serviceCharges) {
+            const sc = c.serviceCharges.find(s => s.id === scId);
+            if (sc) {
+              sc.voided = true;
+              sc.voidedAt = new Date().toISOString();
+              this._recalcCheckTotals(c);
+              this.db.saveOfflineCheck(c);
+              break;
+            }
+          }
+        }
+      }
       this.db.queueOperation('void_service_charge', pathname, 'PATCH', body, 2);
       return { status: 200, data: { success: true, offline: true, message: 'Service charge voided (offline)' } };
     }
@@ -1322,8 +1402,37 @@ class OfflineApiInterceptor {
       if (approval.status !== 200) return approval;
     }
 
+    const itemId = itemIdMatch[1];
+    const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+    for (const c of checks) {
+      if (c.items) {
+        const item = c.items.find(i => i.id === itemId);
+        if (item) {
+          item.discountId = body.discountId || null;
+          item.discountName = body.discountName || body.name || null;
+          item.discountType = body.discountType || body.type || 'amount';
+          const discountValue = parseFloat(body.amount || body.discountAmount || 0);
+          if (item.discountType === 'percentage' || item.discountType === 'percent') {
+            const itemPrice = parseFloat(item.totalPrice || item.unitPrice || 0) * (item.quantity || 1);
+            item.discountAmount = ((itemPrice * discountValue) / 100).toFixed(2);
+          } else {
+            item.discountAmount = discountValue.toFixed(2);
+          }
+          item.discount = {
+            id: body.discountId || `offline_disc_${crypto.randomUUID()}`,
+            name: item.discountName,
+            type: item.discountType,
+            amount: item.discountAmount,
+          };
+          this._recalcCheckTotals(c);
+          this.db.saveOfflineCheck(c);
+          break;
+        }
+      }
+    }
+
     this.db.queueOperation('item_discount', pathname, 'POST', body, 2);
-    return { status: 200, data: { success: true, offline: true, message: 'Item discount applied (offline - queued for sync)' } };
+    return { status: 200, data: { success: true, offline: true, message: 'Item discount applied (offline)' } };
   }
 
   priceOverrideOffline(pathname, body) {
