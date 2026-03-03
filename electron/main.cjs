@@ -54,7 +54,6 @@ const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/item-availability\/decrement/,
   /^\/api\/registered-devices\/heartbeat/,
   /^\/api\/system-status/,
-  /^\/api\/terminal-sessions(\/|$)/,
   /^\/api\/gift-cards(\/|$)/,
   /^\/api\/loyalty(\/|$)/,
 ];

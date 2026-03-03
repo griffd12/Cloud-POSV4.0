@@ -118,8 +118,9 @@ export default function KdsPage() {
   }, [isDedicatedKds, linkedDeviceId, deviceError, clearDeviceConfig, navigate, toast]);
 
   // Use property from configured device for dedicated KDS, otherwise from current RVC
+  // Fallback to devicePropertyId from device context if configuredKdsDevice hasn't loaded yet
   const propertyId = isDedicatedKds 
-    ? configuredKdsDevice?.propertyId 
+    ? (configuredKdsDevice?.propertyId || devicePropertyId)
     : currentRvc?.propertyId;
 
   const { data: kdsProperty } = useQuery<Property>({
@@ -411,6 +412,21 @@ export default function KdsPage() {
     bumpAllMutation.mutate();
   }, [bumpAllMutation]);
 
+  useEffect(() => {
+    console.log("[KDS] Init state:", {
+      isDedicatedKds,
+      linkedDeviceId,
+      devicePropertyId,
+      configuredKdsDevicePropertyId: configuredKdsDevice?.propertyId,
+      resolvedPropertyId: propertyId,
+      isLoadingDevice,
+      deviceError,
+      currentRvcId: currentRvc?.id,
+      kdsDevicesCount: kdsDevices.length,
+      ticketsCount: tickets.length,
+    });
+  }, [isDedicatedKds, linkedDeviceId, devicePropertyId, configuredKdsDevice?.propertyId, propertyId, isLoadingDevice, deviceError, currentRvc?.id, kdsDevices.length, tickets.length]);
+
   // For dedicated KDS devices, skip the employee/RVC check if we have a property from the device
   if (!isDedicatedKds && (!currentEmployee || !currentRvc)) {
     return <Redirect to="/" />;
@@ -423,6 +439,28 @@ export default function KdsPage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
           <p className="text-muted-foreground">Loading device configuration...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isDedicatedKds && !propertyId && !isLoadingDevice) {
+    return (
+      <div className="h-screen flex items-center justify-center" data-testid="kds-no-property">
+        <div className="text-center max-w-md">
+          <UtensilsCrossed className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <h2 className="text-lg font-semibold mb-2">KDS Not Configured</h2>
+          <p className="text-muted-foreground mb-4">
+            This KDS device does not have a property assigned. Please configure the device in the Enterprise Management Console or re-enroll.
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            <Button variant="outline" onClick={() => { clearDeviceConfig(); navigate("/setup"); }} data-testid="button-kds-reconfigure">
+              Reconfigure Device
+            </Button>
+            <Button variant="outline" onClick={handleRefresh} data-testid="button-kds-retry">
+              Retry
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -522,7 +560,7 @@ export default function KdsPage() {
         isBumpingAll={bumpAllMutation.isPending}
         deviceSettings={deviceSettings}
         rvcId={currentRvc?.id}
-        propertyId={propertyId}
+        propertyId={propertyId || undefined}
       />
     </div>
     </DeviceEnrollmentGuard>

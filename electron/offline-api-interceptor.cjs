@@ -140,7 +140,6 @@ class OfflineApiInterceptor {
         /^\/api\/loyalty/,
         /^\/api\/cash-drawer-kick/,
         /^\/api\/pos\//,
-        /^\/api\/terminal-sessions/,
         /^\/api\/kds-tickets/,
         /^\/api\/item-availability/,
       ];
@@ -368,6 +367,7 @@ class OfflineApiInterceptor {
           check.discounts = check.discounts || [];
           return { status: 200, data: check };
         }
+        if (this._connectionMode === 'green') return null;
         return { status: 404, data: { message: 'Check not found (offline)' } };
       }
     }
@@ -600,6 +600,7 @@ class OfflineApiInterceptor {
       if (!reserved.includes(checkId)) {
         const check = this.db.getOfflineCheck(checkId);
         if (!check) {
+          if (this._connectionMode === 'green') return null;
           return { status: 404, data: { message: 'Check not found (offline)' } };
         }
         const items = check.items || [];
@@ -828,11 +829,12 @@ class OfflineApiInterceptor {
       return { status: 202, data: { success: true, offline: true, message: 'External payment recorded (offline)' } };
     }
 
-    if (pathname.match(/^\/api\/pos\/process-card-payment/) || pathname.match(/^\/api\/stripe/) || pathname.match(/^\/api\/terminal-sessions/)) {
+    if (pathname.match(/^\/api\/pos\/process-card-payment/) || pathname.match(/^\/api\/stripe/)) {
       return { status: 503, data: { error: 'Card payment processing requires a cloud connection', offline: true } };
     }
 
     if (pathname.match(/^\/api\/checks\/merge/)) {
+      if (this._connectionMode === 'green') return null;
       return { status: 503, data: { error: 'Check merge requires a cloud connection', offline: true } };
     }
 
@@ -1120,7 +1122,10 @@ class OfflineApiInterceptor {
 
     const checkId = checkIdMatch[1];
     const check = this.db.getOfflineCheck(checkId);
-    if (!check) return { status: 404, data: { message: 'Check not found (offline)' } };
+    if (!check) {
+      if (this._connectionMode === 'green') return null;
+      return { status: 404, data: { message: 'Check not found (offline)' } };
+    }
 
     const modifiers = body.modifiers || body.selectedModifiers || [];
     const condiments = body.condiments || [];
@@ -1194,7 +1199,10 @@ class OfflineApiInterceptor {
 
   updateOfflineCheck(checkId, body) {
     const check = this.db.getOfflineCheck(checkId);
-    if (!check) return { status: 404, data: { message: 'Check not found (offline)' } };
+    if (!check) {
+      if (this._connectionMode === 'green') return null;
+      return { status: 404, data: { message: 'Check not found (offline)' } };
+    }
 
     Object.assign(check, body, { updatedAt: new Date().toISOString() });
     this.db.saveOfflineCheck(check);
@@ -1637,6 +1645,7 @@ class OfflineApiInterceptor {
     const sourceCheckId = checkIdMatch[1];
     const sourceCheck = this.db.getOfflineCheck(sourceCheckId);
     if (!sourceCheck) {
+      if (this._connectionMode === 'green') return null;
       return { status: 404, data: { message: 'Check not found (offline)' } };
     }
 
@@ -1745,7 +1754,10 @@ class OfflineApiInterceptor {
     if (checkMatch) {
       const checkId = checkMatch[1];
       const check = this.db.getOfflineCheck(checkId);
-      if (!check) return { status: 404, data: { message: 'Check not found (offline)' } };
+      if (!check) {
+        if (this._connectionMode === 'green') return null;
+        return { status: 404, data: { message: 'Check not found (offline)' } };
+      }
       check.status = 'voided';
       check.updatedAt = new Date().toISOString();
       this.db.saveOfflineCheck(check);

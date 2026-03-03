@@ -499,6 +499,23 @@ class OfflineDatabase {
         created_at TEXT DEFAULT (datetime('now'))
       );
 
+      -- Roles cache
+      CREATE TABLE IF NOT EXISTS roles (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT,
+        updated_at TEXT
+      );
+
+      -- Role privileges cache
+      CREATE TABLE IF NOT EXISTS role_privileges (
+        id TEXT PRIMARY KEY,
+        role_id TEXT,
+        enterprise_id TEXT,
+        data TEXT,
+        updated_at TEXT
+      );
+
       -- EMC option flags cache
       CREATE TABLE IF NOT EXISTS emc_option_flags (
         id TEXT PRIMARY KEY,
@@ -814,36 +831,6 @@ class OfflineDatabase {
         }
       } catch (e) {
         results.errors.push({ endpoint: 'pos-layout-cells', error: e.message });
-      }
-    }
-
-    if (rvcId) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000);
-        const checksResponse = await fetch(`${serverUrl}/api/checks/open?rvcId=${rvcId}`, {
-          signal: controller.signal,
-          headers: { 'Content-Type': 'application/json' },
-        });
-        clearTimeout(timeout);
-        if (checksResponse.ok) {
-          const openChecks = await checksResponse.json();
-          if (Array.isArray(openChecks)) {
-            for (const check of openChecks) {
-              this.saveOfflineCheck({
-                ...check,
-                isOffline: false,
-                synced: 1,
-                cloud_id: check.id,
-              });
-            }
-            results.synced.push({ key: 'open_checks', count: openChecks.length });
-            offlineDbLogger.info('Sync', `Synced ${openChecks.length} open checks for offline access`);
-            this.updateCheckCountersAfterSync();
-          }
-        }
-      } catch (e) {
-        results.errors.push({ endpoint: 'open-checks', error: e.message });
       }
     }
 
@@ -1695,58 +1682,8 @@ class OfflineDatabase {
   }
 
   async syncToCloud(serverUrl) {
-    if (this.syncInProgress) return { synced: 0, failed: 0, reason: 'sync already in progress' };
-    this.syncInProgress = true;
-
-    const pending = this.getPendingOperations();
-    if (pending.length === 0) {
-      this.syncInProgress = false;
-      return { synced: 0, failed: 0 };
-    }
-
-    const maxBatchSize = 50;
-    const batchPending = pending.slice(0, maxBatchSize);
-    let synced = 0;
-    let failed = 0;
-
-    offlineDbLogger.info('Sync', `Syncing ${batchPending.length} of ${pending.length} operations to cloud...`);
-
-    for (const op of batchPending) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
-        const response = await fetch(`${serverUrl}${op.endpoint}`, {
-          method: op.method || 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: op.body,
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-
-        if (response.ok) {
-          this.markOperationSynced(op.id);
-          synced++;
-          offlineDbLogger.info('Sync', `Synced: ${op.type} -> ${op.endpoint}`);
-        } else if (response.status === 400 || response.status === 404) {
-          this.markOperationPermanentlyFailed(op.id, `HTTP ${response.status} (permanent)`);
-          failed++;
-        } else {
-          this.markOperationFailed(op.id, `HTTP ${response.status}`);
-          failed++;
-        }
-      } catch (e) {
-        this.markOperationFailed(op.id, e.message);
-        failed++;
-        if (e.name === 'AbortError' || e.message.includes('network')) {
-          offlineDbLogger.warn('Sync', 'Network error during sync, stopping...');
-          break;
-        }
-      }
-    }
-
-    this.syncInProgress = false;
-    offlineDbLogger.info('Sync', `Sync results: ${synced} synced, ${failed} failed`);
-    return { synced, failed, remaining: this.getPendingOperations().length };
+    offlineDbLogger.warn('Sync', 'syncToCloud() is disabled. WS must sync to CAPS, not directly to cloud. Use syncToCaps() instead.');
+    return { synced: 0, failed: 0, reason: 'disabled - WS must sync via CAPS, not directly to cloud' };
   }
 
   getStats() {

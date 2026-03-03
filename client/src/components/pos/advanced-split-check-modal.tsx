@@ -45,7 +45,7 @@ export function AdvancedSplitCheckModal({
   onSplit,
   isSplitting,
 }: AdvancedSplitCheckModalProps) {
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [newChecks, setNewChecks] = useState<NewCheckPanel[]>([{ index: 1, items: [] }]);
   const [shareMode, setShareMode] = useState(false);
   const [shareRatio, setShareRatio] = useState(50);
@@ -88,12 +88,13 @@ export function AdvancedSplitCheckModal({
   };
 
   const handleTargetCheckClick = useCallback((checkIndex: number) => {
-    if (!selectedItemId) return;
+    if (selectedItemIds.size === 0) return;
 
-    const item = activeItems.find((i) => i.id === selectedItemId);
-    if (!item) return;
+    if (shareMode && selectedItemIds.size === 1) {
+      const itemId = Array.from(selectedItemIds)[0];
+      const item = activeItems.find((i) => i.id === itemId);
+      if (!item) return;
 
-    if (shareMode) {
       setNewChecks((prev) =>
         prev.map((nc) =>
           nc.index === checkIndex
@@ -102,7 +103,7 @@ export function AdvancedSplitCheckModal({
                 items: [
                   ...nc.items,
                   {
-                    itemId: selectedItemId,
+                    itemId,
                     type: "share" as const,
                     shareRatio: shareRatio / 100,
                     menuItemName: item.menuItemName,
@@ -114,29 +115,34 @@ export function AdvancedSplitCheckModal({
         )
       );
     } else {
+      const idsToMove = Array.from(selectedItemIds);
       setNewChecks((prev) =>
-        prev.map((nc) => ({
-          ...nc,
-          items:
-            nc.index === checkIndex
-              ? [
-                  ...nc.items.filter((i) => i.itemId !== selectedItemId),
-                  {
-                    itemId: selectedItemId,
-                    type: "move" as const,
-                    menuItemName: item.menuItemName,
-                    unitPrice: item.unitPrice || "0",
-                  },
-                ]
-              : nc.items.filter((i) => i.itemId !== selectedItemId),
-        }))
+        prev.map((nc) => {
+          if (nc.index === checkIndex) {
+            const existingFiltered = nc.items.filter((i) => !idsToMove.includes(i.itemId));
+            const newItems = idsToMove
+              .map((itemId) => {
+                const item = activeItems.find((i) => i.id === itemId);
+                if (!item) return null;
+                return {
+                  itemId,
+                  type: "move" as const,
+                  menuItemName: item.menuItemName,
+                  unitPrice: item.unitPrice || "0",
+                };
+              })
+              .filter(Boolean) as NewCheckPanel["items"];
+            return { ...nc, items: [...existingFiltered, ...newItems] };
+          }
+          return { ...nc, items: nc.items.filter((i) => !idsToMove.includes(i.itemId)) };
+        })
       );
     }
 
-    setSelectedItemId(null);
+    setSelectedItemIds(new Set());
     setShareMode(false);
     setShareRatio(50);
-  }, [selectedItemId, shareMode, shareRatio, activeItems]);
+  }, [selectedItemIds, shareMode, shareRatio, activeItems]);
 
   const removeItemFromCheck = (checkIndex: number, itemId: string) => {
     setNewChecks((prev) =>
@@ -222,14 +228,14 @@ export function AdvancedSplitCheckModal({
               <Badge variant="outline">{formatPrice(getRemainingSourceTotal())}</Badge>
             </div>
             <p className="text-xs text-muted-foreground mb-2">
-              Click an item to select, then click a target check
+              Click items to select (multi-select), then click a target check
             </p>
             <ScrollArea className="flex-1">
               <div className="space-y-2 pr-2">
                 {activeItems.map((item) => {
                   const isMoved = isItemMoved(item.id);
                   const isShared = isItemShared(item.id);
-                  const isSelected = selectedItemId === item.id;
+                  const isSelected = selectedItemIds.has(item.id);
 
                   return (
                     <div
@@ -245,8 +251,18 @@ export function AdvancedSplitCheckModal({
                       }`}
                       onClick={() => {
                         if (!isMoved) {
-                          setSelectedItemId(isSelected ? null : item.id);
-                          setShareMode(false);
+                          setSelectedItemIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(item.id)) {
+                              next.delete(item.id);
+                            } else {
+                              next.add(item.id);
+                            }
+                            return next;
+                          });
+                          if (shareMode && selectedItemIds.size !== 1) {
+                            setShareMode(false);
+                          }
                         }
                       }}
                       data-testid={`source-item-${item.id}`}
@@ -273,11 +289,13 @@ export function AdvancedSplitCheckModal({
               </div>
             </ScrollArea>
 
-            {selectedItemId && (
+            {selectedItemIds.size > 0 && (
               <div className="mt-4 p-3 bg-muted/50 rounded-md border space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <ArrowRight className="w-4 h-4" />
-                  Item Selected: {activeItems.find((i) => i.id === selectedItemId)?.menuItemName}
+                  {selectedItemIds.size === 1
+                    ? `Item Selected: ${activeItems.find((i) => i.id === Array.from(selectedItemIds)[0])?.menuItemName}`
+                    : `${selectedItemIds.size} Items Selected`}
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <Button
@@ -286,19 +304,20 @@ export function AdvancedSplitCheckModal({
                     onClick={() => setShareMode(false)}
                     data-testid="button-move-mode"
                   >
-                    Move Item
+                    Move {selectedItemIds.size > 1 ? "Items" : "Item"}
                   </Button>
                   <Button
                     size="sm"
                     variant={shareMode ? "default" : "outline"}
                     onClick={() => setShareMode(true)}
+                    disabled={selectedItemIds.size !== 1}
                     data-testid="button-share-mode"
                   >
                     <Share2 className="w-4 h-4 mr-1" />
                     Share Item
                   </Button>
                 </div>
-                {shareMode && (
+                {shareMode && selectedItemIds.size === 1 && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span>Share Ratio:</span>
@@ -341,7 +360,7 @@ export function AdvancedSplitCheckModal({
                   <Card
                     key={nc.index}
                     className={`p-3 cursor-pointer transition-colors ${
-                      selectedItemId ? "hover:border-primary hover:bg-primary/5" : ""
+                      selectedItemIds.size > 0 ? "hover:border-primary hover:bg-primary/5" : ""
                     }`}
                     onClick={() => handleTargetCheckClick(nc.index)}
                     data-testid={`target-check-${nc.index}`}
@@ -368,7 +387,7 @@ export function AdvancedSplitCheckModal({
 
                     {nc.items.length === 0 ? (
                       <p className="text-sm text-muted-foreground py-4 text-center">
-                        {selectedItemId ? "Click here to transfer item" : "No items yet"}
+                        {selectedItemIds.size > 0 ? "Click here to transfer item(s)" : "No items yet"}
                       </p>
                     ) : (
                       <div className="space-y-1">

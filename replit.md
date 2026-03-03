@@ -82,3 +82,14 @@ Preferred communication style: Simple, everyday language.
 - Shift4 (semi_integrated)
 - FreedomPay (semi_integrated)
 - Eigen (semi_integrated)
+
+### v3.1.27 Changes (March 2026)
+- **Architecture Enforcement**: WS→CAPS→Cloud is the ONLY valid transaction data flow. Cloud sends only config down. Removed `syncFromCloud()` open checks download and disabled `syncToCloud()` dead code.
+- **Credit card 503 fix**: Removed terminal-sessions from interceptor blocks
+- **Roles table fix**: Added roles + role_privileges to offline SQLite init
+- **CAPS send-to-kitchen fix**: v7 schema migration for missing check_items and modifier_groups columns
+- **KDS black screen fix**: propertyId fallback + diagnostic logging + empty state guard
+- **Merge checks fix**: GREEN mode cloud fallthrough
+- **Check 404 reopen/edit fix**: 6 interceptor locations now fall through to cloud in GREEN mode
+- **Checks disappearing fix**: Root cause removal of architecture violation
+- **Split check multi-select**: Set-based multi-item selection and batch move
