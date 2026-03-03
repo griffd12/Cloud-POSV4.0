@@ -3577,7 +3577,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/workstations/:id/activation-config", async (req, res) => {
     try {
       const workstation = await storage.getWorkstation(req.params.id);
-      if (!workstation) return res.status(404).json({ message: "Workstation not found" });
+      
+      if (!workstation) {
+        const kdsDevice = await storage.getKdsDevice(req.params.id);
+        if (!kdsDevice) return res.status(404).json({ message: "Device not found" });
+        
+        const kdsProperty = await storage.getProperty(kdsDevice.propertyId);
+        if (!kdsProperty) return res.status(404).json({ message: "Property not found" });
+        
+        const kdsEnterprise = await storage.getEnterprise(kdsProperty.enterpriseId);
+        const kdsRvcs = await storage.getRvcs(kdsDevice.propertyId);
+        const kdsServiceHosts = await storage.getServiceHosts(kdsDevice.propertyId);
+        const kdsPrimaryServiceHost = kdsServiceHosts.find(sh => sh.isPrimary) || kdsServiceHosts[0] || null;
+        
+        let kdsCapsWorkstation: any = null;
+        let kdsCapsServiceHostUrl: string | null = null;
+        if (kdsProperty.capsWorkstationId) {
+          kdsCapsWorkstation = await storage.getWorkstation(kdsProperty.capsWorkstationId);
+          if (kdsCapsWorkstation) {
+            kdsCapsServiceHostUrl = `http://${kdsCapsWorkstation.ipAddress || "localhost"}:3001`;
+          }
+        }
+        
+        const kdsResolvedServiceHostUrl = kdsCapsServiceHostUrl
+          || (kdsPrimaryServiceHost ? `http://${kdsPrimaryServiceHost.lastKnownIp || "localhost"}:3001` : null);
+        
+        return res.json({
+          kdsDevice,
+          property: kdsProperty,
+          enterprise: kdsEnterprise,
+          rvcs: kdsRvcs,
+          serviceHost: kdsPrimaryServiceHost,
+          pendingDeployments: [],
+          connectionConfig: {
+            cloudUrl: process.env.REPLIT_URL || "",
+            serviceHostUrl: kdsResolvedServiceHostUrl,
+            capsWorkstationId: kdsProperty.capsWorkstationId || null,
+            capsWorkstationName: kdsCapsWorkstation?.name || null,
+            syncEnabled: true,
+            serviceHostToken: null,
+          },
+        });
+      }
       
       const property = await storage.getProperty(workstation.propertyId);
       if (!property) return res.status(404).json({ message: "Property not found" });

@@ -684,6 +684,17 @@ class OfflineDatabase {
     }
   }
 
+  getRolePrivileges(roleId) {
+    if (!roleId) return [];
+    try {
+      const cached = this.getCachedConfig(`role_privileges_${roleId}`);
+      if (cached && Array.isArray(cached)) return cached;
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   getEntity(tableName, id) {
     if (!this.usingSqlite) {
       const all = this.getCachedConfig(tableName) || [];
@@ -712,6 +723,7 @@ class OfflineDatabase {
       { table: 'condiment_groups', url: `/api/condiment-groups?enterpriseId=${enterpriseId}` },
       { table: 'combo_meals', url: `/api/combo-meals?enterpriseId=${enterpriseId}` },
       { table: 'employees', url: `/api/employees?enterpriseId=${enterpriseId}` },
+      { table: 'roles', url: `/api/roles?enterpriseId=${enterpriseId}` },
       { table: 'tax_rates', url: `/api/tax-rates?enterpriseId=${enterpriseId}` },
       { table: 'discounts', url: `/api/discounts?enterpriseId=${enterpriseId}` },
       { table: 'tender_types', url: `/api/tender-types?enterpriseId=${enterpriseId}` },
@@ -833,6 +845,32 @@ class OfflineDatabase {
       } catch (e) {
         results.errors.push({ endpoint: 'open-checks', error: e.message });
       }
+    }
+
+    try {
+      const employees = this.getEntityList('employees', enterpriseId);
+      const uniqueRoleIds = [...new Set(employees.map(e => e.roleId).filter(Boolean))];
+      for (const roleId of uniqueRoleIds) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10000);
+          const privResponse = await fetch(`${serverUrl}/api/roles/${roleId}/privileges`, {
+            signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+          });
+          clearTimeout(timeout);
+          if (privResponse.ok) {
+            const privData = await privResponse.json();
+            const privileges = Array.isArray(privData) ? privData.map(p => p.privilegeCode || p.code || p) : [];
+            this.cacheConfigData(`role_privileges_${roleId}`, privileges, enterpriseId);
+            results.synced.push({ key: `role_privileges_${roleId}`, count: privileges.length });
+          }
+        } catch (e) {
+          results.errors.push({ endpoint: `roles/${roleId}/privileges`, error: e.message });
+        }
+      }
+    } catch (e) {
+      offlineDbLogger.warn('Sync', `Role privilege sync error: ${e.message}`);
     }
 
     this.setSyncMetadata('lastFullSync', new Date().toISOString());
@@ -1520,9 +1558,12 @@ class OfflineDatabase {
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 10000);
+          const syncHeaders = { 'Content-Type': 'application/json' };
+          if (this.config && this.config.deviceId) syncHeaders['x-workstation-id'] = this.config.deviceId;
+          if (this.config && this.config.deviceName) syncHeaders['x-device-name'] = this.config.deviceName;
           const response = await fetch(`${capsUrl}/api/caps/sync/check-state`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: syncHeaders,
             body: JSON.stringify(check),
             signal: controller.signal,
           });
@@ -1559,9 +1600,12 @@ class OfflineDatabase {
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 10000);
+          const queueHeaders = { 'Content-Type': 'application/json' };
+          if (this.config && this.config.deviceId) queueHeaders['x-workstation-id'] = this.config.deviceId;
+          if (this.config && this.config.deviceName) queueHeaders['x-device-name'] = this.config.deviceName;
           const response = await fetch(`${capsUrl}/api/caps/sync/queue-operation`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: queueHeaders,
             body: JSON.stringify({
               type: op.type,
               endpoint: op.endpoint,

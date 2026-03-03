@@ -268,6 +268,12 @@ export class Database {
       if (!e.message?.includes('duplicate column')) throw e;
     }
     
+    try {
+      this.run('ALTER TABLE modifier_groups ADD COLUMN code TEXT');
+    } catch (e: any) {
+      if (!e.message?.includes('duplicate column')) throw e;
+    }
+    
     console.log('[DB] v6 migration complete');
   }
   
