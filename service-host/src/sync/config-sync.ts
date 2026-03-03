@@ -236,15 +236,20 @@ export class ConfigSync {
         .join(', ');
       console.log(`[ConfigSync] Mapped entity arrays: ${arraySizes || '(none)'}`);
       
-      totalRecords += this.syncHierarchy(config);
-      totalRecords += this.syncMenu(config);
-      totalRecords += this.syncEmployees(config);
-      totalRecords += this.syncDevices(config);
-      totalRecords += this.syncOperations(config);
-      totalRecords += this.syncPosLayouts(config);
-      totalRecords += this.syncPayments(config);
-      totalRecords += this.syncLoyalty(config);
-      totalRecords += this.syncMisc(config);
+      this.db.run('PRAGMA foreign_keys = OFF');
+      try {
+        totalRecords += this.syncHierarchy(config);
+        totalRecords += this.syncMenu(config);
+        totalRecords += this.syncEmployees(config);
+        totalRecords += this.syncDevices(config);
+        totalRecords += this.syncOperations(config);
+        totalRecords += this.syncPosLayouts(config);
+        totalRecords += this.syncPayments(config);
+        totalRecords += this.syncLoyalty(config);
+        totalRecords += this.syncMisc(config);
+      } finally {
+        this.db.run('PRAGMA foreign_keys = ON');
+      }
       
       this.currentVersion = config.version || 1;
       this.saveSyncState(totalRecords);

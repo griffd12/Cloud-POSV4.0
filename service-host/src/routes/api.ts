@@ -1590,7 +1590,7 @@ export function createApiRoutes(
       db.run('PRAGMA foreign_keys = OFF');
       try {
         db.transaction(() => {
-          db.run(`INSERT OR REPLACE INTO checks (id, cloud_id, check_number, rvc_id, employee_id, workstation_id, order_type, table_number, guest_count, status, subtotal, tax, discount_total, service_charge_total, total, amount_due, current_round, business_date, opened_at, closed_at, voided_at, void_reason, customer_id, customer_name, cloud_synced, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`, [
+          db.run(`INSERT OR REPLACE INTO checks (id, cloud_id, check_number, rvc_id, employee_id, workstation_id, order_type, table_number, guest_count, status, subtotal, tax, discount_total, service_charge_total, total, amount_due, current_round, business_date, opened_at, closed_at, voided_at, void_reason, customer_id, customer_name, cloud_synced, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`, [
             check.id, check.cloudId || check.cloud_id || null, check.checkNumber || check.check_number || 0,
             check.rvcId || check.rvc_id || '', check.employeeId || check.employee_id || '',
             check.workstationId || check.workstation_id || null, check.orderType || check.order_type || 'dine_in',
@@ -1664,6 +1664,12 @@ export function createApiRoutes(
         });
 
         console.log(`[CAPS Sync] Check ${check.id} synced with ${check.items?.length || 0} items, ${check.payments?.length || 0} payments`);
+
+        try {
+          db.addToSyncQueue('check', check.id, 'update', check, 5);
+        } catch (qErr) {
+          console.warn(`[CAPS Sync] Failed to queue check ${check.id} for cloud forward: ${(qErr as Error).message}`);
+        }
       } finally {
         db.run('PRAGMA foreign_keys = ON');
       }

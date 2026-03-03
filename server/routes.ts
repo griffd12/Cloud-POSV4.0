@@ -11,7 +11,7 @@ import archiver from "archiver";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, ne, sql, inArray, and, desc } from "drizzle-orm";
-import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, serviceHostTransactions, printClassRouting as printClassRoutingTable } from "@shared/schema";
+import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts } from "@shared/schema";
 import { uberEatsIntegration } from "./integrations/uber-eats";
 import { grubhubIntegration } from "./integrations/grubhub";
 import { doorDashIntegration } from "./integrations/doordash";
@@ -24402,29 +24402,46 @@ connect();
 
   // POST /api/sync/transactions - Receive transactions from Service Host
   // Protected with Service Host token authentication
+  // Accepts two formats:
+  //   1. Batch: { serviceHostId, propertyId, businessDate, transactions: [...] }
+  //   2. Direct (from TransactionSync): { type, action, data } — auth via x-service-host-token header
   app.post("/api/sync/transactions", async (req, res) => {
     try {
-      // Validate Service Host authentication
       const serviceHostToken = req.headers['x-service-host-token'] as string;
-      const { serviceHostId, propertyId, businessDate, transactions } = req.body;
+      let { serviceHostId, propertyId, businessDate, transactions } = req.body;
+
+      // Direct format from TransactionSync (has type+data but no serviceHostId)
+      const isDirect = !serviceHostId && req.body.type && req.body.data;
+      if (isDirect) {
+        if (!serviceHostToken) {
+          return res.status(401).json({ error: "x-service-host-token required" });
+        }
+        const allHosts = await db.select().from(serviceHosts).where(eq(serviceHosts.registrationToken, serviceHostToken)).limit(1);
+        if (allHosts.length === 0) {
+          return res.status(401).json({ error: "Invalid Service Host token" });
+        }
+        const host = allHosts[0];
+        serviceHostId = host.id;
+        propertyId = host.propertyId;
+        transactions = [{ type: req.body.type, action: req.body.action, data: req.body.data, localId: req.body.data?.id || req.body.data?.localId || `sync-${Date.now()}` }];
+      }
 
       if (!serviceHostId || !propertyId || !transactions) {
         return res.status(400).json({ error: "serviceHostId, propertyId, and transactions are required" });
       }
       
-      // Verify Service Host token matches the registered host
-      const serviceHost = await storage.getServiceHost(serviceHostId);
+      const serviceHost = isDirect ? { id: serviceHostId, propertyId, registrationToken: serviceHostToken } : await storage.getServiceHost(serviceHostId);
       if (!serviceHost) {
         return res.status(404).json({ error: "Service Host not found" });
       }
       
-      if (!serviceHostToken || serviceHost.registrationToken !== serviceHostToken) {
-        return res.status(401).json({ error: "Invalid Service Host authentication" });
-      }
-      
-      // Verify the Service Host is authorized for this property
-      if (serviceHost.propertyId !== propertyId) {
-        return res.status(403).json({ error: "Service Host not authorized for this property" });
+      if (!isDirect) {
+        if (!serviceHostToken || serviceHost.registrationToken !== serviceHostToken) {
+          return res.status(401).json({ error: "Invalid Service Host authentication" });
+        }
+        if (serviceHost.propertyId !== propertyId) {
+          return res.status(403).json({ error: "Service Host not authorized for this property" });
+        }
       }
 
       const cloudIds: Record<string, string> = {};
@@ -24457,28 +24474,124 @@ connect();
           const storedTx = await storage.createServiceHostTransaction({
             serviceHostId,
             propertyId,
-            localId: tx.localId,
+            localId: tx.localId || `sync-${Date.now()}`,
             transactionType: tx.type,
-            businessDate: businessDate || tx.data?.businessDate || new Date().toISOString().split("T")[0],
+            businessDate: businessDate || tx.data?.businessDate || tx.data?.business_date || new Date().toISOString().split("T")[0],
             data: tx.data,
           });
 
-          if (tx.type === "check_closed" && tx.data) {
-            const cloudCheck = await storage.createCheck({
-              checkNumber: tx.data.checkNumber,
-              employeeId: tx.data.employeeId,
-              rvcId: tx.data.rvcId,
-              tableNumber: tx.data.tableNumber,
-              coverCount: tx.data.coverCount,
-              subtotal: tx.data.subtotal?.toString(),
-              tax: tx.data.tax?.toString(),
-              total: tx.data.total?.toString(),
-              status: "closed",
-              businessDate: tx.data.businessDate,
-              closedAt: tx.data.closedAt ? new Date(tx.data.closedAt) : new Date(),
-            });
+          if ((tx.type === "check_closed" || tx.type === "check") && tx.data) {
+            const d = tx.data;
+            const checkStatus = d.status || (tx.type === "check_closed" ? "closed" : "open");
+            const checkNumber = d.checkNumber || d.check_number || 0;
+            const rvcId = d.rvcId || d.rvc_id || "";
+            const employeeId = d.employeeId || d.employee_id || "";
+            const orderType = d.orderType || d.order_type || "dine_in";
+            const subtotal = (d.subtotal ?? d.sub_total ?? "0").toString();
+            const taxTotal = (d.tax ?? d.taxTotal ?? d.tax_total ?? "0").toString();
+            const discountTotal = (d.discountTotal ?? d.discount_total ?? "0").toString();
+            const serviceChargeTotal = (d.serviceChargeTotal ?? d.service_charge_total ?? "0").toString();
+            const total = (d.total ?? "0").toString();
 
-            cloudIds[tx.localId] = cloudCheck.id;
+            const existingCheck = await db.select().from(checks)
+              .where(and(eq(checks.rvcId, rvcId), eq(checks.checkNumber, checkNumber)))
+              .limit(1);
+
+            let cloudCheck;
+            if (existingCheck.length > 0) {
+              cloudCheck = await storage.updateCheck(existingCheck[0].id, {
+                employeeId,
+                orderType,
+                status: checkStatus,
+                subtotal,
+                taxTotal,
+                discountTotal,
+                serviceChargeTotal,
+                total,
+                guestCount: d.guestCount || d.guest_count || 1,
+                tableNumber: d.tableNumber || d.table_number || null,
+                businessDate: d.businessDate || d.business_date,
+                closedAt: d.closedAt || d.closed_at ? new Date(d.closedAt || d.closed_at) : undefined,
+                customerName: d.customerName || d.customer_name || null,
+                customerId: d.customerId || d.customer_id || null,
+              });
+            } else {
+              cloudCheck = await storage.createCheck({
+                checkNumber,
+                employeeId,
+                rvcId,
+                orderType,
+                status: checkStatus,
+                subtotal,
+                taxTotal,
+                discountTotal,
+                serviceChargeTotal,
+                total,
+                guestCount: d.guestCount || d.guest_count || 1,
+                tableNumber: d.tableNumber || d.table_number || null,
+                businessDate: d.businessDate || d.business_date,
+                closedAt: d.closedAt || d.closed_at ? new Date(d.closedAt || d.closed_at) : undefined,
+                customerName: d.customerName || d.customer_name || null,
+                customerId: d.customerId || d.customer_id || null,
+              });
+            }
+
+            if (cloudCheck && d.items && Array.isArray(d.items)) {
+              for (const item of d.items) {
+                try {
+                  const existingItem = item.id ? await db.select().from(checkItems)
+                    .where(eq(checkItems.id, item.id)).limit(1) : [];
+                  if (existingItem.length > 0) {
+                    await storage.updateCheckItem(existingItem[0].id, {
+                      quantity: item.quantity || 1,
+                      unitPrice: (item.unitPrice || item.unit_price || "0").toString(),
+                      voided: item.voided || false,
+                      sent: item.sent || false,
+                      itemStatus: item.itemStatus || item.item_status || "active",
+                      modifiers: item.modifiers || null,
+                    });
+                  } else {
+                    await storage.createCheckItem({
+                      id: item.id,
+                      checkId: cloudCheck.id,
+                      menuItemId: item.menuItemId || item.menu_item_id || null,
+                      menuItemName: item.menuItemName || item.menu_item_name || "Unknown",
+                      quantity: item.quantity || 1,
+                      unitPrice: (item.unitPrice || item.unit_price || "0").toString(),
+                      voided: item.voided || false,
+                      sent: item.sent || false,
+                      itemStatus: item.itemStatus || item.item_status || "active",
+                      modifiers: item.modifiers || null,
+                      businessDate: item.businessDate || item.business_date || d.businessDate || d.business_date,
+                    });
+                  }
+                } catch (itemErr: any) {
+                  console.warn(`Sync check item error: ${itemErr.message}`);
+                }
+              }
+            }
+
+            if (cloudCheck && d.payments && Array.isArray(d.payments)) {
+              for (const pmt of d.payments) {
+                try {
+                  await storage.createPayment({
+                    id: pmt.id,
+                    checkId: cloudCheck.id,
+                    tenderId: pmt.tenderId || pmt.tender_id,
+                    amount: (pmt.amount || "0").toString(),
+                    tipAmount: (pmt.tipAmount || pmt.tip_amount || "0").toString(),
+                    paymentType: pmt.paymentType || pmt.payment_type || "cash",
+                    status: pmt.status || "completed",
+                  });
+                } catch (pmtErr: any) {
+                  console.warn(`Sync check payment error: ${pmtErr.message}`);
+                }
+              }
+            }
+
+            if (cloudCheck) {
+              cloudIds[tx.localId] = cloudCheck.id;
+            }
           } else if (tx.type === "time_punch" && tx.data) {
             const cloudPunch = await storage.createTimePunch({
               employeeId: tx.data.employeeId,
@@ -24493,11 +24606,16 @@ connect();
             cloudIds[tx.localId] = cloudPunch.id;
           }
 
-          acknowledged.push(tx.localId);
+          acknowledged.push(tx.localId || `sync-${Date.now()}`);
           processed++;
         } catch (txError: any) {
           console.error(`Error processing transaction ${tx.localId}:`, txError);
         }
+      }
+
+      if (isDirect) {
+        const checkId = Object.values(cloudIds)[0];
+        return res.json({ success: true, id: checkId, processed, acknowledged, skipped, cloudIds });
       }
 
       res.json({
