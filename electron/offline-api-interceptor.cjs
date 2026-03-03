@@ -385,10 +385,12 @@ class OfflineApiInterceptor {
     }
 
     if (pathname.match(/^\/api\/loyalty-members/)) {
+      if (this._connectionMode === 'green') return null;
       return { status: 200, data: null };
     }
 
     if (pathname.match(/^\/api\/gift-cards/)) {
+      if (this._connectionMode === 'green') return null;
       return { status: 503, data: { error: 'Gift card lookup requires a cloud connection', offline: true } };
     }
 
@@ -738,10 +740,12 @@ class OfflineApiInterceptor {
     }
 
     if (pathname.match(/^\/api\/gift-cards/)) {
+      if (this._connectionMode === 'green') return null;
       return { status: 503, data: { error: 'Gift card operations require a cloud connection', offline: true } };
     }
 
     if (pathname.match(/^\/api\/loyalty/)) {
+      if (this._connectionMode === 'green') return null;
       return { status: 503, data: { error: 'Loyalty features require a cloud connection', offline: true } };
     }
 
@@ -791,6 +795,7 @@ class OfflineApiInterceptor {
     }
 
     if (pathname.match(/^\/api\/pos\/loyalty\/earn/)) {
+      if (this._connectionMode === 'green') return null;
       return { status: 503, data: { error: 'Loyalty features require a cloud connection', offline: true } };
     }
 
