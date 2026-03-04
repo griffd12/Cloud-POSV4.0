@@ -2622,22 +2622,38 @@ function registerProtocolInterceptor() {
             const capsUrl = getCapsServiceHostUrl();
             if (capsUrl) {
               const capsCheckId = sendMatch[1];
-              const capsSendUrl = `${capsUrl}/api/caps/checks/${capsCheckId}/send`;
               const fwdConfig = loadConfig();
               const fwdHeaders = { 'Content-Type': 'application/json' };
               if (fwdConfig.deviceId) fwdHeaders['x-workstation-id'] = fwdConfig.deviceId;
               if (fwdConfig.deviceName) fwdHeaders['x-device-name'] = fwdConfig.deviceName;
               if (fwdConfig.serviceHostToken) fwdHeaders['x-workstation-token'] = fwdConfig.serviceHostToken;
-              fetch(capsSendUrl, {
-                method: 'POST',
-                headers: fwdHeaders,
-                body: JSON.stringify(body || {}),
-                signal: AbortSignal.timeout(5000),
-              }).then(r => {
-                appLogger.info('Interceptor', `CAPS send-to-kitchen forwarded: ${capsCheckId} -> ${r.status}`);
-              }).catch(e => {
-                appLogger.warn('Interceptor', `CAPS send-to-kitchen forward failed: ${e.message}`);
-              });
+              (async () => {
+                try {
+                  if (enhancedOfflineDb && enhancedOfflineDb.syncToCaps) {
+                    appLogger.info('Interceptor', `CAPS send: syncing pending checks to CAPS before send (check ${capsCheckId})`);
+                    const syncResult = await enhancedOfflineDb.syncToCaps(capsUrl);
+                    appLogger.info('Interceptor', `CAPS send: pre-sync done - synced:${syncResult?.synced || 0} failed:${syncResult?.failed || 0}`);
+                  }
+                } catch (syncErr) {
+                  appLogger.warn('Interceptor', `CAPS send: pre-sync failed (will still attempt send): ${syncErr.message}`);
+                }
+                const capsSendUrl = `${capsUrl}/api/caps/checks/${capsCheckId}/send`;
+                try {
+                  const r = await fetch(capsSendUrl, {
+                    method: 'POST',
+                    headers: fwdHeaders,
+                    body: JSON.stringify(body || {}),
+                    signal: AbortSignal.timeout(8000),
+                  });
+                  appLogger.info('Interceptor', `CAPS send-to-kitchen forwarded: ${capsCheckId} -> ${r.status}`);
+                  if (r.status >= 400) {
+                    const errBody = await r.text().catch(() => '');
+                    appLogger.warn('Interceptor', `CAPS send-to-kitchen error body: ${errBody}`);
+                  }
+                } catch (e) {
+                  appLogger.warn('Interceptor', `CAPS send-to-kitchen forward failed: ${e.message}`);
+                }
+              })();
             }
           }
           return new Response(JSON.stringify(result.data), {

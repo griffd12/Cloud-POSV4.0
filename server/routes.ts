@@ -17122,7 +17122,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             }
             const cloudCheck = await db.select().from(checks)
               .where(and(...conditions))
-              .orderBy(desc(checks.createdAt))
+              .orderBy(desc(checks.openedAt))
               .limit(1);
             if (cloudCheck.length > 0) {
               console.log(`[terminal-sessions] Resolved offline ${offlineId} -> cloud ${cloudCheck[0].id} (check #${checkNumber})`);
