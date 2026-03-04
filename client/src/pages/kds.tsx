@@ -5,6 +5,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { apiClient } from "@/lib/api-client";
 import { usePosContext } from "@/lib/pos-context";
 import { useDeviceContext } from "@/lib/device-context";
 import { usePosWebSocket, subscribeToKdsTestTicket } from "@/hooks/use-pos-websocket";
@@ -266,7 +267,7 @@ export default function KdsPage() {
   });
 
   // WebSocket for real-time KDS updates with auto-reconnect
-  // For dedicated KDS, subscribe to property-wide updates; for POS mode, subscribe to RVC
+  // Adapts to connection mode: GREEN=cloud, YELLOW=CAPS, RED=skip (polling only)
   useEffect(() => {
     if (!isDedicatedKds && !currentRvc) return;
     if (isDedicatedKds && !propertyId) return;
@@ -277,8 +278,35 @@ export default function KdsPage() {
 
     const connect = () => {
       if (unmounted) return;
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws/kds`;
+
+      const currentMode = apiClient.getMode();
+
+      if (currentMode === 'red') {
+        reconnectTimer = setTimeout(connect, 10000);
+        return;
+      }
+
+      let wsUrl: string;
+      if (currentMode === 'yellow') {
+        const serviceHostUrl = localStorage.getItem('serviceHostUrl');
+        if (serviceHostUrl) {
+          try {
+            const shUrl = new URL(serviceHostUrl);
+            const wsProtocol = shUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+            wsUrl = `${wsProtocol}//${shUrl.host}/ws/kds`;
+          } catch {
+            reconnectTimer = setTimeout(connect, 10000);
+            return;
+          }
+        } else {
+          reconnectTimer = setTimeout(connect, 10000);
+          return;
+        }
+      } else {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        wsUrl = `${protocol}//${window.location.host}/ws/kds`;
+      }
+
       socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
@@ -305,7 +333,9 @@ export default function KdsPage() {
       socket.onclose = () => {
         setWsConnected(false);
         if (!unmounted) {
-          reconnectTimer = setTimeout(connect, 3000);
+          const mode = apiClient.getMode();
+          const delay = mode === 'green' ? 3000 : 10000;
+          reconnectTimer = setTimeout(connect, delay);
         }
       };
 
@@ -316,8 +346,19 @@ export default function KdsPage() {
 
     connect();
 
+    const modeUnsub = apiClient.onModeChange((newMode) => {
+      if (newMode === 'red') {
+        if (socket) { socket.close(); socket = null; }
+      } else {
+        if (socket) { socket.close(); socket = null; }
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        reconnectTimer = setTimeout(connect, 500);
+      }
+    });
+
     return () => {
       unmounted = true;
+      modeUnsub();
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (socket) socket.close();
     };

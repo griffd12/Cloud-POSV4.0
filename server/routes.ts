@@ -11,7 +11,7 @@ import archiver from "archiver";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, ne, sql, inArray, and, desc } from "drizzle-orm";
-import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts } from "@shared/schema";
+import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts, workstationOrderDevices } from "@shared/schema";
 import { uberEatsIntegration } from "./integrations/uber-eats";
 import { grubhubIntegration } from "./integrations/grubhub";
 import { doorDashIntegration } from "./integrations/doordash";
@@ -3074,6 +3074,37 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch recipe ingredients" });
+    }
+  });
+
+  app.get("/api/sync/employee-assignments", async (req, res) => {
+    try {
+      const enterpriseId = await getEnforcedEnterpriseId(req);
+      const allData = await storage.getAllEmployeeAssignments();
+      const data = enterpriseId ? allData.filter((a: any) => a.enterpriseId === enterpriseId) : allData;
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch employee assignments" });
+    }
+  });
+
+  app.get("/api/sync/workstation-service-bindings", async (req, res) => {
+    try {
+      const enterpriseId = await getEnforcedEnterpriseId(req);
+      const allData = await storage.getAllWorkstationServiceBindings();
+      const data = enterpriseId ? allData.filter((b: any) => b.enterpriseId === enterpriseId) : allData;
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch workstation service bindings" });
+    }
+  });
+
+  app.get("/api/sync/workstation-order-devices", async (req, res) => {
+    try {
+      const data = await db.select().from(workstationOrderDevices);
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch workstation order devices" });
     }
   });
 
