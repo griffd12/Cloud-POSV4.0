@@ -6021,6 +6021,26 @@ export class DatabaseStorage implements IStorage {
     return (result.rowCount || 0) > 0;
   }
 
+  async deleteAllSyncNotifications(propertyId: string): Promise<number> {
+    const result = await db.delete(syncNotifications).where(eq(syncNotifications.propertyId, propertyId));
+    return result.rowCount || 0;
+  }
+
+  async getRecentSyncNotification(propertyId: string, category: string, serviceHostId: string, minutesAgo: number = 5): Promise<SyncNotification | undefined> {
+    const cutoff = new Date(Date.now() - minutesAgo * 60 * 1000);
+    const [result] = await db.select().from(syncNotifications)
+      .where(and(
+        eq(syncNotifications.propertyId, propertyId),
+        eq(syncNotifications.category, category),
+        eq(syncNotifications.serviceHostId, serviceHostId),
+        eq(syncNotifications.read, false),
+        gte(syncNotifications.createdAt, cutoff)
+      ))
+      .orderBy(desc(syncNotifications.createdAt))
+      .limit(1);
+    return result;
+  }
+
   // ============================================================================
   // ITEM AVAILABILITY / PREP
   // ============================================================================

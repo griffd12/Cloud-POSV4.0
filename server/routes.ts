@@ -1135,24 +1135,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           try {
             const shHost = await storage.getServiceHost(serviceHostId);
             if (shHost) {
-              const notification = await storage.createSyncNotification({
-                propertyId: shHost.propertyId,
-                enterpriseId: shHost.enterpriseId || null,
-                serviceHostId,
-                category: "service_host_connection",
-                severity: "info",
-                title: "CAPS connected",
-                message: `Service host ${shHost.name || serviceHostId} is now online and ready to sync.`,
-                metadata: { serviceHostId, status: "online" },
-              });
-              broadcastSyncNotification({
-                id: notification.id,
-                category: "service_host_connection",
-                severity: "info",
-                title: notification.title,
-                message: notification.message,
-                propertyId: shHost.propertyId,
-              });
+              const existing = await storage.getRecentSyncNotification(shHost.propertyId, "service_host_connection", serviceHostId, 10);
+              if (!existing) {
+                const deviceCount = connectedServiceHosts.size;
+                const notification = await storage.createSyncNotification({
+                  propertyId: shHost.propertyId,
+                  enterpriseId: shHost.enterpriseId || null,
+                  serviceHostId,
+                  category: "service_host_connection",
+                  severity: "info",
+                  title: "CAPS Online",
+                  message: `Kitchen & POS sync active (${deviceCount} device${deviceCount !== 1 ? 's' : ''} connected)`,
+                  metadata: { serviceHostId, status: "online", deviceCount },
+                });
+                broadcastSyncNotification({
+                  id: notification.id,
+                  category: "service_host_connection",
+                  severity: "info",
+                  title: notification.title,
+                  message: notification.message,
+                  propertyId: shHost.propertyId,
+                });
+              }
             }
           } catch (notifErr) {
             console.warn("[sync-notifications] Failed to create connection notification:", notifErr);
@@ -1233,8 +1237,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               serviceHostId,
               category: "service_host_connection",
               severity: "critical",
-              title: "CAPS disconnected",
-              message: `Service host ${shHost.name || serviceHostId} went offline. Transactions will queue locally until reconnected.`,
+              title: "CAPS Offline",
+              message: `Local operations continue — data will sync when restored`,
               metadata: { serviceHostId, status: "offline" },
             });
             broadcastSyncNotification({
@@ -22227,6 +22231,25 @@ connect();
     }
   });
 
+  app.delete("/api/sync-notifications", async (req, res) => {
+    try {
+      const { propertyId, enterpriseId } = req.query;
+      if (!propertyId && !enterpriseId) return res.status(400).json({ message: "propertyId or enterpriseId required" });
+      let totalDeleted = 0;
+      if (propertyId) {
+        totalDeleted = await storage.deleteAllSyncNotifications(propertyId as string);
+      } else if (enterpriseId) {
+        const { propertyIds } = await getEnterpriseFilterSets(enterpriseId as string);
+        for (const pid of propertyIds) {
+          totalDeleted += await storage.deleteAllSyncNotifications(pid);
+        }
+      }
+      res.json({ deleted: totalDeleted });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to clear notifications" });
+    }
+  });
+
   // ============================================================================
   // ITEM AVAILABILITY / PREP COUNTDOWN ROUTES
   // ============================================================================
@@ -24882,8 +24905,8 @@ connect();
             serviceHostId,
             category: "transaction_sync",
             severity: "info",
-            title: "Transaction sync completed",
-            message: `${processed} transaction(s) synced from ${hostName}. ${skipped.length > 0 ? `${skipped.length} duplicate(s) skipped.` : ""}`,
+            title: `${processed} check${processed !== 1 ? 's' : ''} synced to cloud`,
+            message: `Data uploaded successfully${skipped.length > 0 ? ` (${skipped.length} already up to date)` : ""}`,
             metadata: { processed, acknowledged: acknowledged.length, skipped: skipped.length, cloudIds },
           });
           broadcastSyncNotification({
@@ -24915,8 +24938,8 @@ connect();
             serviceHostId: serviceHostId || null,
             category: "transaction_sync",
             severity: "critical",
-            title: "Transaction sync failed",
-            message: `Failed to process transactions: ${error?.message || "Unknown error"}`,
+            title: "Sync failed — will retry",
+            message: `Check data couldn't upload to cloud. Will retry automatically.`,
             metadata: { error: error?.message },
           });
           broadcastSyncNotification({
