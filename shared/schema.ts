@@ -3949,3 +3949,30 @@ export const emcOptionFlags = pgTable("emc_option_flags", {
 export const insertEmcOptionFlagSchema = createInsertSchema(emcOptionFlags).omit({ id: true, createdAt: true, updatedAt: true });
 export type EmcOptionFlag = typeof emcOptionFlags.$inferSelect;
 export type InsertEmcOptionFlag = z.infer<typeof insertEmcOptionFlagSchema>;
+
+// ============================================================================
+// SYNC NOTIFICATIONS
+// ============================================================================
+
+export const syncNotifications = pgTable("sync_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  propertyId: varchar("property_id").notNull().references(() => properties.id),
+  enterpriseId: varchar("enterprise_id").references(() => enterprises.id),
+  serviceHostId: varchar("service_host_id").references(() => serviceHosts.id),
+  category: text("category").notNull(),
+  severity: text("severity").notNull().default("info"),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  metadata: jsonb("metadata"),
+  read: boolean("read").default(false),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_sync_notifications_property").on(table.propertyId),
+  index("idx_sync_notifications_created").on(table.createdAt),
+  index("idx_sync_notifications_unread").on(table.propertyId, table.read),
+]);
+
+export const insertSyncNotificationSchema = createInsertSchema(syncNotifications).omit({ id: true, createdAt: true });
+export type SyncNotification = typeof syncNotifications.$inferSelect;
+export type InsertSyncNotification = z.infer<typeof insertSyncNotificationSchema>;

@@ -3,6 +3,7 @@ import { Switch, Route, useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { HierarchyTree } from "@/components/admin/hierarchy-tree";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SyncNotificationCenter } from "@/components/sync-notification-center";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -584,6 +585,10 @@ export default function EmcAdminLayout() {
             <span className="text-xs text-muted-foreground hidden md:inline">
               {user?.email}
             </span>
+            <SyncNotificationCenter
+              propertyId={selectedPropertyId || undefined}
+              enterpriseId={effectiveEnterpriseId || undefined}
+            />
             <ThemeToggle />
             <Button variant="ghost" size="icon" onClick={handleLogout} data-testid="button-emc-logout">
               <LogOut className="w-4 h-4" />

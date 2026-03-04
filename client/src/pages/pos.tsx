@@ -40,6 +40,7 @@ import { SetAvailabilityDialog } from "@/components/pos/set-availability-dialog"
 import { StressTestOverlay } from "@/components/pos/stress-test-overlay";
 import { SoldOutConfirmDialog } from "@/components/pos/sold-out-confirm-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SyncNotificationCenter } from "@/components/sync-notification-center";
 import { useToast } from "@/hooks/use-toast";
 import { useItemAvailability } from "@/hooks/use-item-availability";
 import { queryClient, apiRequest, getAuthHeaders, fetchWithTimeout, logToElectron } from "@/lib/queryClient";
@@ -1762,6 +1763,7 @@ export default function PosPage() {
               {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
             </Button>
           )}
+          <SyncNotificationCenter propertyId={wsContext?.property?.id} />
           <ThemeToggle />
           <Button
             variant="ghost"

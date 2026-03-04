@@ -361,6 +361,18 @@ function broadcastAdminUpdate(entityType: string, entityId?: string) {
   });
 }
 
+function broadcastSyncNotification(notification: { id: string; category: string; severity: string; title: string; message: string; propertyId: string; metadata?: any }) {
+  const event = {
+    type: "sync_notification",
+    payload: {
+      ...notification,
+      timestamp: new Date().toISOString(),
+    }
+  };
+  broadcastPosEvent(event, `device_status_${notification.propertyId}`);
+  broadcastPosEvent(event, "all");
+}
+
 function broadcastInventoryUpdate(itemId?: string) {
   broadcastPosEvent({
     type: "inventory_update",
@@ -1119,6 +1131,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             type: 'service_host_status',
             payload: { serviceHostId, status: 'online' },
           }, 'all');
+
+          try {
+            const shHost = await storage.getServiceHost(serviceHostId);
+            if (shHost) {
+              const notification = await storage.createSyncNotification({
+                propertyId: shHost.propertyId,
+                enterpriseId: shHost.enterpriseId || null,
+                serviceHostId,
+                category: "service_host_connection",
+                severity: "info",
+                title: "CAPS connected",
+                message: `Service host ${shHost.name || serviceHostId} is now online and ready to sync.`,
+                metadata: { serviceHostId, status: "online" },
+              });
+              broadcastSyncNotification({
+                id: notification.id,
+                category: "service_host_connection",
+                severity: "info",
+                title: notification.title,
+                message: notification.message,
+                propertyId: shHost.propertyId,
+              });
+            }
+          } catch (notifErr) {
+            console.warn("[sync-notifications] Failed to create connection notification:", notifErr);
+          }
         }
         
         if (!authenticated) {
@@ -1185,6 +1223,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           type: 'service_host_status',
           payload: { serviceHostId, status: 'offline' },
         }, 'all');
+
+        try {
+          const shHost = await storage.getServiceHost(serviceHostId);
+          if (shHost) {
+            const notification = await storage.createSyncNotification({
+              propertyId: shHost.propertyId,
+              enterpriseId: shHost.enterpriseId || null,
+              serviceHostId,
+              category: "service_host_connection",
+              severity: "critical",
+              title: "CAPS disconnected",
+              message: `Service host ${shHost.name || serviceHostId} went offline. Transactions will queue locally until reconnected.`,
+              metadata: { serviceHostId, status: "offline" },
+            });
+            broadcastSyncNotification({
+              id: notification.id,
+              category: "service_host_connection",
+              severity: "critical",
+              title: notification.title,
+              message: notification.message,
+              propertyId: shHost.propertyId,
+            });
+          }
+        } catch (notifErr) {
+          console.warn("[sync-notifications] Failed to create disconnect notification:", notifErr);
+        }
       }
     });
     
@@ -22064,6 +22128,106 @@ connect();
   });
 
   // ============================================================================
+  // SYNC NOTIFICATIONS
+  // ============================================================================
+
+  app.get("/api/sync-notifications", async (req, res) => {
+    try {
+      const { propertyId, unreadOnly, limit, enterpriseId } = req.query;
+      if (!propertyId && !enterpriseId) {
+        return res.status(400).json({ message: "propertyId or enterpriseId required" });
+      }
+      if (propertyId) {
+        const notifications = await storage.getSyncNotifications(
+          propertyId as string,
+          unreadOnly === "true",
+          limit ? parseInt(limit as string) : undefined
+        );
+        return res.json(notifications);
+      }
+      if (enterpriseId) {
+        const { propertyIds } = await getEnterpriseFilterSets(enterpriseId as string);
+        let allNotifications: any[] = [];
+        for (const pid of propertyIds) {
+          const notifications = await storage.getSyncNotifications(
+            pid,
+            unreadOnly === "true",
+            50
+          );
+          allNotifications = allNotifications.concat(notifications);
+        }
+        allNotifications.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        return res.json(allNotifications.slice(0, limit ? parseInt(limit as string) : 100));
+      }
+    } catch (error) {
+      console.error("Get sync notifications error:", error);
+      res.status(500).json({ message: "Failed to get sync notifications" });
+    }
+  });
+
+  app.get("/api/sync-notifications/unread-count", async (req, res) => {
+    try {
+      const { propertyId, enterpriseId } = req.query;
+      if (!propertyId && !enterpriseId) {
+        return res.status(400).json({ message: "propertyId or enterpriseId required" });
+      }
+      if (propertyId) {
+        const count = await storage.getUnreadSyncNotificationCount(propertyId as string);
+        return res.json({ count });
+      }
+      if (enterpriseId) {
+        const { propertyIds } = await getEnterpriseFilterSets(enterpriseId as string);
+        let total = 0;
+        for (const pid of propertyIds) {
+          total += await storage.getUnreadSyncNotificationCount(pid);
+        }
+        return res.json({ count: total });
+      }
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get unread sync notification count" });
+    }
+  });
+
+  app.post("/api/sync-notifications/:id/read", async (req, res) => {
+    try {
+      const notification = await storage.markSyncNotificationRead(req.params.id);
+      if (!notification) return res.status(404).json({ message: "Notification not found" });
+      res.json(notification);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to mark notification as read" });
+    }
+  });
+
+  app.post("/api/sync-notifications/mark-all-read", async (req, res) => {
+    try {
+      const { propertyId, enterpriseId } = req.body;
+      if (!propertyId && !enterpriseId) return res.status(400).json({ message: "propertyId or enterpriseId required" });
+      let totalMarked = 0;
+      if (propertyId) {
+        totalMarked = await storage.markAllSyncNotificationsRead(propertyId);
+      } else if (enterpriseId) {
+        const { propertyIds } = await getEnterpriseFilterSets(enterpriseId);
+        for (const pid of propertyIds) {
+          totalMarked += await storage.markAllSyncNotificationsRead(pid);
+        }
+      }
+      res.json({ marked: totalMarked });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to mark all notifications as read" });
+    }
+  });
+
+  app.delete("/api/sync-notifications/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteSyncNotification(req.params.id);
+      if (!success) return res.status(404).json({ message: "Notification not found" });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete notification" });
+    }
+  });
+
+  // ============================================================================
   // ITEM AVAILABILITY / PREP COUNTDOWN ROUTES
   // ============================================================================
 
@@ -24708,6 +24872,33 @@ connect();
         return res.json({ success: true, id: checkId, processed, acknowledged, skipped, cloudIds });
       }
 
+      if (processed > 0 && propertyId) {
+        try {
+          const host = await storage.getServiceHost(serviceHostId);
+          const hostName = host?.name || serviceHostId;
+          const notification = await storage.createSyncNotification({
+            propertyId,
+            enterpriseId: host?.enterpriseId || null,
+            serviceHostId,
+            category: "transaction_sync",
+            severity: "info",
+            title: "Transaction sync completed",
+            message: `${processed} transaction(s) synced from ${hostName}. ${skipped.length > 0 ? `${skipped.length} duplicate(s) skipped.` : ""}`,
+            metadata: { processed, acknowledged: acknowledged.length, skipped: skipped.length, cloudIds },
+          });
+          broadcastSyncNotification({
+            id: notification.id,
+            category: "transaction_sync",
+            severity: "info",
+            title: notification.title,
+            message: notification.message,
+            propertyId,
+          });
+        } catch (notifErr) {
+          console.warn("[sync-notifications] Failed to create success notification:", notifErr);
+        }
+      }
+
       res.json({
         success: true,
         processed,
@@ -24717,6 +24908,29 @@ connect();
       });
     } catch (error: any) {
       console.error("Post transactions error:", error);
+      if (propertyId) {
+        try {
+          const notification = await storage.createSyncNotification({
+            propertyId,
+            serviceHostId: serviceHostId || null,
+            category: "transaction_sync",
+            severity: "critical",
+            title: "Transaction sync failed",
+            message: `Failed to process transactions: ${error?.message || "Unknown error"}`,
+            metadata: { error: error?.message },
+          });
+          broadcastSyncNotification({
+            id: notification.id,
+            category: "transaction_sync",
+            severity: "critical",
+            title: notification.title,
+            message: notification.message,
+            propertyId,
+          });
+        } catch (notifErr) {
+          console.warn("[sync-notifications] Failed to create failure notification:", notifErr);
+        }
+      }
       res.status(500).json({ error: "Failed to process transactions" });
     }
   });

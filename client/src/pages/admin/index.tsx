@@ -5,6 +5,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { HierarchyBreadcrumb } from "@/components/admin/hierarchy-breadcrumb";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SyncNotificationCenter } from "@/components/sync-notification-center";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePosContext } from "@/lib/pos-context";
@@ -250,7 +251,13 @@ export default function AdminLayout() {
                 </Button>
               </Link>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <SyncNotificationCenter
+                propertyId={selectedProperty?.id}
+                enterpriseId={selectedEnterprise?.id}
+              />
+              <ThemeToggle />
+            </div>
           </header>
 
           <HierarchyBreadcrumb

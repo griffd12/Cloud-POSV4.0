@@ -354,6 +354,16 @@ function handlePosEvent(event: PosEvent) {
       });
       break;
 
+    case "sync_notification":
+      syncNotificationListeners.forEach(listener => listener(event.payload));
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = getKeyString(query.queryKey[0]);
+          return key.includes("/api/sync-notifications");
+        }
+      });
+      break;
+
     case "device_reload":
       // Remote reload command from EMC
       console.log("[WebSocket] Received reload command:", event.payload);
@@ -370,6 +380,14 @@ function handlePosEvent(event: PosEvent) {
     default:
       break;
   }
+}
+
+// Global event listeners for sync notifications
+const syncNotificationListeners: Set<(payload: PosEvent['payload']) => void> = new Set();
+
+export function subscribeToSyncNotifications(callback: (payload: PosEvent['payload']) => void) {
+  syncNotificationListeners.add(callback);
+  return () => { syncNotificationListeners.delete(callback); };
 }
 
 // Global event listeners for targeted device reload commands

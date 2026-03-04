@@ -26,6 +26,7 @@ import {
   loyaltyPrograms, loyaltyMembers, loyaltyTransactions, loyaltyRewards, loyaltyRedemptions,
   onlineOrderSources, onlineOrders, deliveryPlatformItemMappings, inventoryItems, inventoryStock, inventoryTransactions, recipes,
   salesForecasts, laborForecasts, managerAlerts, alertSubscriptions, itemAvailability, prepItems,
+  syncNotifications,
   type Enterprise, type InsertEnterprise,
   type Property, type InsertProperty,
   type Rvc, type InsertRvc,
@@ -143,6 +144,7 @@ import {
   type SalesForecast, type InsertSalesForecast,
   type LaborForecast, type InsertLaborForecast,
   type ManagerAlert, type InsertManagerAlert,
+  type SyncNotification, type InsertSyncNotification,
   type AlertSubscription, type InsertAlertSubscription,
   type ItemAvailability, type InsertItemAvailability,
   type PrepItem, type InsertPrepItem,
@@ -5978,6 +5980,45 @@ export class DatabaseStorage implements IStorage {
   async updateManagerAlert(id: string, data: Partial<InsertManagerAlert>): Promise<ManagerAlert | undefined> {
     const [result] = await db.update(managerAlerts).set(sanitizeDates(data)).where(eq(managerAlerts.id, id)).returning();
     return result;
+  }
+
+  // ============================================================================
+  // SYNC NOTIFICATIONS
+  // ============================================================================
+
+  async getSyncNotifications(propertyId: string, unreadOnly?: boolean, limit?: number): Promise<SyncNotification[]> {
+    const conditions = [eq(syncNotifications.propertyId, propertyId)];
+    if (unreadOnly) conditions.push(eq(syncNotifications.read, false));
+    let query = db.select().from(syncNotifications).where(and(...conditions)).orderBy(desc(syncNotifications.createdAt));
+    if (limit) return query.limit(limit);
+    return query.limit(100);
+  }
+
+  async getUnreadSyncNotificationCount(propertyId: string): Promise<number> {
+    const [result] = await db.select({ count: sql<number>`count(*)` }).from(syncNotifications)
+      .where(and(eq(syncNotifications.propertyId, propertyId), eq(syncNotifications.read, false)));
+    return Number(result?.count || 0);
+  }
+
+  async createSyncNotification(data: InsertSyncNotification): Promise<SyncNotification> {
+    const [result] = await db.insert(syncNotifications).values(sanitizeDates(data)).returning();
+    return result;
+  }
+
+  async markSyncNotificationRead(id: string): Promise<SyncNotification | undefined> {
+    const [result] = await db.update(syncNotifications).set({ read: true, readAt: new Date() }).where(eq(syncNotifications.id, id)).returning();
+    return result;
+  }
+
+  async markAllSyncNotificationsRead(propertyId: string): Promise<number> {
+    const result = await db.update(syncNotifications).set({ read: true, readAt: new Date() })
+      .where(and(eq(syncNotifications.propertyId, propertyId), eq(syncNotifications.read, false)));
+    return result.rowCount || 0;
+  }
+
+  async deleteSyncNotification(id: string): Promise<boolean> {
+    const result = await db.delete(syncNotifications).where(eq(syncNotifications.id, id));
+    return (result.rowCount || 0) > 0;
   }
 
   // ============================================================================
