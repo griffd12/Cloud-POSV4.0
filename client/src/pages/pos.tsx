@@ -155,6 +155,8 @@ export default function PosPage() {
 
   const fontScale = useDocumentFontScale(wsContext?.workstation?.fontScale);
 
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+
   // Auto-logout after inactivity - cancel unsent items and sign out
   // Paused when the payment modal is open to avoid interrupting transactions
   useInactivityLogout({
@@ -230,7 +232,6 @@ export default function PosPage() {
   const [showModifierModal, setShowModifierModal] = useState(false);
   const [showManagerApproval, setShowManagerApproval] = useState(false);
   const [showOrderTypeModal, setShowOrderTypeModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showOpenChecksModal, setShowOpenChecksModal] = useState(false);
   const [showTransactionLookup, setShowTransactionLookup] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
