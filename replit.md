@@ -24,7 +24,7 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - **Simphony-Class Configuration**: Configuration inheritance with override capabilities.
 - **Touch-First UI**: High-contrast theming optimized for POS terminals.
 - **Real-time Operations**: Utilizes WebSocket communication for KDS updates and CAPS synchronization.
-- **Local-First Architecture**: All POS write operations commit to local SQLite first, regardless of connection mode, with background cloud sync.
+- **CAPS-First Architecture**: Check/transaction data flows through CAPS (YELLOW) or cloud (GREEN). Local SQLite is RED-mode emergency fallback only. Removed from LOCAL_FIRST patterns.
 - **Offline Resilience**: Optional on-premise CAPS with local SQLite for offline operations and cloud synchronization, ensuring an immutable `transaction_journal` for audit trails and exactly-once sync semantics.
 - **Non-Destructive Changes**: System modifications are additive, with new features defaulting to OFF/NULL/false to prevent impact on existing enterprises.
 - **Context Help Requirement**: Every configuration field in EMC panels requires a corresponding entry in the config help text registry for functional descriptions.
@@ -63,6 +63,15 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - **Cloud**: `clearSalesData` API clears PostgreSQL, then broadcasts `SALES_DATA_CLEARED` to connected service hosts and `sales_data_cleared` POS event to all browser/Electron clients.
 - **CAPS Service Host**: Handles `SALES_DATA_CLEARED` WebSocket message by calling `db.clearTransactionalData()` which purges checks, payments, rounds, KDS tickets, transaction journal, fiscal periods, cash transactions, drawer assignments, audit logs, time punches, refunds, gift card transactions, loyalty transactions, item availability, online orders, and sync queue from local SQLite.
 - **Electron**: Frontend WebSocket handler forwards `sales_data_cleared` event via IPC (`clear-offline-sales-data`) to main process, which clears both `offlineDb` (offline_queue, offline_payments, offline_checks) and `enhancedOfflineDb` (failed operations + SQLite tables). Also invalidates TanStack Query cache for checks, reports, sales-summary, fiscal, and KDS queries.
+
+## Transaction Data Flow by Connection Mode
+| Mode | Check Operations | Print | KDS | Payments |
+|---|---|---|---|---|
+| GREEN (Cloud reachable) | Cloud API directly | Cloud → Print Agent WS | Cloud WebSocket | Cloud API + EMV |
+| YELLOW (CAPS reachable) | CAPS proxy `/api/checks/*` | CAPS PrintController TCP | CAPS `/ws/kds` | CAPS + EMV |
+| RED (Emergency offline) | Local SQLite fallback | Local queue → Print Agent | Unavailable | Cash only |
+
+Key files: `electron/main.cjs` (LOCAL_FIRST patterns, CAPS proxy), `electron/offline-api-interceptor.cjs` (RED-mode gating), `service-host/src/routes/api.ts` (cloud-compatible CAPS routes including `/checks/orders`).
 
 ## Bug Fixes Applied
 - **Currency Precision**: Service-host `recalculateTotals` now uses integer cents math via `toCents`/`fromCents` helpers to eliminate floating-point rounding errors in check totals.

@@ -982,9 +982,88 @@ export function createApiRoutes(
     try {
       const rvcId = req.query.rvcId as string | undefined;
       const checks = caps.getOpenChecks(rvcId);
-      res.json(checks);
+      const enriched = checks.map((c: any) => {
+        let employeeName: string | null = null;
+        if (c.employeeId && db) {
+          const emp = db.getEmployee(c.employeeId);
+          if (emp) {
+            employeeName = `${emp.first_name || emp.firstName || ''} ${emp.last_name || emp.lastName || ''}`.trim();
+          }
+        }
+        const activeItems = (c.items || []).filter((i: any) => !i.voided);
+        return {
+          ...c,
+          openedAt: c.createdAt || c.openedAt,
+          employeeName,
+          itemCount: activeItems.length,
+          unsentCount: activeItems.filter((i: any) => !i.sentToKitchen).length,
+          roundCount: c.currentRound || 0,
+          lastRoundAt: null,
+        };
+      });
+      res.json(enriched);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/checks/orders', (req, res) => {
+    try {
+      const rvcId = req.query.rvcId as string | undefined;
+      const orderType = req.query.orderType as string | undefined;
+      const statusFilter = req.query.statusFilter as string | undefined;
+
+      if (!rvcId) {
+        return res.status(400).json({ message: 'rvcId is required' });
+      }
+
+      let allChecks: any[];
+      if (statusFilter === 'completed') {
+        const closedRows = db ? db.all<any>(
+          `SELECT id FROM checks WHERE rvc_id = ? AND status = 'closed' ORDER BY closed_at DESC LIMIT 50`,
+          [rvcId]
+        ) : [];
+        allChecks = closedRows.map((r: any) => caps.getCheck(r.id)).filter(Boolean);
+      } else {
+        const rows = db ? db.all<any>(
+          `SELECT id FROM checks WHERE rvc_id = ? AND status IN ('open', 'voided') ORDER BY created_at DESC LIMIT 500`,
+          [rvcId]
+        ) : [];
+        allChecks = rows.map((r: any) => caps.getCheck(r.id)).filter(Boolean);
+      }
+
+      if (orderType && orderType !== 'all') {
+        allChecks = allChecks.filter((c: any) => c.orderType === orderType);
+      }
+
+      const enriched = allChecks.map((c: any) => {
+        let employeeName: string | null = null;
+        if (c.employeeId && db) {
+          const emp = db.getEmployee(c.employeeId);
+          if (emp) {
+            employeeName = `${emp.first_name || emp.firstName || ''} ${emp.last_name || emp.lastName || ''}`.trim();
+          }
+        }
+        const activeItems = (c.items || []).filter((i: any) => !i.voided);
+        return {
+          ...c,
+          openedAt: c.createdAt || c.openedAt,
+          employeeName,
+          fulfillmentStatus: c.fulfillmentStatus || null,
+          onlineOrderId: c.onlineOrderId || null,
+          customerName: c.customerName || null,
+          platformSource: c.platformSource || null,
+          itemCount: activeItems.length,
+          unsentCount: activeItems.filter((i: any) => !i.sentToKitchen).length,
+          roundCount: c.currentRound || 0,
+          lastRoundAt: null,
+        };
+      });
+
+      res.json(enriched);
+    } catch (e) {
+      console.error('Get checks/orders error:', e);
+      res.status(400).json({ message: 'Failed to get orders' });
     }
   });
 

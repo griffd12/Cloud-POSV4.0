@@ -66,7 +66,18 @@ class OfflineApiInterceptor {
     return this.serviceHostUrl;
   }
 
+  _isCheckEndpoint(pathname) {
+    return /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments)(\/|$)/.test(pathname) ||
+           /^\/api\/pos\/(checks|process-card-payment|capture-with-tip)/.test(pathname);
+  }
+
   canHandleOffline(method, pathname) {
+    const isRedMode = this._connectionMode === 'red';
+
+    if (this._isCheckEndpoint(pathname) && !isRedMode) {
+      return false;
+    }
+
     if (method === 'GET') {
       const readEndpoints = [
         /^\/api\/menu-items/,

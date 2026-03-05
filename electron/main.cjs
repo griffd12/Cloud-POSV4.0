@@ -38,21 +38,14 @@ let lastSyncError = null;
 let backgroundSyncTimer = null;
 
 const LOCAL_FIRST_WRITE_PATTERNS = [
-  /^\/api\/checks(\/|$)/,
-  /^\/api\/check-items(\/|$)/,
-  /^\/api\/check-payments(\/|$)/,
-  /^\/api\/check-discounts(\/|$)/,
-  /^\/api\/check-service-charges(\/|$)/,
   /^\/api\/auth\/login(\/|$)/,
   /^\/api\/auth\/pin(\/|$)/,
   /^\/api\/auth\/manager-approval(\/|$)/,
   /^\/api\/employees\/[^/]+\/authenticate(\/|$)/,
-  /^\/api\/payments(\/|$)/,
   /^\/api\/time-punches(\/|$)/,
   /^\/api\/time-clock(\/|$)/,
   /^\/api\/print-jobs(\/|$)/,
   /^\/api\/cash-drawer-kick(\/|$)/,
-  /^\/api\/pos\//,
   /^\/api\/kds-tickets(\/|$)/,
   /^\/api\/item-availability\/decrement/,
   /^\/api\/registered-devices\/heartbeat/,
@@ -67,11 +60,6 @@ function isLocalFirstWrite(method, pathname) {
 }
 
 const LOCAL_FIRST_READ_PATTERNS = [
-  /^\/api\/checks\/open(\?|$)/,
-  /^\/api\/checks\/orders(\?|$)/,
-  /^\/api\/checks\?/,
-  /^\/api\/checks\/[^/]+\/full-details/,
-  /^\/api\/checks\/(?!orders$|open$|locks$|active$|closed$)[^/]+$/,
 ];
 
 function isLocalFirstRead(method, pathname, search) {
@@ -2485,6 +2473,9 @@ function setConnectionMode(newMode) {
   if (connectionMode === newMode) return;
   const oldMode = connectionMode;
   connectionMode = newMode;
+  if (offlineInterceptor && offlineInterceptor.setConnectionMode) {
+    offlineInterceptor.setConnectionMode(newMode);
+  }
   const config = loadConfig();
   const cloudStatus = isOnline ? 'reachable' : 'unreachable';
   const capsUrl = config.serviceHostUrl || 'not configured';
