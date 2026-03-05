@@ -1034,6 +1034,27 @@ function setupIpcHandlers() {
           }
         }
       }
+      if (enhancedOfflineDb) {
+        try {
+          if (enhancedOfflineDb.clearFailedOperations) {
+            enhancedOfflineDb.clearFailedOperations();
+            appLogger.info('App', 'Cleared enhanced offline DB failed operations');
+          }
+          if (enhancedOfflineDb.db && enhancedOfflineDb.usingSqlite) {
+            const saleTables = ['offline_checks', 'offline_payments', 'offline_queue', 'pending_operations'];
+            for (const t of saleTables) {
+              try {
+                enhancedOfflineDb.db.exec(`DELETE FROM ${t}`);
+                appLogger.info('App', `Cleared enhanced offline table: ${t}`);
+              } catch (e) {
+                appLogger.warn('App', `Enhanced offline table ${t} not found or empty: ${e.message}`);
+              }
+            }
+          }
+        } catch (e) {
+          appLogger.warn('App', `Could not clear enhanced offline DB: ${e.message}`);
+        }
+      }
       return { success: true };
     } catch (e) {
       appLogger.error('App', `Failed to clear offline sales data: ${e.message}`);
