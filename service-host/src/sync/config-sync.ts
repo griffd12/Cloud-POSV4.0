@@ -182,6 +182,11 @@ export class ConfigSync {
       
       const innerData = rawResponse.data || rawResponse;
       console.log(`[ConfigSync] Inner data keys: ${Object.keys(innerData).join(', ')}`);
+
+      const syncEnterprise = innerData.enterprise || (innerData.enterprises && innerData.enterprises[0]);
+      const syncProperty = innerData.property || (innerData.properties && innerData.properties[0]);
+      console.log(`[ConfigSync] Enterprise: ${syncEnterprise?.name || 'unknown'} (${syncEnterprise?.id || 'N/A'})`);
+      console.log(`[ConfigSync] Property: ${syncProperty?.name || 'unknown'} (${syncProperty?.id || this.propertyId})`);
       
       const config: FullConfigResponse = {
         version: rawResponse.configVersion || rawResponse.version || 1,

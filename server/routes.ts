@@ -3071,7 +3071,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/sync/modifier-group-modifiers", async (req, res) => {
     try {
-      const data = await storage.getModifierGroupModifiers();
+      const propertyId = req.query.propertyId as string | undefined;
+      let data = await storage.getModifierGroupModifiers();
+      if (propertyId) {
+        const property = await storage.getProperty(propertyId);
+        if (!property) return res.status(404).json({ message: "Property not found" });
+        const groups = (await storage.getModifierGroups()).filter((g: any) => g.enterpriseId === property.enterpriseId);
+        const groupIds = new Set(groups.map((g: any) => g.id));
+        data = data.filter((m: any) => groupIds.has(m.modifierGroupId));
+      }
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch modifier group modifiers" });
@@ -3080,7 +3088,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/sync/menu-item-modifier-groups", async (req, res) => {
     try {
-      const data = await storage.getMenuItemModifierGroups();
+      const propertyId = req.query.propertyId as string | undefined;
+      let data = await storage.getMenuItemModifierGroups();
+      if (propertyId) {
+        const property = await storage.getProperty(propertyId);
+        if (!property) return res.status(404).json({ message: "Property not found" });
+        const items = (await storage.getMenuItems()).filter((i: any) => i.enterpriseId === property.enterpriseId);
+        const itemIds = new Set(items.map((i: any) => i.id));
+        data = data.filter((m: any) => itemIds.has(m.menuItemId));
+      }
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch menu item modifier groups" });
@@ -3089,7 +3105,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/sync/order-device-printers", async (req, res) => {
     try {
-      const data = await storage.getOrderDevicePrinters();
+      const propertyId = req.query.propertyId as string | undefined;
+      let data = await storage.getOrderDevicePrinters();
+      if (propertyId) {
+        const devices = (await storage.getOrderDevices()).filter((o: any) => o.propertyId === propertyId);
+        const deviceIds = new Set(devices.map((o: any) => o.id));
+        data = data.filter((o: any) => deviceIds.has(o.orderDeviceId));
+      }
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch order device printers" });
@@ -3098,7 +3120,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/sync/order-device-kds", async (req, res) => {
     try {
-      const data = await storage.getOrderDeviceKdsList();
+      const propertyId = req.query.propertyId as string | undefined;
+      let data = await storage.getOrderDeviceKdsList();
+      if (propertyId) {
+        const devices = (await storage.getOrderDevices()).filter((o: any) => o.propertyId === propertyId);
+        const deviceIds = new Set(devices.map((o: any) => o.id));
+        data = data.filter((o: any) => deviceIds.has(o.orderDeviceId));
+      }
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch order device KDS links" });
@@ -3107,7 +3135,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/sync/menu-item-recipe-ingredients", async (req, res) => {
     try {
-      const data = await storage.getMenuItemRecipeIngredients();
+      const propertyId = req.query.propertyId as string | undefined;
+      let data = await storage.getMenuItemRecipeIngredients();
+      if (propertyId) {
+        const property = await storage.getProperty(propertyId);
+        if (!property) return res.status(404).json({ message: "Property not found" });
+        const items = (await storage.getMenuItems()).filter((i: any) => i.enterpriseId === property.enterpriseId);
+        const itemIds = new Set(items.map((i: any) => i.id));
+        data = data.filter((r: any) => itemIds.has(r.menuItemId));
+      }
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch recipe ingredients" });
@@ -3138,7 +3174,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/sync/workstation-order-devices", async (req, res) => {
     try {
-      const data = await db.select().from(workstationOrderDevices);
+      const propertyId = req.query.propertyId as string | undefined;
+      let data = await db.select().from(workstationOrderDevices);
+      if (propertyId) {
+        const ws = (await storage.getWorkstations()).filter((w: any) => w.propertyId === propertyId);
+        const wsIds = new Set(ws.map((w: any) => w.id));
+        data = data.filter((d: any) => wsIds.has(d.workstationId));
+      }
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch workstation order devices" });
@@ -24688,31 +24730,33 @@ connect();
       }
 
       const enterprise = await storage.getEnterprise(property.enterpriseId);
+      const enterpriseId = property.enterpriseId;
 
-      // Get all configuration data for this property
+      console.log(`[ConfigSync] Full sync requested for Enterprise: ${enterprise?.name || 'unknown'} (${enterpriseId}), Property: ${property.name} (${propertyId})`);
+
       const [
         revenueCenters,
         employees,
         roles,
-        menuItems,
-        modifierGroups,
-        modifiers,
-        modifierGroupModifiers,
-        menuItemModifierGroups,
-        slus,
-        taxGroups,
-        tenders,
-        discounts,
-        serviceCharges,
+        allMenuItems,
+        allModifierGroups,
+        allModifiers,
+        allModifierGroupModifiers,
+        allMenuItemModifierGroups,
+        allSlus,
+        allTaxGroups,
+        allTenders,
+        allDiscounts,
+        allServiceCharges,
         printers,
         kdsDevices,
         workstations,
-        printClasses,
-        orderDevices,
-        orderDevicePrinters,
-        orderDeviceKds,
-        printClassRouting,
-        jobCodes,
+        allPrintClasses,
+        allOrderDevices,
+        allOrderDevicePrinters,
+        allOrderDeviceKds,
+        allPrintClassRouting,
+        allJobCodes,
       ] = await Promise.all([
         storage.getRvcs().then(all => all.filter(r => r.propertyId === propertyId)),
         storage.getEmployees().then(all => all.filter(e => e.propertyId === propertyId)),
@@ -24738,8 +24782,30 @@ connect();
         storage.getJobCodes(),
       ]);
 
-      // Filter menu items and related to this property's RVCs
-      const rvcIds = revenueCenters.map(r => r.id);
+      const menuItems = allMenuItems.filter((i: any) => i.enterpriseId === enterpriseId);
+      const modifierGroups = allModifierGroups.filter((g: any) => g.enterpriseId === enterpriseId);
+      const modifiers = allModifiers.filter((m: any) => m.enterpriseId === enterpriseId);
+      const slus = allSlus.filter((s: any) => s.enterpriseId === enterpriseId);
+      const taxGroups = allTaxGroups.filter((t: any) => t.enterpriseId === enterpriseId);
+      const tenders = allTenders.filter((t: any) => t.enterpriseId === enterpriseId);
+      const discounts = allDiscounts.filter((d: any) => d.enterpriseId === enterpriseId);
+      const serviceCharges = allServiceCharges.filter((s: any) => s.enterpriseId === enterpriseId);
+      const printClasses = allPrintClasses.filter((p: any) => p.enterpriseId === enterpriseId);
+      const jobCodes = allJobCodes.filter((j: any) => j.enterpriseId === enterpriseId);
+      const orderDevices = allOrderDevices.filter((o: any) => o.propertyId === propertyId);
+
+      const menuItemIds = new Set(menuItems.map((i: any) => i.id));
+      const modifierGroupIds = new Set(modifierGroups.map((g: any) => g.id));
+      const orderDeviceIds = new Set(orderDevices.map((o: any) => o.id));
+      const printClassIds = new Set(printClasses.map((p: any) => p.id));
+
+      const modifierGroupModifiers = allModifierGroupModifiers.filter((m: any) => modifierGroupIds.has(m.modifierGroupId));
+      const menuItemModifierGroups = allMenuItemModifierGroups.filter((m: any) => menuItemIds.has(m.menuItemId));
+      const orderDevicePrinters = allOrderDevicePrinters.filter((o: any) => orderDeviceIds.has(o.orderDeviceId));
+      const orderDeviceKds = allOrderDeviceKds.filter((o: any) => orderDeviceIds.has(o.orderDeviceId));
+      const printClassRouting = allPrintClassRouting.filter((r: any) => printClassIds.has(r.printClassId));
+
+      console.log(`[ConfigSync] Filtered for enterprise ${enterprise?.name}: menuItems=${menuItems.length} (was ${allMenuItems.length}), modifiers=${modifiers.length} (was ${allModifiers.length}), tenders=${tenders.length}, discounts=${discounts.length}`);
 
       const configVersion = await storage.getLatestConfigVersion(propertyId);
 
@@ -24750,7 +24816,7 @@ connect();
           enterprise,
           property,
           revenueCenters,
-          employees, // Include pinHash for service host offline auth
+          employees,
           roles,
           menuItems,
           modifierGroups,
