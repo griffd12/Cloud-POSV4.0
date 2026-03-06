@@ -896,6 +896,23 @@ class OfflineApiInterceptor {
       }
     }
 
+    if (pathname === '/api/kds-tickets/bump-all') {
+      const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
+      let bumped = 0;
+      for (const check of checks) {
+        if (check.status === 'open' && !check._kdsBumped && check.items && check.items.some(i => i.sent && !i.voided)) {
+          check._kdsBumped = true;
+          check._kdsBumpedAt = new Date().toISOString();
+          check.updatedAt = new Date().toISOString();
+          this.db.saveOfflineCheck(check);
+          bumped++;
+        }
+      }
+      this.db.queueOperation('bump_all_kds_tickets', pathname, 'POST', body || {}, 3);
+      appLogger.info('Interceptor', `RED mode: KDS bump-all cleared ${bumped} tickets`);
+      return { status: 200, data: { bumped, message: `Cleared ${bumped} tickets`, offline: true } };
+    }
+
     if (pathname.match(/^\/api\/kds-tickets\/[^/]+\/bump/)) {
       const bumpMatch = pathname.match(/^\/api\/kds-tickets\/([^/]+)\/bump/);
       if (bumpMatch) {

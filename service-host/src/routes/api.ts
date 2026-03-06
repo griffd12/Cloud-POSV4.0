@@ -2117,6 +2117,21 @@ export function createApiRoutes(
       res.status(500).json({ error: (e as Error).message });
     }
   });
+  router.post('/kds-tickets/bump-all', (req, res) => {
+    try {
+      const { stationId, kdsDeviceId, deviceId } = req.body;
+      const effectiveStation = stationId || kdsDeviceId || deviceId;
+      const tickets = kds.getActiveTickets(effectiveStation);
+      let bumped = 0;
+      for (const ticket of tickets) {
+        kds.bumpTicket(ticket.id, effectiveStation);
+        bumped++;
+      }
+      res.json({ bumped, message: `Cleared ${bumped} tickets` });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
   router.post('/kds-tickets/:id/bump', (req, res) => {
     try {
       kds.bumpTicket(req.params.id, req.body.stationId);
