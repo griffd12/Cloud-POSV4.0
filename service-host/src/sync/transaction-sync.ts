@@ -36,10 +36,10 @@ export class TransactionSync {
   
   startWorker(): void {
     logger.info('Starting transaction sync worker...', { interval: this.syncInterval });
-    this.processQueue();
+    this.processQueue().catch(e => logger.error('processQueue error', e instanceof Error ? e : new Error(String(e))));
     
     this.workerTimer = setInterval(() => {
-      this.processQueue();
+      this.processQueue().catch(e => logger.error('processQueue error', e instanceof Error ? e : new Error(String(e))));
     }, this.syncInterval);
   }
   
@@ -71,7 +71,13 @@ export class TransactionSync {
     this.isProcessing = true;
     
     try {
-      await this.syncJournalEntries();
+      try {
+        await this.syncJournalEntries();
+      } catch (journalError) {
+        const err = journalError instanceof Error ? journalError : new Error(String(journalError));
+        logger.warn('Journal sync failed, will retry next cycle', { error: err.message });
+        this.consecutiveFailures++;
+      }
       
       const items = this.db.getPendingSyncItems(10);
       
@@ -157,10 +163,15 @@ export class TransactionSync {
       };
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
-      logger.error('Journal sync batch failed', error);
+      const isPermanentError = error.message.includes('400') || error.message.includes('422') || error.message.includes('404') || error.message.includes('409');
       
-      for (const entry of entries) {
-        this.db.markJournalFailed(entry.event_id);
+      if (isPermanentError) {
+        logger.error('Journal sync permanently failed (bad data), marking entries as failed', error);
+        for (const entry of entries) {
+          this.db.markJournalFailed(entry.event_id);
+        }
+      } else {
+        logger.warn('Journal sync batch failed (transient), will retry next cycle', { error: error.message });
       }
       
       throw error;
