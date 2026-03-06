@@ -26,6 +26,20 @@ const CATEGORY_TO_QUERY_KEYS: Record<string, string[]> = {
   page_layouts: ["/api/page-layouts"],
   taxes: ["/api/taxes", "/api/tax-groups"],
   modifiers: ["/api/modifier-groups", "/api/modifiers"],
+  pos_layouts: ["/api/pos-layouts"],
+  major_groups: ["/api/major-groups", "/api/menu-items"],
+  family_groups: ["/api/family-groups", "/api/menu-items"],
+  tax_groups: ["/api/tax-groups", "/api/taxes"],
+  print_classes: ["/api/print-classes"],
+  order_devices: ["/api/order-devices"],
+  kds_devices: ["/api/kds-devices"],
+  print_routing: ["/api/print-class-routing"],
+  workstations: ["/api/workstations"],
+  roles: ["/api/roles", "/api/privileges"],
+  enterprises: ["/api/enterprises"],
+  devices: ["/api/devices", "/api/terminal-devices"],
+  ingredients: ["/api/menu-items", "/api/ingredient-prefixes"],
+  job_codes: ["/api/job-codes", "/api/employees"],
 };
 
 export function useConfigSync() {

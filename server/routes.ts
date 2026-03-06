@@ -1975,6 +1975,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertEnterpriseSchema.parse(req.body);
       const data = await storage.createEnterprise(validated);
+      broadcastConfigUpdate("enterprises", "create", data.id, data.enterpriseId || data.id);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -1984,11 +1985,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/enterprises/:id", async (req, res) => {
     const data = await storage.updateEnterprise(req.params.id, req.body);
     if (!data) return res.status(404).json({ message: "Not found" });
+      broadcastConfigUpdate("enterprises", "update", req.params.id, req.params.id);
     res.json(data);
   });
 
   app.delete("/api/enterprises/:id", async (req, res) => {
     await storage.deleteEnterprise(req.params.id);
+      broadcastConfigUpdate("enterprises", "delete", req.params.id, req.params.id);
     res.status(204).send();
   });
 
@@ -2016,6 +2019,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertPropertySchema.parse(req.body);
       const data = await storage.createProperty(validated);
+      broadcastConfigUpdate("properties", "create", data.id, data.enterpriseId);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -2046,6 +2050,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
     const data = await storage.updateProperty(req.params.id, req.body);
     if (!data) return res.status(404).json({ message: "Not found" });
+      broadcastConfigUpdate("properties", "update", req.params.id, data?.enterpriseId);
     res.json(data);
   });
 
@@ -2150,6 +2155,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertRoleSchema.parse(req.body);
       const data = await storage.createRole(validated);
+      broadcastConfigUpdate("roles", "create", data.id, data.enterpriseId);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -2159,6 +2165,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/roles/:id", async (req, res) => {
     const data = await storage.updateRole(req.params.id, req.body);
     if (!data) return res.status(404).json({ message: "Not found" });
+      broadcastConfigUpdate("roles", "update", req.params.id, data?.enterpriseId);
     res.json(data);
   });
 
@@ -2166,6 +2173,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const canDelete = await checkDeleteScope(req.params.id, storage.getRole.bind(storage), req, res);
     if (!canDelete) return;
     await storage.deleteRole(req.params.id);
+      broadcastConfigUpdate("roles", "delete", req.params.id);
     res.status(204).send();
   });
 
@@ -2270,6 +2278,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/employees/:id/assignments", async (req, res) => {
     const propertyIds = req.body.propertyIds || [];
     const data = await storage.setEmployeeAssignments(req.params.id, propertyIds);
+      broadcastConfigUpdate("employees", "update", req.params.id);
     res.json(data);
   });
 
@@ -2477,6 +2486,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "privileges must be an array" });
       }
       await storage.setRolePrivileges(req.params.roleId, privileges);
+      broadcastConfigUpdate("roles", "update", req.params.roleId);
       res.json({ message: "Role privileges updated" });
     } catch (error) {
       console.error("Error updating role privileges:", error);
@@ -2500,6 +2510,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         roleId: req.params.roleId,
         ...req.body,
       });
+      broadcastConfigUpdate("roles", "update", req.params.roleId);
       res.json(rules);
     } catch (error: any) {
       console.error("Error updating role rules:", error);
@@ -2539,6 +2550,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertMajorGroupSchema.parse(req.body);
       const data = await storage.createMajorGroup(validated);
+      broadcastConfigUpdate("major_groups", "create", data.id, data.enterpriseId);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -2550,6 +2562,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const validated = insertMajorGroupSchema.partial().parse(req.body);
       const data = await storage.updateMajorGroup(req.params.id, validated);
       if (!data) return res.status(404).json({ message: "Not found" });
+      broadcastConfigUpdate("major_groups", "update", req.params.id, data?.enterpriseId);
       res.json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -2560,6 +2573,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const canDelete = await checkDeleteScope(req.params.id, storage.getMajorGroup.bind(storage), req, res);
     if (!canDelete) return;
     await storage.deleteMajorGroup(req.params.id);
+      broadcastConfigUpdate("major_groups", "delete", req.params.id);
     res.status(204).send();
   });
 
@@ -2596,6 +2610,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertFamilyGroupSchema.parse(req.body);
       const data = await storage.createFamilyGroup(validated);
+      broadcastConfigUpdate("family_groups", "create", data.id, data.enterpriseId);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -2607,6 +2622,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const validated = insertFamilyGroupSchema.partial().parse(req.body);
       const data = await storage.updateFamilyGroup(req.params.id, validated);
       if (!data) return res.status(404).json({ message: "Not found" });
+      broadcastConfigUpdate("family_groups", "update", req.params.id, data?.enterpriseId);
       res.json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -2617,6 +2633,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const canDelete = await checkDeleteScope(req.params.id, storage.getFamilyGroup.bind(storage), req, res);
     if (!canDelete) return;
     await storage.deleteFamilyGroup(req.params.id);
+      broadcastConfigUpdate("family_groups", "delete", req.params.id);
     res.status(204).send();
   });
 
@@ -2757,6 +2774,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const canDelete = await checkDeleteScope(req.params.id, storage.getMenuItem.bind(storage), req, res);
       if (!canDelete) return;
       await storage.deleteMenuItem(req.params.id);
+      broadcastConfigUpdate("menu", "delete", req.params.id);
       res.status(204).send();
     } catch (error: any) {
       res.status(400).json({ message: error.message || "Cannot delete menu item" });
@@ -2846,6 +2864,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
       
+      broadcastConfigUpdate("menu", "create");
       res.status(201).json({ 
         imported: results.length, 
         created, 
@@ -2864,6 +2883,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const count = await storage.unlinkMenuItemFromSLUs(req.params.id);
       // Also deactivate the menu item
       await storage.updateMenuItem(req.params.id, { active: false });
+      broadcastConfigUpdate("menu", "update", req.params.id);
       res.json({ message: `Unlinked from ${count} categories and deactivated`, unlinkedCount: count });
     } catch (error: any) {
       res.status(400).json({ message: error.message || "Failed to unlink" });
@@ -2885,6 +2905,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "sluIds must be an array" });
       }
       await storage.setMenuItemSlus(req.params.id, sluIds);
+      broadcastConfigUpdate("menu", "update", req.params.id);
       res.json({ message: "SLU linkages updated" });
     } catch (error: any) {
       res.status(400).json({ message: error.message || "Failed to update SLU linkages" });
@@ -2930,6 +2951,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertModifierSchema.parse(req.body);
       const data = await storage.createModifier(validated);
+      broadcastConfigUpdate("modifiers", "create", data.id, data.enterpriseId);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -2939,6 +2961,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/modifiers/:id", async (req, res) => {
     const data = await storage.updateModifier(req.params.id, req.body);
     if (!data) return res.status(404).json({ message: "Not found" });
+      broadcastConfigUpdate("modifiers", "update", req.params.id, data?.enterpriseId);
     res.json(data);
   });
 
@@ -2947,6 +2970,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const canDelete = await checkDeleteScope(req.params.id, storage.getModifier.bind(storage), req, res);
       if (!canDelete) return;
       await storage.deleteModifier(req.params.id);
+      broadcastConfigUpdate("modifiers", "delete", req.params.id);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete modifier" });
@@ -2993,6 +3017,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertModifierGroupSchema.parse(req.body);
       const data = await storage.createModifierGroup(validated);
+      broadcastConfigUpdate("modifiers", "create", data.id, data.enterpriseId);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -3002,6 +3027,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/modifier-groups/:id", async (req, res) => {
     const data = await storage.updateModifierGroup(req.params.id, req.body);
     if (!data) return res.status(404).json({ message: "Not found" });
+      broadcastConfigUpdate("modifiers", "update", req.params.id, data?.enterpriseId);
     res.json(data);
   });
 
@@ -3009,6 +3035,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const canDelete = await checkDeleteScope(req.params.id, storage.getModifierGroup.bind(storage), req, res);
     if (!canDelete) return;
     await storage.deleteModifierGroup(req.params.id);
+      broadcastConfigUpdate("modifiers", "delete", req.params.id);
     res.status(204).send();
   });
 
@@ -3028,6 +3055,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         displayOrder: displayOrder || 0,
       });
       const data = await storage.linkModifierToGroup(validated);
+      broadcastConfigUpdate("modifiers", "update", req.params.id);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -3036,6 +3064,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.delete("/api/modifier-groups/:groupId/modifiers/:modifierId", async (req, res) => {
     await storage.unlinkModifierFromGroup(req.params.groupId, req.params.modifierId);
+      broadcastConfigUpdate("modifiers", "update", req.params.groupId);
     res.status(204).send();
   });
 
@@ -3238,6 +3267,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         displayOrder: displayOrder || 0,
       });
       const data = await storage.linkModifierGroupToMenuItem(validated);
+      broadcastConfigUpdate("modifiers", "update", req.params.id);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -3246,6 +3276,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.delete("/api/menu-items/:menuItemId/modifier-groups/:groupId", async (req, res) => {
     await storage.unlinkModifierGroupFromMenuItem(req.params.menuItemId, req.params.groupId);
+      broadcastConfigUpdate("modifiers", "update", req.params.menuItemId);
     res.status(204).send();
   });
 
@@ -3278,6 +3309,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
       
+      broadcastConfigUpdate("modifiers", "update", req.params.id);
       res.json({ message: "Modifier group linkages updated" });
     } catch (error) {
       res.status(400).json({ message: "Failed to update modifier group linkages" });
@@ -3323,6 +3355,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertIngredientPrefixSchema.parse(req.body);
       const data = await storage.createIngredientPrefix(validated);
+      broadcastConfigUpdate("ingredients", "create", data.id);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -3335,6 +3368,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!data) {
         return res.status(404).json({ message: "Ingredient prefix not found" });
       }
+      broadcastConfigUpdate("ingredients", "update", req.params.id);
       res.json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -3346,6 +3380,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!success) {
       return res.status(404).json({ message: "Ingredient prefix not found" });
     }
+      broadcastConfigUpdate("ingredients", "delete", req.params.id);
     res.status(204).send();
   });
 
@@ -3391,6 +3426,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         menuItemId: req.params.id,
       });
       const data = await storage.createMenuItemRecipeIngredient(validated);
+      broadcastConfigUpdate("ingredients", "update", req.params.id);
       res.status(201).json(data);
     } catch (error) {
       console.error("Recipe ingredient creation error:", error);
@@ -3404,6 +3440,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!data) {
         return res.status(404).json({ message: "Recipe ingredient not found" });
       }
+      broadcastConfigUpdate("ingredients", "update", req.params.id);
       res.json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -3415,6 +3452,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!success) {
       return res.status(404).json({ message: "Recipe ingredient not found" });
     }
+      broadcastConfigUpdate("ingredients", "delete", req.params.id);
     res.status(204).send();
   });
 
@@ -3451,6 +3489,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertTaxGroupSchema.parse(req.body);
       const data = await storage.createTaxGroup(validated);
+      broadcastConfigUpdate("tax_groups", "create", data.id, data.enterpriseId);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -3460,6 +3499,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/tax-groups/:id", async (req, res) => {
     const data = await storage.updateTaxGroup(req.params.id, req.body);
     if (!data) return res.status(404).json({ message: "Not found" });
+      broadcastConfigUpdate("tax_groups", "update", req.params.id, data?.enterpriseId);
     res.json(data);
   });
 
@@ -3468,6 +3508,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const canDelete = await checkDeleteScope(req.params.id, storage.getTaxGroup.bind(storage), req, res);
       if (!canDelete) return;
       await storage.deleteTaxGroup(req.params.id);
+      broadcastConfigUpdate("tax_groups", "delete", req.params.id);
       res.status(204).send();
     } catch (error: any) {
       if (error.code === "23503") {
@@ -3514,6 +3555,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertPrintClassSchema.parse(req.body);
       const data = await storage.createPrintClass(validated);
+      broadcastConfigUpdate("print_classes", "create", data.id, data.enterpriseId);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -3523,6 +3565,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/print-classes/:id", async (req, res) => {
     const data = await storage.updatePrintClass(req.params.id, req.body);
     if (!data) return res.status(404).json({ message: "Not found" });
+      broadcastConfigUpdate("print_classes", "update", req.params.id, data?.enterpriseId);
     res.json(data);
   });
 
@@ -3531,6 +3574,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const canDelete = await checkDeleteScope(req.params.id, storage.getPrintClass.bind(storage), req, res);
       if (!canDelete) return;
       await storage.deletePrintClass(req.params.id);
+      broadcastConfigUpdate("print_classes", "delete", req.params.id);
       res.status(204).send();
     } catch (error: any) {
       if (error.code === '23503') {
@@ -3564,6 +3608,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertOrderDeviceSchema.parse(req.body);
       const data = await storage.createOrderDevice(validated);
+      broadcastConfigUpdate("order_devices", "create", data.id, data.enterpriseId);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -3573,6 +3618,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/order-devices/:id", async (req, res) => {
     const data = await storage.updateOrderDevice(req.params.id, req.body);
     if (!data) return res.status(404).json({ message: "Not found" });
+      broadcastConfigUpdate("order_devices", "update", req.params.id, data?.enterpriseId);
     res.json(data);
   });
 
@@ -3580,6 +3626,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const canDelete = await checkDeleteScope(req.params.id, storage.getOrderDevice.bind(storage), req, res);
     if (!canDelete) return;
     await storage.deleteOrderDevice(req.params.id);
+      broadcastConfigUpdate("order_devices", "delete", req.params.id);
     res.status(204).send();
   });
 
@@ -3596,6 +3643,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ...req.body,
       });
       const data = await storage.linkPrinterToOrderDevice(validated);
+      broadcastConfigUpdate("order_devices", "update", req.params.id);
       res.status(201).json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid data";
@@ -3621,6 +3669,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ...req.body,
       });
       const data = await storage.linkKdsToOrderDevice(validated);
+      broadcastConfigUpdate("order_devices", "update", req.params.id);
       res.status(201).json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid data";
@@ -3801,6 +3850,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertWorkstationSchema.parse(req.body);
       const data = await storage.createWorkstation(validated);
+      broadcastConfigUpdate("workstations", "create", data.id, data.enterpriseId);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -3978,6 +4028,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertKdsDeviceSchema.parse(req.body);
       const data = await storage.createKdsDevice(validated);
+      broadcastConfigUpdate("kds_devices", "create", data.id, data.enterpriseId);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -3994,6 +4045,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (body.colorAlert3Seconds != null) body.colorAlert3Seconds = Number(body.colorAlert3Seconds);
       const data = await storage.updateKdsDevice(req.params.id, body);
       if (!data) return res.status(404).json({ message: "Not found" });
+      broadcastConfigUpdate("kds_devices", "update", req.params.id, data?.enterpriseId);
       res.json(data);
     } catch (error: any) {
       res.status(400).json({ message: error?.message || "Invalid data" });
@@ -4002,6 +4054,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.delete("/api/kds-devices/:id", async (req, res) => {
     await storage.deleteKdsDevice(req.params.id);
+      broadcastConfigUpdate("kds_devices", "delete", req.params.id);
     res.status(204).send();
   });
 
@@ -4088,6 +4141,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const validated = insertPrintClassRoutingSchema.parse(req.body);
       const data = await storage.createPrintClassRouting(validated);
+      broadcastConfigUpdate("print_routing", "create", data.id);
       res.status(201).json(data);
     } catch (error) {
       res.status(400).json({ message: "Invalid data" });
@@ -4096,6 +4150,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.delete("/api/print-class-routing/:id", async (req, res) => {
     await storage.deletePrintClassRouting(req.params.id);
+      broadcastConfigUpdate("print_routing", "delete", req.params.id);
     res.status(204).send();
   });
 
@@ -7984,6 +8039,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         managerApprovalId: null,
       });
       
+      broadcastConfigUpdate("properties", "update", req.params.id);
       res.json({
         success: true,
         previousBusinessDate: currentBusinessDate,
@@ -8118,6 +8174,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         managerApprovalId: null,
       });
       
+      broadcastConfigUpdate("properties", "update", req.params.id);
       res.json({
         success: true,
         previousBusinessDate,
@@ -8190,6 +8247,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const data = insertPosLayoutSchema.parse(req.body);
       const layout = await storage.createPosLayout(data);
+      broadcastConfigUpdate("pos_layouts", "create", data.id, data.enterpriseId);
       res.status(201).json(layout);
     } catch (error) {
       res.status(400).json({ message: "Invalid layout data" });
@@ -8201,6 +8259,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const data = insertPosLayoutSchema.partial().parse(req.body);
       const layout = await storage.updatePosLayout(req.params.id, data);
       if (!layout) return res.status(404).json({ message: "Layout not found" });
+      broadcastConfigUpdate("pos_layouts", "update", req.params.id);
       res.json(layout);
     } catch (error) {
       res.status(400).json({ message: "Invalid layout data" });
@@ -8215,6 +8274,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/pos-layouts/:id/cells", async (req, res) => {
     const cells = await storage.getPosLayoutCells(req.params.id);
+      broadcastConfigUpdate("pos_layouts", "delete", req.params.id);
     res.json(cells);
   });
 
@@ -8225,6 +8285,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const cellsData = z.array(cellSchema).parse(req.body);
       const cellsWithLayoutId = cellsData.map(c => ({ ...c, layoutId }));
       const cells = await storage.setPosLayoutCells(layoutId, cellsWithLayoutId);
+      broadcastConfigUpdate("pos_layouts", "update", req.params.id);
       res.json(cells);
     } catch (error) {
       console.error("Error saving cells:", error);
@@ -8249,6 +8310,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }));
       const assignments = assignmentSchema.parse(req.body);
       const result = await storage.setPosLayoutRvcAssignments(layoutId, assignments);
+      broadcastConfigUpdate("pos_layouts", "update", req.params.id);
       res.json(result);
     } catch (error) {
       console.error("Error saving RVC assignments:", error);
@@ -8260,6 +8322,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put("/api/pos-layouts/:layoutId/set-default/:rvcId", async (req, res) => {
     try {
       await storage.setDefaultLayoutForRvc(req.params.rvcId, req.params.layoutId);
+      broadcastConfigUpdate("pos_layouts", "update", req.params.layoutId);
       res.json({ success: true });
     } catch (error) {
       console.error("Error setting default layout:", error);
@@ -8475,6 +8538,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/devices", async (req, res) => {
     try {
       const device = await storage.createDevice(req.body);
+      broadcastConfigUpdate("devices", "create", data.id);
       res.status(201).json(device);
     } catch (error: any) {
       console.error("Error creating device:", error);
@@ -8487,6 +8551,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const device = await storage.updateDevice(req.params.id, req.body);
       if (!device) return res.status(404).json({ message: "Device not found" });
+      broadcastConfigUpdate("devices", "update", req.params.id);
       res.json(device);
     } catch (error: any) {
       res.status(400).json({ message: error.message || "Failed to update device" });
@@ -8515,6 +8580,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         memoryUsage: req.body.memoryUsage,
         diskUsage: req.body.diskUsage,
       });
+      broadcastConfigUpdate("devices", "delete", req.params.id);
       res.json(heartbeat);
     } catch (error: any) {
       res.status(400).json({ message: error.message || "Failed to record heartbeat" });
@@ -8551,6 +8617,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ...req.body,
         token,
       });
+      broadcastConfigUpdate("devices", "create");
       res.status(201).json(enrollmentToken);
     } catch (error: any) {
       console.error("Error creating enrollment token:", error);
@@ -8562,6 +8629,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.delete("/api/device-enrollment-tokens/:id", async (req, res) => {
     const deleted = await storage.deleteDeviceEnrollmentToken(req.params.id);
     if (!deleted) return res.status(404).json({ message: "Token not found" });
+    broadcastConfigUpdate("devices", "delete", req.params.id);
     res.status(204).end();
   });
 
@@ -8601,6 +8669,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           status: "active",
           enrolledAt: new Date(),
         });
+      broadcastConfigUpdate("devices", "create");
         return res.json(updated);
       }
       
@@ -8761,6 +8830,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         imported.push(device);
       }
       
+      broadcastConfigUpdate("devices", "create");
       res.json({
         success: true,
         imported: imported.length,
@@ -12817,6 +12887,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       
       const result = await storage.setEmployeeJobCodes(req.params.employeeId, assignmentData);
+      broadcastConfigUpdate("employees", "update", req.params.employeeId);
       res.json(result);
     } catch (error) {
       console.error("Set employee job codes error:", error);
@@ -12861,6 +12932,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         if (existing.length > 0) {
           await db.update(emcUsers).set({ active: false, employeeId: null }).where(eq(emcUsers.id, existing[0].id));
         }
+      broadcastConfigUpdate("employees", "update", req.params.id);
         return res.json({ success: true, removed: true });
       }
 
@@ -13272,6 +13344,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       
       const result = await storage.setEmployeeAvailability(req.params.employeeId, validatedEntries);
+      broadcastConfigUpdate("employees", "update", req.params.employeeId);
       res.json(result);
     } catch (error) {
       console.error("Set employee availability error:", error);
