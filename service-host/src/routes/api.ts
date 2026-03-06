@@ -10,6 +10,7 @@
  */
 
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { CapsService } from '../services/caps.js';
 import { PrintController } from '../services/print-controller.js';
 import { KdsController } from '../services/kds-controller.js';
@@ -1122,7 +1123,20 @@ export function createApiRoutes(
 
   router.get('/checks/:id/service-charges', (req, res) => {
     try {
-      res.json([]);
+      const rows = caps.db.all(
+        'SELECT * FROM check_service_charges WHERE check_id = ? AND voided = 0 ORDER BY created_at',
+        [req.params.id]
+      );
+      res.json(rows.map((r: any) => ({
+        id: r.id,
+        checkId: r.check_id,
+        serviceChargeId: r.service_charge_id,
+        name: r.name,
+        chargeType: r.charge_type,
+        amount: r.amount,
+        voided: !!r.voided,
+        createdAt: r.created_at,
+      })));
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
@@ -1255,9 +1269,13 @@ export function createApiRoutes(
 
   router.post('/checks/:id/cancel-transaction', (req, res) => {
     try {
+      const check = caps.getCheck(req.params.id);
+      if (!check) return res.status(404).json({ error: 'Check not found' });
+      const activeItems = (check.items || []).filter((i: any) => !i.voided);
+      const voidedCount = activeItems.length;
       const { reason, workstationId } = req.body;
       caps.voidCheck(req.params.id, reason || 'cancelled', workstationId);
-      res.json({ success: true });
+      res.json({ success: true, voidedCount, remainingActiveItems: 0 });
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
@@ -1288,7 +1306,206 @@ export function createApiRoutes(
   });
 
   router.post('/checks/:id/print', (req, res) => {
-    res.json({ success: true, message: 'Print queued' });
+    try {
+      const check = caps.getCheck(req.params.id);
+      if (!check) return res.status(404).json({ error: 'Check not found' });
+      res.json({ success: true, message: 'Print queued' });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/checks/:id/transfer', (req, res) => {
+    try {
+      const { employeeId, workstationId } = req.body;
+      const check = caps.getCheck(req.params.id);
+      if (!check) return res.status(404).json({ error: 'Check not found' });
+      caps.db.run('UPDATE checks SET employee_id = ? WHERE id = ?', [employeeId, req.params.id]);
+      caps.recalculateTotals(req.params.id);
+      const txnGroupId = caps.getTxnGroupId(req.params.id);
+      caps.writeJournal(req.params.id, txnGroupId, check.rvcId || '', 'transfer_check', { employeeId, workstationId });
+      caps.transactionSync.queueCheck(req.params.id, 'update', caps.getCheck(req.params.id));
+      const updated = caps.getCheck(req.params.id);
+      res.json(updated || { success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/checks/:id/split', (req, res) => {
+    try {
+      const check = caps.getCheck(req.params.id);
+      if (!check) return res.status(404).json({ error: 'Check not found' });
+      const { itemIds, workstationId } = req.body;
+      const newCheck = caps.createCheck({
+        rvcId: check.rvcId,
+        employeeId: check.employeeId,
+        orderType: check.orderType,
+        workstationId,
+      });
+      if (itemIds && itemIds.length > 0) {
+        for (const itemId of itemIds) {
+          caps.db.run('UPDATE check_items SET check_id = ? WHERE id = ?', [newCheck.id, itemId]);
+        }
+        caps.recalculateTotals(req.params.id);
+        caps.recalculateTotals(newCheck.id);
+      }
+      const txnGroupId = caps.getTxnGroupId(req.params.id);
+      caps.writeJournal(req.params.id, txnGroupId, check.rvcId || '', 'split_check', { newCheckId: newCheck.id, itemIds });
+      caps.transactionSync.queueCheck(req.params.id, 'update', caps.getCheck(req.params.id));
+      caps.transactionSync.queueCheck(newCheck.id, 'create', caps.getCheck(newCheck.id));
+      const sourceCheck = caps.getCheck(req.params.id);
+      const sourceItems = sourceCheck ? sourceCheck.items || [] : [];
+      const newCheckFull = caps.getCheck(newCheck.id);
+      const newItems = newCheckFull ? newCheckFull.items || [] : [];
+      res.json({ sourceCheck: { check: sourceCheck, items: sourceItems }, newChecks: [{ check: newCheckFull, items: newItems }] });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/checks/merge', (req, res) => {
+    try {
+      const { targetCheckId, sourceCheckIds, employeeId } = req.body;
+      const targetCheck = caps.getCheck(targetCheckId);
+      if (!targetCheck) return res.status(404).json({ error: 'Target check not found' });
+      for (const sourceId of (sourceCheckIds || [])) {
+        const sourceCheck = caps.getCheck(sourceId);
+        if (!sourceCheck) continue;
+        caps.db.run('UPDATE check_items SET check_id = ? WHERE check_id = ?', [targetCheckId, sourceId]);
+        caps.db.run("UPDATE checks SET status = 'closed', closed_at = datetime('now') WHERE id = ?", [sourceId]);
+        const txnGroupId = caps.getTxnGroupId(sourceId);
+        caps.writeJournal(sourceId, txnGroupId, sourceCheck.rvcId || '', 'merge_check', { targetCheckId });
+        caps.transactionSync.queueCheck(sourceId, 'update', caps.getCheck(sourceId));
+      }
+      caps.recalculateTotals(targetCheckId);
+      const txnGroupId = caps.getTxnGroupId(targetCheckId);
+      caps.writeJournal(targetCheckId, txnGroupId, targetCheck.rvcId || '', 'merge_check_target', { sourceCheckIds });
+      caps.transactionSync.queueCheck(targetCheckId, 'update', caps.getCheck(targetCheckId));
+      const merged = caps.getCheck(targetCheckId);
+      res.json({ check: merged, items: merged?.items || [] });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.patch('/checks/:id', (req, res) => {
+    try {
+      const check = caps.getCheck(req.params.id);
+      if (!check) return res.status(404).json({ error: 'Check not found' });
+      const updates = req.body;
+      const allowedFields = ['orderType', 'guestCount', 'tableNumber', 'customerId', 'customerName', 'notes'];
+      const sets: string[] = [];
+      const vals: any[] = [];
+      for (const field of allowedFields) {
+        if (updates[field] !== undefined) {
+          const dbField = field.replace(/([A-Z])/g, '_$1').toLowerCase();
+          sets.push(`${dbField} = ?`);
+          vals.push(updates[field]);
+        }
+      }
+      if (sets.length > 0) {
+        vals.push(req.params.id);
+        caps.db.run(`UPDATE checks SET ${sets.join(', ')} WHERE id = ?`, vals);
+      }
+      const txnGroupId = caps.getTxnGroupId(req.params.id);
+      caps.writeJournal(req.params.id, txnGroupId, check.rvcId || '', 'update_check', updates);
+      caps.transactionSync.queueCheck(req.params.id, 'update', caps.getCheck(req.params.id));
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.patch('/check-payments/:id/void', (req, res) => {
+    try {
+      const { reason } = req.body;
+      const payment = caps.db.get<any>('SELECT * FROM check_payments WHERE id = ?', [req.params.id]);
+      if (!payment) return res.status(404).json({ error: 'Payment not found' });
+      caps.db.run("UPDATE check_payments SET voided = 1, status = 'voided' WHERE id = ?", [req.params.id]);
+      caps.recalculateTotals(payment.check_id);
+      const txnGroupId = caps.getTxnGroupId(payment.check_id);
+      caps.writeJournal(payment.check_id, txnGroupId, '', 'void_payment', { paymentId: req.params.id, reason });
+      caps.transactionSync.queueCheck(payment.check_id, 'update', caps.getCheck(payment.check_id));
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.patch('/check-payments/:id/restore', (req, res) => {
+    try {
+      const payment = caps.db.get<any>('SELECT * FROM check_payments WHERE id = ?', [req.params.id]);
+      if (!payment) return res.status(404).json({ error: 'Payment not found' });
+      caps.db.run("UPDATE check_payments SET voided = 0, status = 'completed' WHERE id = ?", [req.params.id]);
+      caps.recalculateTotals(payment.check_id);
+      const txnGroupId = caps.getTxnGroupId(payment.check_id);
+      caps.writeJournal(payment.check_id, txnGroupId, '', 'restore_payment', { paymentId: req.params.id });
+      caps.transactionSync.queueCheck(payment.check_id, 'update', caps.getCheck(payment.check_id));
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/check-service-charges/:id/void', (req, res) => {
+    try {
+      const sc = caps.db.get<any>('SELECT * FROM check_service_charges WHERE id = ?', [req.params.id]);
+      if (!sc) return res.status(404).json({ error: 'Service charge not found' });
+      caps.db.run('UPDATE check_service_charges SET voided = 1 WHERE id = ?', [req.params.id]);
+      caps.recalculateTotals(sc.check_id);
+      const txnGroupId = caps.getTxnGroupId(sc.check_id);
+      caps.writeJournal(sc.check_id, txnGroupId, '', 'void_service_charge', { serviceChargeId: req.params.id });
+      caps.transactionSync.queueCheck(sc.check_id, 'update', caps.getCheck(sc.check_id));
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.delete('/check-items/:id', (req, res) => {
+    try {
+      const item = caps.db.get<any>('SELECT * FROM check_items WHERE id = ?', [req.params.id]);
+      if (!item) return res.status(404).json({ error: 'Item not found' });
+      if (item.sent) return res.status(400).json({ error: 'Cannot delete sent item, void instead' });
+      caps.db.run('DELETE FROM check_items WHERE id = ?', [req.params.id]);
+      caps.recalculateTotals(item.check_id);
+      const txnGroupId = caps.getTxnGroupId(item.check_id);
+      caps.writeJournal(item.check_id, txnGroupId, '', 'delete_check_item', { itemId: req.params.id });
+      caps.transactionSync.queueCheck(item.check_id, 'update', caps.getCheck(item.check_id));
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.delete('/check-discounts/:id', (req, res) => {
+    try {
+      const disc = caps.db.get<any>('SELECT * FROM check_discounts WHERE id = ?', [req.params.id]);
+      if (!disc) return res.status(404).json({ error: 'Discount not found' });
+      caps.db.run('DELETE FROM check_discounts WHERE id = ?', [req.params.id]);
+      caps.recalculateTotals(disc.check_id);
+      const txnGroupId = caps.getTxnGroupId(disc.check_id);
+      caps.writeJournal(disc.check_id, txnGroupId, '', 'remove_check_discount', { discountId: req.params.id });
+      caps.transactionSync.queueCheck(disc.check_id, 'update', caps.getCheck(disc.check_id));
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.delete('/pos/checks/:id/customer', (req, res) => {
+    try {
+      const check = caps.getCheck(req.params.id);
+      if (!check) return res.status(404).json({ error: 'Check not found' });
+      caps.db.run('UPDATE checks SET customer_id = NULL, customer_name = NULL WHERE id = ?', [req.params.id]);
+      const txnGroupId = caps.getTxnGroupId(req.params.id);
+      caps.writeJournal(req.params.id, txnGroupId, check.rvcId || '', 'remove_customer', { checkId: req.params.id });
+      caps.transactionSync.queueCheck(req.params.id, 'update', caps.getCheck(req.params.id));
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
   });
 
   router.post('/checks/:id/lock', (req, res) => {
@@ -1330,7 +1547,10 @@ export function createApiRoutes(
         if (check.items?.some((i: any) => i.id === req.params.id)) {
           const { reason, workstationId } = req.body;
           caps.voidItem(check.id, req.params.id, reason, workstationId);
-          return res.json({ success: true });
+          const updatedCheck = caps.getCheck(check.id);
+          const voidedItem = updatedCheck?.items?.find((i: any) => i.id === req.params.id);
+          if (voidedItem) return res.json(voidedItem);
+          return res.json({ id: req.params.id, voided: true, itemStatus: 'voided' });
         }
       }
       res.status(404).json({ error: 'Item not found' });
@@ -1341,7 +1561,28 @@ export function createApiRoutes(
 
   router.patch('/check-items/:id/modifiers', (req, res) => {
     try {
-      res.json({ success: true, message: 'Modifiers updated' });
+      const itemId = req.params.id;
+      const { modifiers, itemStatus } = req.body;
+      const item = caps.db.get<any>('SELECT * FROM check_items WHERE id = ?', [itemId]);
+      if (!item) return res.status(404).json({ error: 'Item not found' });
+      const modifiersJson = JSON.stringify(modifiers || []);
+      const modSum = (modifiers || []).reduce((s: number, m: any) => s + (parseFloat(m.priceDelta) || 0), 0);
+      const totalPrice = (item.unit_price + modSum) * item.quantity;
+      caps.db.run(
+        `UPDATE check_items SET modifiers = ?, modifiers_json = ?, total_price = ? WHERE id = ?`,
+        [modifiersJson, modifiersJson, totalPrice, itemId]
+      );
+      if (itemStatus) {
+        caps.db.run('UPDATE check_items SET sent = ? WHERE id = ?', [itemStatus === 'active' ? 1 : 0, itemId]);
+      }
+      caps.recalculateTotals(item.check_id);
+      const txnGroupId = caps.getTxnGroupId(item.check_id);
+      caps.writeJournal(item.check_id, txnGroupId, '', 'update_modifiers', { itemId, modifiers });
+      caps.transactionSync.queueCheck(item.check_id, 'update', caps.getCheck(item.check_id));
+      const updatedCheck = caps.getCheck(item.check_id);
+      const updatedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
+      if (updatedItem) return res.json(updatedItem);
+      res.json({ id: itemId, modifiers, menuItemName: item.name, unitPrice: item.unit_price, totalPrice, quantity: item.quantity });
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
@@ -1349,7 +1590,51 @@ export function createApiRoutes(
 
   router.post('/check-items/:id/discount', (req, res) => {
     try {
-      res.json({ success: true, message: 'Item discount applied' });
+      const itemId = req.params.id;
+      const { discountId, employeeId } = req.body;
+      const item = caps.db.get<any>('SELECT * FROM check_items WHERE id = ?', [itemId]);
+      if (!item) return res.status(404).json({ error: 'Item not found' });
+      const discount = caps.db.getDiscount(discountId);
+      if (!discount) return res.status(404).json({ error: 'Discount not found' });
+      let discountAmount = 0;
+      const discType = discount.discount_type || discount.type || 'percent';
+      if (discType === 'percent') {
+        discountAmount = parseFloat(((item.unit_price * item.quantity) * (parseFloat(discount.amount || discount.value || '0') / 100)).toFixed(2));
+      } else {
+        discountAmount = parseFloat(discount.amount || discount.value || '0');
+      }
+      caps.db.run(
+        `UPDATE check_items SET discount_id = ?, discount_name = ?, discount_amount = ?, discount_type = ? WHERE id = ?`,
+        [discountId, discount.name, discountAmount, discType, itemId]
+      );
+      caps.recalculateTotals(item.check_id);
+      const txnGroupId = caps.getTxnGroupId(item.check_id);
+      caps.writeJournal(item.check_id, txnGroupId, '', 'apply_item_discount', { itemId, discountId, discountAmount });
+      caps.transactionSync.queueCheck(item.check_id, 'update', caps.getCheck(item.check_id));
+      const updatedCheck = caps.getCheck(item.check_id);
+      const updatedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
+      res.json({ item: updatedItem, check: updatedCheck });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.delete('/check-items/:id/discount', (req, res) => {
+    try {
+      const itemId = req.params.id;
+      const item = caps.db.get<any>('SELECT * FROM check_items WHERE id = ?', [itemId]);
+      if (!item) return res.status(404).json({ error: 'Item not found' });
+      caps.db.run(
+        'UPDATE check_items SET discount_id = NULL, discount_name = NULL, discount_amount = 0, discount_type = NULL WHERE id = ?',
+        [itemId]
+      );
+      caps.recalculateTotals(item.check_id);
+      const txnGroupId = caps.getTxnGroupId(item.check_id);
+      caps.writeJournal(item.check_id, txnGroupId, '', 'remove_item_discount', { itemId });
+      caps.transactionSync.queueCheck(item.check_id, 'update', caps.getCheck(item.check_id));
+      const updatedCheck = caps.getCheck(item.check_id);
+      const updatedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
+      res.json({ item: updatedItem, check: updatedCheck });
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
@@ -1357,9 +1642,174 @@ export function createApiRoutes(
 
   router.post('/check-items/:id/price-override', (req, res) => {
     try {
-      res.json({ success: true, message: 'Price override applied' });
+      const itemId = req.params.id;
+      const { newPrice, reason, employeeId } = req.body;
+      const item = caps.db.get<any>('SELECT * FROM check_items WHERE id = ?', [itemId]);
+      if (!item) return res.status(404).json({ error: 'Item not found' });
+      const modifiers = JSON.parse(item.modifiers || '[]');
+      const modSum = modifiers.reduce((s: number, m: any) => s + (parseFloat(m.priceDelta) || 0), 0);
+      const totalPrice = (parseFloat(newPrice) + modSum) * item.quantity;
+      caps.db.run('UPDATE check_items SET unit_price = ?, total_price = ? WHERE id = ?', [parseFloat(newPrice), totalPrice, itemId]);
+      caps.recalculateTotals(item.check_id);
+      const txnGroupId = caps.getTxnGroupId(item.check_id);
+      caps.writeJournal(item.check_id, txnGroupId, '', 'price_override', { itemId, oldPrice: item.unit_price, newPrice, reason });
+      caps.transactionSync.queueCheck(item.check_id, 'update', caps.getCheck(item.check_id));
+      const updatedCheck = caps.getCheck(item.check_id);
+      const updatedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
+      res.json(updatedItem || { id: itemId, unitPrice: parseFloat(newPrice), totalPrice });
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/payments', (req, res) => {
+    try {
+      const body = req.body || {};
+      const checkId = body.checkId || body.check_id;
+      if (!checkId) {
+        return res.status(400).json({ error: 'Missing checkId in payment body' });
+      }
+      const paymentId = body.id || randomUUID();
+      const now = new Date().toISOString();
+      caps.db.run(
+        `INSERT OR REPLACE INTO check_payments (id, check_id, tender_id, tender_type, amount, tip_amount, change_amount, card_last4, card_brand, auth_code, reference_number, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          paymentId,
+          checkId,
+          body.tenderId || body.tender_id || 'cash',
+          body.tenderType || body.tender_type || body.type || 'cash',
+          body.amount || 0,
+          body.tipAmount || body.tip_amount || 0,
+          body.changeAmount || body.change_amount || 0,
+          body.cardLast4 || body.card_last4 || null,
+          body.cardBrand || body.card_brand || null,
+          body.authCode || body.auth_code || null,
+          body.referenceNumber || body.reference_number || null,
+          body.status || 'completed',
+          body.createdAt || body.created_at || now,
+        ]
+      );
+      caps.recalculateTotals(checkId);
+      caps.writeJournal(checkId, 'payment_added', { paymentId, amount: body.amount || 0, type: body.tenderType || body.tender_type || 'cash' });
+      caps.transactionSync.queueCheck(checkId, 'update');
+      console.log('[CAPS] Payment saved:', paymentId, 'for check:', checkId);
+      res.json({ id: paymentId, checkId, status: body.status || 'completed', offline: false });
+    } catch (e) {
+      console.error('[CAPS] Payment route error:', (e as Error).message);
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/pos/record-external-payment', (req, res) => {
+    try {
+      const { checkId, amount, paymentType, reference, workstationId } = req.body;
+      const check = caps.getCheck(checkId);
+      if (!check) return res.status(404).json({ error: 'Check not found' });
+      const payment = caps.addPayment(checkId, {
+        type: paymentType || 'external',
+        amount: amount,
+        referenceNumber: reference || 'external'
+      }, workstationId);
+      const updatedCheck = caps.getCheck(checkId);
+      if (updatedCheck && updatedCheck.amountDue <= 0) {
+        caps.closeCheck(checkId, workstationId);
+      }
+      res.json({ success: true, payment });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/time-clock/punch', (req, res) => {
+    try {
+      const { employeeId, punchType, jobCodeId, workstationId } = req.body;
+      const id = randomUUID();
+      const now = new Date().toISOString();
+      caps.db.run(
+        `INSERT OR IGNORE INTO time_entries (id, employee_id, punch_type, job_code_id, punch_time, workstation_id, cloud_synced)
+         VALUES (?, ?, ?, ?, ?, ?, 0)`,
+        [id, employeeId, punchType || 'clock_in', jobCodeId || null, now, workstationId || null]
+      );
+      caps.transactionSync.queueTimeEntry(id, 'create', { id, employeeId, punchType, jobCodeId, punchTime: now, workstationId });
+      res.json({ success: true, id, punchTime: now });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/pos/modifier-map', (_req, res) => {
+    try {
+      const menuItemModGroups = caps.db.all<any>(
+        'SELECT mimg.menu_item_id, mimg.modifier_group_id, mimg.sort_order, mimg.min_required, mimg.max_allowed FROM menu_item_modifier_groups mimg'
+      );
+      const modGroups = caps.db.all<any>('SELECT * FROM modifier_groups');
+      const modGroupMods = caps.db.all<any>(
+        'SELECT mgm.modifier_group_id, mgm.modifier_id, mgm.sort_order, mgm.is_default FROM modifier_group_modifiers mgm'
+      );
+      const modifiers = caps.db.all<any>('SELECT * FROM modifiers');
+
+      const modGroupMap: Record<string, any> = {};
+      for (const mg of modGroups) {
+        modGroupMap[mg.id] = mg;
+      }
+      const modMap: Record<string, any> = {};
+      for (const m of modifiers) {
+        modMap[m.id] = m;
+      }
+
+      const result: Record<string, any> = {};
+      for (const mimg of menuItemModGroups) {
+        if (!result[mimg.menu_item_id]) result[mimg.menu_item_id] = {};
+        const mg = modGroupMap[mimg.modifier_group_id];
+        if (!mg) continue;
+        const groupMods = modGroupMods
+          .filter((mgm: any) => mgm.modifier_group_id === mimg.modifier_group_id)
+          .map((mgm: any) => {
+            const mod = modMap[mgm.modifier_id];
+            if (!mod) return null;
+            return {
+              id: mod.id,
+              name: mod.name,
+              price: mod.price || mod.additional_price || 0,
+              sortOrder: mgm.sort_order || 0,
+              isDefault: mgm.is_default ? true : false,
+              active: mod.active !== 0
+            };
+          })
+          .filter(Boolean)
+          .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+        result[mimg.menu_item_id][mimg.modifier_group_id] = {
+          id: mg.id,
+          name: mg.name,
+          code: mg.code || null,
+          minRequired: mimg.min_required || mg.min_required || 0,
+          maxAllowed: mimg.max_allowed || mg.max_allowed || 0,
+          sortOrder: mimg.sort_order || 0,
+          modifiers: groupMods
+        };
+      }
+      res.json(result);
+    } catch (e) {
+      console.error('[CAPS] modifier-map error:', (e as Error).message);
+      res.json({});
+    }
+  });
+
+  router.post('/terminal-sessions', async (req, res) => {
+    try {
+      res.status(503).json({ error: 'Credit card processing requires cloud connection in service-host mode.' });
+    } catch (e) {
+      res.status(503).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/terminal-sessions', async (_req, res) => {
+    try {
+      res.status(503).json({ error: 'Credit card processing requires cloud connection in service-host mode.' });
+    } catch (e) {
+      res.status(503).json({ error: (e as Error).message });
     }
   });
 

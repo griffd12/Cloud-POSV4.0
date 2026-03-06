@@ -14,8 +14,8 @@ import { TransactionSync } from '../sync/transaction-sync.js';
 import { randomUUID } from 'crypto';
 
 export class CapsService {
-  private db: Database;
-  private transactionSync: TransactionSync;
+  db: Database;
+  transactionSync: TransactionSync;
   private checkNumberSequence: number = 1;
   private defaultLockDuration: number = 300;
   private deviceId: string = 'unknown';
@@ -42,7 +42,7 @@ export class CapsService {
     this.configVersion = version;
   }
   
-  private writeJournal(checkId: string, txnGroupId: string, rvcId: string, eventType: string, payload: any): void {
+  writeJournal(checkId: string, txnGroupId: string, rvcId: string, eventType: string, payload: any): void {
     const businessDate = this.getBusinessDate();
     this.db.writeJournalEntry({
       eventId: randomUUID(),
@@ -61,7 +61,7 @@ export class CapsService {
     return new Date().toISOString().split('T')[0];
   }
   
-  private getTxnGroupId(checkId: string): string {
+  getTxnGroupId(checkId: string): string {
     const row = this.db.get<{ txn_group_id: string | null }>('SELECT txn_group_id FROM checks WHERE id = ?', [checkId]);
     return row?.txn_group_id || checkId;
   }
@@ -510,14 +510,24 @@ export class CapsService {
       checkId: row.check_id,
       roundNumber: row.round_number,
       menuItemId: row.menu_item_id,
+      menuItemName: row.name,
       name: row.name,
       quantity: row.quantity,
       unitPrice: row.unit_price,
+      totalPrice: row.total_price,
       modifiers: JSON.parse(row.modifiers || '[]'),
+      printClassId: row.print_class_id || null,
       seatNumber: row.seat_number || undefined,
+      taxGroupId: row.tax_group_id || null,
+      sent: !!row.sent,
       sentToKitchen: !!row.sent_to_kitchen,
       voided: !!row.voided,
       voidReason: row.void_reason || undefined,
+      discountId: row.discount_id || null,
+      discountName: row.discount_name || null,
+      discountAmount: row.discount_amount || 0,
+      discountType: row.discount_type || null,
+      itemStatus: row.voided ? 'voided' : 'active',
     }));
   }
   
@@ -553,7 +563,7 @@ export class CapsService {
     return result?.total || 0;
   }
   
-  private recalculateTotals(checkId: string): void {
+  recalculateTotals(checkId: string): void {
     const items = this.db.all<{ quantity: number; unit_price: number; tax_group_id: string | null }>(
       `SELECT quantity, unit_price, tax_group_id FROM check_items WHERE check_id = ? AND voided = 0`,
       [checkId]
