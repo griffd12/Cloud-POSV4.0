@@ -1367,7 +1367,7 @@ export class Database {
   
   markJournalFailed(eventId: string): void {
     this.run(
-      `UPDATE transaction_journal SET sync_state = 'pending', sync_attempts = sync_attempts + 1 WHERE event_id = ?`,
+      `UPDATE transaction_journal SET sync_state = 'failed', sync_attempts = sync_attempts + 1 WHERE event_id = ?`,
       [eventId]
     );
   }
