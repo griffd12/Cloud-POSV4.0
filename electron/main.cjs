@@ -36,6 +36,10 @@ let connectivitySuccessCount = 0;
 const HYSTERESIS_THRESHOLD = 2;
 let lastSyncError = null;
 let backgroundSyncTimer = null;
+let protocolInterceptorStartTime = 0;
+let protocolConsecutiveFailCount = 0;
+const PROTOCOL_STARTUP_GRACE_MS = 15000;
+const PROTOCOL_FAIL_THRESHOLD = 3;
 
 const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/auth\/login(\/|$)/,
@@ -2721,6 +2725,8 @@ function routeToOfflineInterceptor(method, url, body) {
 function registerProtocolInterceptor() {
   if (protocolInterceptorRegistered) return;
   protocolInterceptorRegistered = true;
+  protocolInterceptorStartTime = Date.now();
+  protocolConsecutiveFailCount = 0;
   ensurePageCacheDir();
 
   protocol.handle('https', async (request) => {
@@ -2907,7 +2913,11 @@ function registerProtocolInterceptor() {
         cacheResponseToDisk(url.pathname, cloned).catch(() => {});
       }
 
-      if (!isOnline && response.ok) {
+      if (response.ok && isApiRequest) {
+        protocolConsecutiveFailCount = 0;
+      }
+
+      if (!isOnline && response.ok && isApiRequest) {
         isOnline = true;
         if (offlineInterceptor) offlineInterceptor.setOffline(false);
         setConnectionMode('green');
@@ -2987,12 +2997,27 @@ function registerProtocolInterceptor() {
 
       return response;
     } catch (networkError) {
-      if (isOnline) {
-        isOnline = false;
-        if (offlineInterceptor) offlineInterceptor.setOffline(true);
-        if (mainWindow) mainWindow.webContents.send('online-status', false);
-        appLogger.warn('Network', `Connection lost: ${networkError.message}`);
-        checkConnectivity().catch(() => {});
+      const msSinceStart = Date.now() - protocolInterceptorStartTime;
+      const inGracePeriod = msSinceStart < PROTOCOL_STARTUP_GRACE_MS;
+
+      if (inGracePeriod) {
+        appLogger.debug('Interceptor', `Startup grace: ignoring timeout for ${isApiRequest ? 'API' : 'asset'} ${url.pathname} (${Math.round((PROTOCOL_STARTUP_GRACE_MS - msSinceStart) / 1000)}s remaining)`);
+      } else if (!isApiRequest) {
+        appLogger.debug('Interceptor', `Ignoring asset timeout (non-API): ${url.pathname}`);
+      }
+
+      if (isOnline && !inGracePeriod && isApiRequest) {
+        protocolConsecutiveFailCount++;
+        if (protocolConsecutiveFailCount >= PROTOCOL_FAIL_THRESHOLD) {
+          isOnline = false;
+          if (offlineInterceptor) offlineInterceptor.setOffline(true);
+          if (mainWindow) mainWindow.webContents.send('online-status', false);
+          appLogger.warn('Network', `Connection lost after ${protocolConsecutiveFailCount} consecutive API failures: ${networkError.message}`);
+          protocolConsecutiveFailCount = 0;
+          checkConnectivity().catch(() => {});
+        } else {
+          appLogger.info('Network', `API request failed (${protocolConsecutiveFailCount}/${PROTOCOL_FAIL_THRESHOLD}): ${url.pathname} — ${networkError.message}`);
+        }
       }
 
       if (isApiRequest) {
@@ -3024,25 +3049,35 @@ function registerProtocolInterceptor() {
             if (capsResponse.status === 401 || capsResponse.status === 404) {
               appLogger.warn('Interceptor', `YELLOW->RED fallback: CAPS returned ${capsResponse.status} for ${request.method} ${url.pathname}`);
             } else {
-              setConnectionMode('yellow');
-              if (offlineInterceptor) offlineInterceptor.setConnectionMode('yellow');
+              if (!inGracePeriod) {
+                setConnectionMode('yellow');
+                if (offlineInterceptor) offlineInterceptor.setConnectionMode('yellow');
+              } else {
+                appLogger.debug('Interceptor', `Startup grace: suppressing yellow mode downgrade for ${url.pathname}`);
+              }
               return new Response(capsResponse.body, {
                 status: capsResponse.status,
                 statusText: capsResponse.statusText,
-                headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': 'yellow' },
+                headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': inGracePeriod ? 'green' : 'yellow' },
               });
             }
           } catch (capsErr) {
-            appLogger.warn('Interceptor', `CAPS also unreachable: ${capsErr.message}, falling to RED`);
+            if (!inGracePeriod) {
+              appLogger.warn('Interceptor', `CAPS also unreachable: ${capsErr.message}, falling to RED`);
+              setConnectionMode('red');
+              if (offlineInterceptor) offlineInterceptor.setConnectionMode('red');
+            } else {
+              appLogger.debug('Interceptor', `Startup grace: suppressing red mode downgrade (CAPS unreachable: ${capsErr.message})`);
+            }
+          }
+        } else {
+          if (!inGracePeriod) {
             setConnectionMode('red');
             if (offlineInterceptor) offlineInterceptor.setConnectionMode('red');
           }
-        } else {
-          setConnectionMode('red');
-          if (offlineInterceptor) offlineInterceptor.setConnectionMode('red');
         }
 
-        if (offlineInterceptor && failoverClone) {
+        if (offlineInterceptor && failoverClone && !inGracePeriod) {
           appLogger.info('Interceptor', `RED FAILOVER: ${request.method} ${url.pathname}`);
           const body = await parseRequestBody(failoverClone);
           return routeToOfflineInterceptor(request.method, url, body);
