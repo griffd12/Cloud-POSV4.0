@@ -46,7 +46,6 @@ const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/time-clock(\/|$)/,
   /^\/api\/print-jobs(\/|$)/,
   /^\/api\/cash-drawer-kick(\/|$)/,
-  /^\/api\/kds-tickets(\/|$)/,
   /^\/api\/item-availability\/decrement/,
   /^\/api\/registered-devices\/heartbeat/,
   /^\/api\/system-status/,
@@ -527,6 +526,18 @@ async function checkConnectivity() {
       appLogger.info('Network', 'Cloud connection restored with healthy DB — triggering sync');
       setConnectionMode('green');
       triggerBackgroundSync();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const currentUrl = mainWindow.webContents.getURL();
+        if (currentUrl.startsWith('data:')) {
+          const reloadUrl = `${serverUrl}${appMode === 'kds' ? '/kds' : '/'}`;
+          appLogger.info('Network', `Window stuck on error/loading page after reconnect, auto-navigating to ${reloadUrl}`);
+          setTimeout(() => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.loadURL(reloadUrl);
+            }
+          }, 1000);
+        }
+      }
     }
   } catch (e) {
     connectivitySuccessCount = 0;
@@ -781,6 +792,19 @@ function createWindow() {
     }
 
     if (!mainWindow) return;
+
+    if (errorCode === -21) {
+      appLogger.info('Window', 'Network changed (ERR_NETWORK_CHANGED), auto-retrying in 2s...');
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          const sUrl = getServerUrl();
+          const sPath = appMode === 'kds' ? '/kds' : '/';
+          appLogger.info('Window', `Auto-retrying load after ERR_NETWORK_CHANGED: ${sUrl}${sPath}`);
+          mainWindow.loadURL(`${sUrl}${sPath}`);
+        }
+      }, 2000);
+      return;
+    }
 
     if (errorCode === -106 || errorCode === -105 || errorCode === -2) {
       isOnline = false;
@@ -1989,6 +2013,17 @@ function setupIpcHandlers() {
       if (errorCode === -3) return;
       if (!mainWindow) return;
 
+      if (errorCode === -21) {
+        appLogger.info('Window', 'Network changed after wizard (ERR_NETWORK_CHANGED), auto-retrying in 2s...');
+        setTimeout(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            appLogger.info('Window', `Auto-retrying post-wizard load: ${serverUrl}${startPath}`);
+            mainWindow.loadURL(`${serverUrl}${startPath}`);
+          }
+        }, 2000);
+        return;
+      }
+
       if (errorCode === -106 || errorCode === -105 || errorCode === -2) {
         isOnline = false;
         if (offlineInterceptor) offlineInterceptor.setOffline(true);
@@ -2840,6 +2875,19 @@ function registerProtocolInterceptor() {
         if (mainWindow) mainWindow.webContents.send('online-status', true);
         appLogger.info('Network', 'Connection restored via protocol handler');
         triggerBackgroundSync();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          const currentUrl = mainWindow.webContents.getURL();
+          if (currentUrl.startsWith('data:')) {
+            const sUrl = getServerUrl();
+            const sPath = appMode === 'kds' ? '/kds' : '/';
+            appLogger.info('Network', `Window stuck on error/loading page, auto-navigating to ${sUrl}${sPath}`);
+            setTimeout(() => {
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.loadURL(`${sUrl}${sPath}`);
+              }
+            }, 1000);
+          }
+        }
       }
 
       if (response.ok && isApiRequest && /^\/api\/checks/.test(url.pathname) && request.method !== 'GET' && connectionMode === 'green') {
