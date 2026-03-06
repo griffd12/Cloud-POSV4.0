@@ -816,15 +816,38 @@ function createWindow() {
     const startPath = appMode === 'kds' ? '/kds' : '/';
     const retryUrl = `${serverUrl}${startPath}`;
 
-    const errorHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS - Connection Error</title>
+    const isKdsMode = appMode === 'kds';
+    const pageTitle = isKdsMode ? 'Kitchen Display - Connecting' : 'Cloud POS - Connection Error';
+    const pageIcon = isKdsMode 
+      ? '<div style="font-size:48px;margin-bottom:16px">🍳</div>' 
+      : '';
+    const pageHeading = isKdsMode 
+      ? 'Kitchen Display - Connecting to Server' 
+      : 'Cannot Connect to Server';
+    const pageMessage = isKdsMode
+      ? 'Waiting for the server to become available. The kitchen display will load automatically when connected.'
+      : 'Unable to reach the Cloud POS server. Please check your internet connection and verify the server URL is correct.';
+    const autoRetryScript = isKdsMode
+      ? `<script>let c=15;const t=document.getElementById('countdown');setInterval(()=>{c--;if(c<=0){c=15;location.href='${retryUrl.replace(/'/g, "\\'")}';}if(t)t.textContent=c;},1000);</script>`
+      : '';
+    const countdownText = isKdsMode 
+      ? '<p style="opacity:0.6;font-size:13px;margin-top:8px">Auto-retry in <span id="countdown">15</span>s</p>' 
+      : '';
+    const spinnerHtml = isKdsMode
+      ? '<div style="width:32px;height:32px;border:3px solid #2a3a52;border-top-color:#f59e0b;border-radius:50%;animation:spin 0.8s linear infinite;margin:16px auto 0"></div>@keyframes spin{to{transform:rotate(360deg)}}'
+      : '';
+    const spinnerCss = isKdsMode ? '@keyframes spin{to{transform:rotate(360deg)}}' : '';
+
+    const errorHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${pageTitle}</title>
 <style>body{font-family:system-ui,sans-serif;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
 .c{max-width:520px;padding:40px}h1{margin:0 0 12px;font-size:22px}p{opacity:0.8;line-height:1.6;margin:0 0 20px;font-size:14px}
 button{padding:12px 32px;font-size:16px;border:1px solid #4a4a6a;border-radius:8px;background:#2a2a4a;color:#fff;cursor:pointer;margin:4px}
-button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:12px;opacity:0.4;font-family:monospace}</style></head>
-<body><div class="c"><h1>Cannot Connect to Server</h1>
-<p>Unable to reach the Cloud POS server. Please check your internet connection and verify the server URL is correct.</p>
+button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:12px;opacity:0.4;font-family:monospace}${spinnerCss}</style></head>
+<body><div class="c">${pageIcon}<h1>${pageHeading}</h1>
+<p>${pageMessage}</p>
 <button onclick="location.href='${retryUrl.replace(/'/g, "\\'")}'" id="retryBtn">Retry Connection</button>
-<p class="info">Server: ${serverUrl}<br>Error: ${errorDescription} (${errorCode})</p></div></body></html>`;
+${countdownText}${isKdsMode ? '<div style="width:32px;height:32px;border:3px solid #2a3a52;border-top-color:#f59e0b;border-radius:50%;animation:spin 0.8s linear infinite;margin:16px auto 0"></div>' : ''}
+<p class="info">Server: ${serverUrl}<br>Error: ${errorDescription} (${errorCode})</p></div></body>${autoRetryScript}</html>`;
 
     if (mainWindow) mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(errorHtml)}`).catch(() => {});
   });
@@ -2030,15 +2053,28 @@ function setupIpcHandlers() {
       }
 
       const retryUrl = `${serverUrl}${startPath}`;
-      const errorHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS - Connection Error</title>
+      const isKdsMode2 = appMode === 'kds';
+      const postWizTitle = isKdsMode2 ? 'Kitchen Display - Connecting' : 'Cloud POS - Connection Error';
+      const postWizHeading = isKdsMode2 ? 'Kitchen Display - Connecting to Server' : 'Cannot Connect to Server';
+      const postWizMsg = isKdsMode2
+        ? 'Waiting for the server to become available. The kitchen display will load automatically when connected.'
+        : 'Unable to reach the Cloud POS server. Please check your internet connection and verify the server URL is correct.';
+      const postWizAutoRetry = isKdsMode2
+        ? `<script>let c=15;const t=document.getElementById('countdown');setInterval(()=>{c--;if(c<=0){c=15;location.href='${retryUrl.replace(/'/g, "\\'")}';}if(t)t.textContent=c;},1000);</script>`
+        : '';
+      const postWizCountdown = isKdsMode2 ? '<p style="opacity:0.6;font-size:13px;margin-top:8px">Auto-retry in <span id="countdown">15</span>s</p>' : '';
+      const postWizSpinner = isKdsMode2 ? '<div style="width:32px;height:32px;border:3px solid #2a3a52;border-top-color:#f59e0b;border-radius:50%;animation:spin 0.8s linear infinite;margin:16px auto 0"></div>' : '';
+
+      const errorHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${postWizTitle}</title>
 <style>body{font-family:system-ui,sans-serif;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
 .c{max-width:520px;padding:40px}h1{margin:0 0 12px;font-size:22px}p{opacity:0.8;line-height:1.6;margin:0 0 20px;font-size:14px}
 button{padding:12px 32px;font-size:16px;border:1px solid #4a4a6a;border-radius:8px;background:#2a2a4a;color:#fff;cursor:pointer;margin:4px}
-button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:12px;opacity:0.4;font-family:monospace}</style></head>
-<body><div class="c"><h1>Cannot Connect to Server</h1>
-<p>Unable to reach the Cloud POS server. Please check your internet connection and verify the server URL is correct.</p>
+button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:12px;opacity:0.4;font-family:monospace}${isKdsMode2 ? '@keyframes spin{to{transform:rotate(360deg)}}' : ''}</style></head>
+<body><div class="c">${isKdsMode2 ? '<div style="font-size:48px;margin-bottom:16px">🍳</div>' : ''}<h1>${postWizHeading}</h1>
+<p>${postWizMsg}</p>
 <button onclick="location.href='${retryUrl.replace(/'/g, "\\'")}'" id="retryBtn">Retry Connection</button>
-<p class="info">Server: ${serverUrl}<br>Error: ${errorDescription} (${errorCode})</p></div></body></html>`;
+${postWizCountdown}${postWizSpinner}
+<p class="info">Server: ${serverUrl}<br>Error: ${errorDescription} (${errorCode})</p></div></body>${postWizAutoRetry}</html>`;
 
       if (mainWindow) mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(errorHtml)}`).catch(() => {});
     });
@@ -2629,15 +2665,18 @@ function getCachedResponseFromDisk(pathname) {
     }
 
     if (!pathname.includes('.') && pathname !== '/api') {
-      const posPath = getCachePath('/pos');
-      const posFound = findCachedFile(posPath);
-      if (posFound) {
-        const buffer = fs.readFileSync(posFound);
-        appLogger.debug('PageCache', `Serving cached /pos for SPA route: ${pathname}`);
-        return new Response(buffer, {
-          status: 200,
-          headers: { 'Content-Type': 'text/html', 'X-Offline-Cache': 'true' },
-        });
+      const spaFallbacks = appMode === 'kds' ? ['/kds', '/pos'] : ['/pos', '/kds'];
+      for (const fallbackPath of spaFallbacks) {
+        const cachedPath = getCachePath(fallbackPath);
+        const cachedFound = findCachedFile(cachedPath);
+        if (cachedFound) {
+          const buffer = fs.readFileSync(cachedFound);
+          appLogger.debug('PageCache', `Serving cached ${fallbackPath} for SPA route: ${pathname}`);
+          return new Response(buffer, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html', 'X-Offline-Cache': 'true' },
+          });
+        }
       }
     }
 
