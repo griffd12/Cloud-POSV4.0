@@ -55,12 +55,12 @@ function logConfigSync(level: string, ...args: any[]) {
 }
 
 let connectionIdCounter = 0;
+let hasEverConnected = false;
 
 export function useConfigSync() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isConnectedRef = useRef(false);
-  const hasConnectedBeforeRef = useRef(false);
   const isUnmountedRef = useRef(false);
   const activeConnectionIdRef = useRef<number>(0);
   
@@ -115,13 +115,13 @@ export function useConfigSync() {
           enterpriseId: enterpriseId || undefined
         }));
 
-        if (hasConnectedBeforeRef.current) {
+        if (hasEverConnected) {
           logConfigSync("WARN", "WebSocket reconnected — invalidating all config queries to catch up on missed updates");
           invalidateAllConfigQueries();
         } else {
           logConfigSync("INFO", "WebSocket connected (first connect)");
-          hasConnectedBeforeRef.current = true;
         }
+        hasEverConnected = true;
       };
 
       ws.onmessage = (event) => {

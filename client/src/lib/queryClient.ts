@@ -242,7 +242,7 @@ export const queryClient = new QueryClient({
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: isElectronEnv ? Infinity : 0,
+      staleTime: isElectronEnv ? 5 * 60 * 1000 : 0,
       gcTime: isElectronEnv ? 30 * 60 * 1000 : 5 * 60 * 1000,
       retry: false,
       networkMode: isElectronEnv ? 'always' : 'online',
