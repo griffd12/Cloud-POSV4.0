@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
@@ -398,6 +398,9 @@ CREATE TABLE IF NOT EXISTS menu_item_modifier_groups (
   menu_item_id TEXT NOT NULL REFERENCES menu_items(id),
   modifier_group_id TEXT NOT NULL REFERENCES modifier_groups(id),
   display_order INTEGER DEFAULT 0,
+  sort_order INTEGER DEFAULT 0,
+  min_required INTEGER DEFAULT 0,
+  max_allowed INTEGER DEFAULT 0,
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -656,13 +659,15 @@ CREATE TABLE IF NOT EXISTS time_entries (
 
 CREATE TABLE IF NOT EXISTS pos_layouts (
   id TEXT PRIMARY KEY,
+  enterprise_id TEXT REFERENCES enterprises(id),
+  property_id TEXT REFERENCES properties(id),
+  rvc_id TEXT REFERENCES rvcs(id),
   name TEXT NOT NULL,
-  description TEXT,
-  layout_type TEXT DEFAULT 'menu',
-  rows INTEGER DEFAULT 5,
-  columns INTEGER DEFAULT 8,
-  cell_width INTEGER DEFAULT 100,
-  cell_height INTEGER DEFAULT 80,
+  mode TEXT DEFAULT 'slu_tabs',
+  grid_rows INTEGER DEFAULT 4,
+  grid_cols INTEGER DEFAULT 6,
+  font_size TEXT DEFAULT 'medium',
+  is_default INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
@@ -673,16 +678,12 @@ CREATE TABLE IF NOT EXISTS pos_layout_cells (
   layout_id TEXT NOT NULL REFERENCES pos_layouts(id),
   row_index INTEGER NOT NULL,
   col_index INTEGER NOT NULL,
-  cell_type TEXT NOT NULL DEFAULT 'menu_item',
+  row_span INTEGER DEFAULT 1,
+  col_span INTEGER DEFAULT 1,
   menu_item_id TEXT REFERENCES menu_items(id),
-  slu_id TEXT REFERENCES slus(id),
-  label TEXT,
-  color TEXT,
-  icon TEXT,
-  action TEXT,
-  action_data TEXT,
-  span_rows INTEGER DEFAULT 1,
-  span_cols INTEGER DEFAULT 1
+  background_color TEXT DEFAULT '#3B82F6',
+  text_color TEXT DEFAULT '#FFFFFF',
+  display_label TEXT
 );
 
 CREATE TABLE IF NOT EXISTS pos_layout_rvc_assignments (
@@ -1433,6 +1434,8 @@ CREATE INDEX IF NOT EXISTS idx_item_availability_item ON item_availability(menu_
 CREATE INDEX IF NOT EXISTS idx_item_availability_property ON item_availability(property_id);
 
 CREATE INDEX IF NOT EXISTS idx_pos_layouts_active ON pos_layouts(active);
+CREATE INDEX IF NOT EXISTS idx_pos_layouts_rvc ON pos_layouts(rvc_id);
+CREATE INDEX IF NOT EXISTS idx_pos_layouts_property ON pos_layouts(property_id);
 CREATE INDEX IF NOT EXISTS idx_pos_layout_cells_layout ON pos_layout_cells(layout_id);
 CREATE INDEX IF NOT EXISTS idx_pos_layout_rvc_property ON pos_layout_rvc_assignments(property_id);
 CREATE INDEX IF NOT EXISTS idx_pos_layout_rvc_rvc ON pos_layout_rvc_assignments(rvc_id);

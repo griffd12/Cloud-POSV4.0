@@ -381,6 +381,16 @@ class OfflineDatabase {
       CREATE TABLE IF NOT EXISTS payment_terminals (
         id TEXT PRIMARY KEY,
         property_id TEXT,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      -- Payment processors cache
+      CREATE TABLE IF NOT EXISTS payment_processors (
+        id TEXT PRIMARY KEY,
+        property_id TEXT,
+        enterprise_id TEXT,
         data TEXT NOT NULL,
         updated_at TEXT DEFAULT (datetime('now'))
       );
@@ -532,6 +542,124 @@ class OfflineDatabase {
 
       CREATE UNIQUE INDEX IF NOT EXISTS idx_emc_option_flags_unique
         ON emc_option_flags (enterprise_id, entity_type, entity_id, option_key, scope_level, scope_id);
+
+      -- Additional config tables for expanded sync (v3.1.34)
+      CREATE TABLE IF NOT EXISTS tax_groups (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS enterprises (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS job_codes (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS privileges (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS loyalty_programs (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS loyalty_rewards (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS gift_cards (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS employee_assignments (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS workstation_order_devices (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS workstation_service_bindings (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS registered_devices (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS item_availability (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS break_rules (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS fiscal_periods (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS cash_drawers (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS drawer_assignments (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS descriptor_sets (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
     `);
   }
 
@@ -601,6 +729,30 @@ class OfflineDatabase {
       this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_offline_checks_rvc_check_number ON offline_checks (rvc_id, check_number)`);
     } catch (e) {
       offlineDbLogger.warn('Migration', `Index idx_offline_checks_rvc_check_number skipped: ${e.message}`);
+    }
+
+    try {
+      this.db.exec(`CREATE TABLE IF NOT EXISTS payment_processors (
+        id TEXT PRIMARY KEY,
+        property_id TEXT,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      )`);
+    } catch (e) {
+      offlineDbLogger.warn('Migration', `payment_processors table creation: ${e.message}`);
+    }
+
+    for (const tbl of ['payment_terminals', 'payment_processors']) {
+      try {
+        const columns = this.db.pragma(`table_info(${tbl})`);
+        if (!columns.some(col => col.name === 'enterprise_id')) {
+          this.db.exec(`ALTER TABLE ${tbl} ADD COLUMN enterprise_id TEXT`);
+          offlineDbLogger.info('Migration', `Added enterprise_id column to ${tbl}`);
+        }
+      } catch (e) {
+        offlineDbLogger.warn('Migration', `Migration skipped for ${tbl}: ${e.message}`);
+      }
     }
 
     this.updateCheckCountersAfterSync();
@@ -756,6 +908,16 @@ class OfflineDatabase {
       { table: 'menu_item_modifier_groups', url: `/api/sync/menu-item-modifier-groups` },
       { table: 'menu_item_recipe_ingredients', url: `/api/sync/menu-item-recipe-ingredients` },
       { table: 'emc_option_flags', url: `/api/option-flags?enterpriseId=${enterpriseId}` },
+      { table: 'tax_groups', url: `/api/tax-groups?enterpriseId=${enterpriseId}` },
+      { table: 'enterprises', url: `/api/enterprises` },
+      { table: 'job_codes', url: `/api/job-codes?enterpriseId=${enterpriseId}` },
+      { table: 'privileges', url: `/api/privileges` },
+      { table: 'loyalty_programs', url: `/api/loyalty-programs?enterpriseId=${enterpriseId}` },
+      { table: 'loyalty_rewards', url: `/api/loyalty-rewards?enterpriseId=${enterpriseId}` },
+      { table: 'gift_cards', url: `/api/gift-cards?enterpriseId=${enterpriseId}` },
+      { table: 'employee_assignments', url: `/api/sync/employee-assignments` },
+      { table: 'workstation_order_devices', url: `/api/sync/workstation-order-devices` },
+      { table: 'workstation_service_bindings', url: `/api/sync/workstation-service-bindings` },
     ];
 
     if (propertyId) {
@@ -768,6 +930,15 @@ class OfflineDatabase {
         { table: 'order_devices', url: `/api/order-devices?propertyId=${propertyId}` },
         { table: 'order_device_printers', url: `/api/sync/order-device-printers` },
         { table: 'order_device_kds', url: `/api/sync/order-device-kds` },
+        { table: 'payment_terminals', url: `/api/terminal-devices?propertyId=${propertyId}` },
+        { table: 'payment_processors', url: `/api/payment-processors?propertyId=${propertyId}` },
+        { table: 'registered_devices', url: `/api/registered-devices?propertyId=${propertyId}` },
+        { table: 'item_availability', url: `/api/item-availability?propertyId=${propertyId}` },
+        { table: 'break_rules', url: `/api/break-rules?propertyId=${propertyId}` },
+        { table: 'fiscal_periods', url: `/api/fiscal-periods?propertyId=${propertyId}` },
+        { table: 'cash_drawers', url: `/api/cash-drawers?propertyId=${propertyId}` },
+        { table: 'drawer_assignments', url: `/api/drawer-assignments?propertyId=${propertyId}` },
+        { table: 'descriptor_sets', url: `/api/descriptors?enterpriseId=${enterpriseId}` },
       );
     }
 
@@ -777,6 +948,15 @@ class OfflineDatabase {
         { key: `slus_${rvcId}`, url: `/api/slus?rvcId=${rvcId}` },
         { key: `posLayout_default_${rvcId}`, url: `/api/pos-layouts/default/${rvcId}` },
       );
+    }
+
+    const allRvcs = this.getEntityList('revenue_centers', enterpriseId) || [];
+    for (const rvc of allRvcs) {
+      if (rvc.id && rvc.id !== rvcId) {
+        endpoints.push(
+          { key: `posLayout_default_${rvc.id}`, url: `/api/pos-layouts/default/${rvc.id}` },
+        );
+      }
     }
 
     for (const ep of endpoints) {
@@ -811,10 +991,16 @@ class OfflineDatabase {
       }
     }
 
-    if (rvcId) {
+    const rvcIdsToSync = rvcId ? [rvcId] : [];
+    for (const rvc of allRvcs) {
+      if (rvc.id && !rvcIdsToSync.includes(rvc.id)) rvcIdsToSync.push(rvc.id);
+    }
+    const syncedLayoutIds = new Set();
+    for (const syncRvcId of rvcIdsToSync) {
       try {
-        const layoutData = this.getCachedConfig(`posLayout_default_${rvcId}`);
-        if (layoutData && layoutData.id) {
+        const layoutData = this.getCachedConfig(`posLayout_default_${syncRvcId}`);
+        if (layoutData && layoutData.id && !syncedLayoutIds.has(layoutData.id)) {
+          syncedLayoutIds.add(layoutData.id);
           const layoutId = layoutData.id;
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15000);
@@ -825,12 +1011,12 @@ class OfflineDatabase {
           clearTimeout(timeout);
           if (cellsResponse.ok) {
             const cellsData = await cellsResponse.json();
-            this.cacheConfigData(`posLayoutCells_${layoutId}`, cellsData, enterpriseId, propertyId, rvcId);
+            this.cacheConfigData(`posLayoutCells_${layoutId}`, cellsData, enterpriseId, propertyId, syncRvcId);
             results.synced.push({ key: `posLayoutCells_${layoutId}` });
           }
         }
       } catch (e) {
-        results.errors.push({ endpoint: 'pos-layout-cells', error: e.message });
+        results.errors.push({ endpoint: `pos-layout-cells-${syncRvcId}`, error: e.message });
       }
     }
 

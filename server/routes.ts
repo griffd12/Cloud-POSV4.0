@@ -11,7 +11,7 @@ import archiver from "archiver";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, ne, sql, inArray, and, desc } from "drizzle-orm";
-import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts, workstationOrderDevices } from "@shared/schema";
+import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts, workstationOrderDevices, posLayoutCells, posLayoutRvcAssignments } from "@shared/schema";
 import { uberEatsIntegration } from "./integrations/uber-eats";
 import { grubhubIntegration } from "./integrations/grubhub";
 import { doorDashIntegration } from "./integrations/doordash";
@@ -24775,6 +24775,9 @@ connect();
         allOrderDeviceKds,
         allPrintClassRouting,
         allJobCodes,
+        allPosLayouts,
+        allPosLayoutCells,
+        allPosLayoutRvcAssignments,
       ] = await Promise.all([
         storage.getRvcs().then(all => all.filter(r => r.propertyId === propertyId)),
         storage.getEmployees().then(all => all.filter(e => e.propertyId === propertyId)),
@@ -24798,6 +24801,9 @@ connect();
         storage.getOrderDeviceKdsList(),
         db.select().from(printClassRoutingTable),
         storage.getJobCodes(),
+        storage.getPosLayouts(),
+        db.select().from(posLayoutCells),
+        db.select().from(posLayoutRvcAssignments).where(eq(posLayoutRvcAssignments.propertyId, propertyId)),
       ]);
 
       const menuItems = allMenuItems.filter((i: any) => i.enterpriseId === enterpriseId);
@@ -24823,7 +24829,14 @@ connect();
       const orderDeviceKds = allOrderDeviceKds.filter((o: any) => orderDeviceIds.has(o.orderDeviceId));
       const printClassRouting = allPrintClassRouting.filter((r: any) => printClassIds.has(r.printClassId));
 
-      console.log(`[ConfigSync] Filtered for enterprise ${enterprise?.name}: menuItems=${menuItems.length} (was ${allMenuItems.length}), modifiers=${modifiers.length} (was ${allModifiers.length}), tenders=${tenders.length}, discounts=${discounts.length}`);
+      const posLayoutRvcAssignmentIds = new Set(allPosLayoutRvcAssignments.map((a: any) => a.layoutId));
+      const posLayouts = allPosLayouts.filter((l: any) =>
+        l.enterpriseId === enterpriseId || l.propertyId === propertyId || posLayoutRvcAssignmentIds.has(l.id)
+      );
+      const posLayoutIds = new Set(posLayouts.map((l: any) => l.id));
+      const posLayoutCellsFiltered = allPosLayoutCells.filter((c: any) => posLayoutIds.has(c.layoutId));
+
+      console.log(`[ConfigSync] Filtered for enterprise ${enterprise?.name}: menuItems=${menuItems.length} (was ${allMenuItems.length}), modifiers=${modifiers.length} (was ${allModifiers.length}), tenders=${tenders.length}, discounts=${discounts.length}, posLayouts=${posLayouts.length}`);
 
       const configVersion = await storage.getLatestConfigVersion(propertyId);
 
@@ -24855,6 +24868,9 @@ connect();
           orderDeviceKds,
           printClassRouting,
           jobCodes,
+          posLayouts,
+          posLayoutCells: posLayoutCellsFiltered,
+          posLayoutRvcAssignments: allPosLayoutRvcAssignments,
         },
       });
     } catch (error: any) {

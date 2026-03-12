@@ -155,6 +155,10 @@ export class Database {
       this.migrateToV8();
     }
     
+    if (fromVersion < 9) {
+      this.migrateToV9();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -333,6 +337,58 @@ export class Database {
       }
     }
     console.log('[DB] v8 migration complete');
+  }
+  
+  private migrateToV9(): void {
+    console.log('[DB] Running v9 migration: pos_layouts schema update, menu_item_modifier_groups columns');
+    const posLayoutCols = [
+      { name: 'enterprise_id', def: 'TEXT' },
+      { name: 'property_id', def: 'TEXT' },
+      { name: 'rvc_id', def: 'TEXT' },
+      { name: 'mode', def: "TEXT DEFAULT 'slu_tabs'" },
+      { name: 'grid_rows', def: 'INTEGER DEFAULT 4' },
+      { name: 'grid_cols', def: 'INTEGER DEFAULT 6' },
+      { name: 'font_size', def: "TEXT DEFAULT 'medium'" },
+      { name: 'is_default', def: 'INTEGER DEFAULT 0' },
+    ];
+    for (const col of posLayoutCols) {
+      try {
+        this.run(`ALTER TABLE pos_layouts ADD COLUMN ${col.name} ${col.def}`);
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column')) console.log(`[DB] v9 pos_layouts.${col.name}: ${e.message}`);
+      }
+    }
+    const posLayoutCellCols = [
+      { name: 'row_span', def: 'INTEGER DEFAULT 1' },
+      { name: 'col_span', def: 'INTEGER DEFAULT 1' },
+      { name: 'background_color', def: "TEXT DEFAULT '#3B82F6'" },
+      { name: 'text_color', def: "TEXT DEFAULT '#FFFFFF'" },
+      { name: 'display_label', def: 'TEXT' },
+    ];
+    for (const col of posLayoutCellCols) {
+      try {
+        this.run(`ALTER TABLE pos_layout_cells ADD COLUMN ${col.name} ${col.def}`);
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column')) console.log(`[DB] v9 pos_layout_cells.${col.name}: ${e.message}`);
+      }
+    }
+    const mimgCols = [
+      { name: 'sort_order', def: 'INTEGER DEFAULT 0' },
+      { name: 'min_required', def: 'INTEGER DEFAULT 0' },
+      { name: 'max_allowed', def: 'INTEGER DEFAULT 0' },
+    ];
+    for (const col of mimgCols) {
+      try {
+        this.run(`ALTER TABLE menu_item_modifier_groups ADD COLUMN ${col.name} ${col.def}`);
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column')) console.log(`[DB] v9 menu_item_modifier_groups.${col.name}: ${e.message}`);
+      }
+    }
+    try {
+      this.run('CREATE INDEX IF NOT EXISTS idx_pos_layouts_rvc ON pos_layouts(rvc_id)');
+      this.run('CREATE INDEX IF NOT EXISTS idx_pos_layouts_property ON pos_layouts(property_id)');
+    } catch (e) { /* indexes may already exist */ }
+    console.log('[DB] v9 migration complete');
   }
   
   // ==========================================================================
@@ -824,9 +880,9 @@ export class Database {
   upsertMenuItemModifierGroup(link: any): void {
     this.run(
       `INSERT OR REPLACE INTO menu_item_modifier_groups (
-        id, menu_item_id, modifier_group_id, display_order, updated_at
-      ) VALUES (?, ?, ?, ?, datetime('now'))`,
-      [link.id, link.menuItemId, link.modifierGroupId, link.displayOrder || 0]
+        id, menu_item_id, modifier_group_id, display_order, sort_order, min_required, max_allowed, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [link.id, link.menuItemId, link.modifierGroupId, link.displayOrder || 0, link.sortOrder || link.displayOrder || 0, link.minRequired || 0, link.maxAllowed || 0]
     );
   }
   
@@ -1854,12 +1910,21 @@ export class Database {
   upsertPosLayout(layout: any): void {
     this.run(
       `INSERT OR REPLACE INTO pos_layouts (
-        id, name, description, layout_type, rows, columns, cell_width, cell_height, active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM pos_layouts WHERE id = ?), datetime('now')), datetime('now'))`,
+        id, enterprise_id, property_id, rvc_id, name, mode, grid_rows, grid_cols, font_size, is_default, active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM pos_layouts WHERE id = ?), datetime('now')), datetime('now'))`,
       [
-        layout.id, layout.name, layout.description, layout.layoutType || 'menu',
-        layout.rows || 5, layout.columns || 8, layout.cellWidth || 100, layout.cellHeight || 80,
-        layout.active !== false ? 1 : 0, layout.id
+        layout.id,
+        layout.enterpriseId || layout.enterprise_id || null,
+        layout.propertyId || layout.property_id || null,
+        layout.rvcId || layout.rvc_id || null,
+        layout.name,
+        layout.mode || 'slu_tabs',
+        layout.gridRows || layout.grid_rows || 4,
+        layout.gridCols || layout.grid_cols || 6,
+        layout.fontSize || layout.font_size || 'medium',
+        layout.isDefault || layout.is_default ? 1 : 0,
+        layout.active !== false ? 1 : 0,
+        layout.id
       ]
     );
   }
@@ -1867,14 +1932,20 @@ export class Database {
   upsertPosLayoutCell(cell: any): void {
     this.run(
       `INSERT OR REPLACE INTO pos_layout_cells (
-        id, layout_id, row_index, col_index, cell_type, menu_item_id, slu_id,
-        label, color, icon, action, action_data, span_rows, span_cols
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, layout_id, row_index, col_index, row_span, col_span, menu_item_id,
+        background_color, text_color, display_label
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        cell.id, cell.layoutId, cell.rowIndex, cell.colIndex,
-        cell.cellType || 'menu_item', cell.menuItemId, cell.sluId,
-        cell.label, cell.color, cell.icon, cell.action, cell.actionData,
-        cell.spanRows || 1, cell.spanCols || 1
+        cell.id,
+        cell.layoutId || cell.layout_id,
+        cell.rowIndex ?? cell.row_index ?? 0,
+        cell.colIndex ?? cell.col_index ?? 0,
+        cell.rowSpan || cell.row_span || 1,
+        cell.colSpan || cell.col_span || 1,
+        cell.menuItemId || cell.menu_item_id || null,
+        cell.backgroundColor || cell.background_color || '#3B82F6',
+        cell.textColor || cell.text_color || '#FFFFFF',
+        cell.displayLabel || cell.display_label || null
       ]
     );
   }
@@ -1892,19 +1963,30 @@ export class Database {
     return this.get('SELECT * FROM pos_layouts WHERE id = ? AND active = 1', [id]);
   }
   
-  getPosLayoutForRvc(propertyId: string, rvcId: string, orderType?: string): any | null {
-    let sql = `
-      SELECT pl.* FROM pos_layouts pl
-      JOIN pos_layout_rvc_assignments pla ON pl.id = pla.layout_id
-      WHERE pla.property_id = ? AND (pla.rvc_id = ? OR pla.rvc_id IS NULL) AND pl.active = 1
-    `;
-    const params: any[] = [propertyId, rvcId];
-    if (orderType) {
-      sql += ' AND (pla.order_type = ? OR pla.order_type IS NULL)';
-      params.push(orderType);
+  getPosLayoutForRvc(rvcId: string, propertyId?: string, orderType?: string): any | null {
+    if (propertyId) {
+      let sql = `
+        SELECT pl.* FROM pos_layouts pl
+        JOIN pos_layout_rvc_assignments pla ON pl.id = pla.layout_id
+        WHERE pla.property_id = ? AND (pla.rvc_id = ? OR pla.rvc_id IS NULL) AND pl.active = 1
+      `;
+      const params: any[] = [propertyId, rvcId];
+      if (orderType) {
+        sql += ' AND (pla.order_type = ? OR pla.order_type IS NULL)';
+        params.push(orderType);
+      }
+      sql += ' ORDER BY pla.rvc_id DESC, pla.is_default DESC LIMIT 1';
+      const result = this.get(sql, params);
+      if (result) return result;
     }
-    sql += ' ORDER BY pla.rvc_id DESC, pla.is_default DESC LIMIT 1';
-    return this.get(sql, params);
+    const directLayout = this.get(
+      'SELECT * FROM pos_layouts WHERE rvc_id = ? AND active = 1 ORDER BY is_default DESC LIMIT 1',
+      [rvcId]
+    );
+    if (directLayout) return directLayout;
+    return this.get(
+      'SELECT * FROM pos_layouts WHERE is_default = 1 AND active = 1 LIMIT 1'
+    );
   }
   
   getPosLayoutCells(layoutId: string): any[] {
