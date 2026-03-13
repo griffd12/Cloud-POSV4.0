@@ -247,8 +247,12 @@ export class CapsService {
       if (!Number.isFinite(parsedPrice)) {
         console.warn(`[CAPS] addItems: unitPrice fallback to 0 for item ${menuItem.name} — rawPrice=${rawPrice} is not a valid number`);
       }
-      const qty = item.quantity || 1;
-      const totalPrice = Math.round(qty * unitPrice);
+      const qty = typeof item.quantity === 'number' && Number.isFinite(item.quantity) && item.quantity > 0 ? item.quantity : 1;
+      const rawTotal = Math.round(qty * unitPrice);
+      const totalPrice = Number.isFinite(rawTotal) ? rawTotal : 0;
+      if (!Number.isFinite(rawTotal)) {
+        console.warn(`[CAPS] addItems: totalPrice fallback to 0 for item ${menuItem.name} — qty=${item.quantity}, unitPrice=${unitPrice}`);
+      }
       const modifiersJson = JSON.stringify(item.modifiers || []);
       const now = new Date().toISOString();
       
