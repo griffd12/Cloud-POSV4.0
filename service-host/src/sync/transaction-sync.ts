@@ -235,7 +235,7 @@ export class TransactionSync {
   
   private async syncCheck(entityId: string, action: string, payload: any): Promise<void> {
     if (action === 'create' || action === 'update') {
-      const result = await this.cloud.post<{ id: string }>('/api/sync/transactions', {
+      const result = await this.cloud.post<{ id?: string; success?: boolean; processed?: number; skipped?: string[]; cloudIds?: Record<string, string> }>('/api/sync/transactions', {
         type: 'check',
         action,
         data: payload,
@@ -247,23 +247,44 @@ export class TransactionSync {
           [result.id, entityId]
         );
         logger.debug(`Check synced: ${entityId}`);
+      } else {
+        const wasSkipped = result.skipped && Array.isArray(result.skipped) &&
+          (result.skipped.includes(entityId) || (payload?.localId && result.skipped.includes(payload.localId)));
+        if (wasSkipped) {
+          const cloudId = result.cloudIds?.[entityId] || (payload?.localId && result.cloudIds?.[payload.localId]) || null;
+          this.db.run(
+            'UPDATE checks SET cloud_synced = 1, cloud_id = ? WHERE id = ?',
+            [cloudId, entityId]
+          );
+          logger.debug(`Check already synced (skipped by cloud): ${entityId}`);
+        } else if (result.success && (result.processed || 0) > 0) {
+          this.db.run(
+            'UPDATE checks SET cloud_synced = 1 WHERE id = ?',
+            [entityId]
+          );
+          logger.debug(`Check synced (no id returned): ${entityId}`);
+        }
       }
     }
   }
   
   private async syncPayment(entityId: string, action: string, payload: any): Promise<void> {
     if (action === 'create') {
-      await this.cloud.post('/api/sync/transactions', {
+      const result = await this.cloud.post<{ success?: boolean; skipped?: string[] }>('/api/sync/transactions', {
         type: 'payment',
         action,
         data: payload,
       });
       
-      this.db.run(
-        'UPDATE payments SET cloud_synced = 1 WHERE id = ?',
-        [entityId]
-      );
-      logger.debug(`Payment synced: ${entityId}`);
+      const wasSkipped = result?.skipped && Array.isArray(result.skipped) &&
+        (result.skipped.includes(entityId) || (payload?.localId && result.skipped.includes(payload.localId)));
+      if (wasSkipped || result?.success) {
+        this.db.run(
+          'UPDATE payments SET cloud_synced = 1 WHERE id = ?',
+          [entityId]
+        );
+        logger.debug(`Payment synced${wasSkipped ? ' (skipped by cloud)' : ''}: ${entityId}`);
+      }
     }
   }
   

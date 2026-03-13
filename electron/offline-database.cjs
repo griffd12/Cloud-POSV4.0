@@ -707,6 +707,7 @@ class OfflineDatabase {
       { table: 'offline_queue', column: 'priority', type: 'INTEGER DEFAULT 5' },
       { table: 'offline_queue', column: 'retry_count', type: 'INTEGER DEFAULT 0' },
       { table: 'offline_queue', column: 'error', type: 'TEXT' },
+      { table: 'offline_queue', column: 'last_failed_at', type: 'TEXT' },
       { table: 'offline_payments', column: 'data', type: 'TEXT' },
       { table: 'offline_payments', column: 'tender_id', type: 'TEXT' },
       { table: 'offline_payments', column: 'tender_name', type: 'TEXT' },
@@ -1162,7 +1163,7 @@ class OfflineDatabase {
   markOperationFailed(id, error) {
     try {
       if (this.usingSqlite) {
-        this.db.prepare("UPDATE offline_queue SET retry_count = retry_count + 1, error = ? WHERE id = ?").run(error, id);
+        this.db.prepare("UPDATE offline_queue SET retry_count = retry_count + 1, error = ?, last_failed_at = datetime('now') WHERE id = ?").run(error, id);
       }
     } catch (e) {}
   }
@@ -1766,12 +1767,29 @@ class OfflineDatabase {
 
       const pending = this.getPendingOperations();
       const nonCheckOps = pending.filter(op => !this.isCheckRelatedOperation(op.type));
-      if (nonCheckOps.length > 0) {
-        offlineDbLogger.info('Sync', `Forwarding ${nonCheckOps.length} non-check operation(s) to CAPS...`);
+      const eligibleOps = nonCheckOps.filter(op => {
+        const retryCount = op.retry_count || 0;
+        if (retryCount === 0) return true;
+        if (retryCount >= 5) {
+          this.markOperationPermanentlyFailed(op.id, 'Max retries exceeded');
+          return false;
+        }
+        const backoffMs = Math.min(retryCount * 30000, 120000);
+        const lastAttempt = op.last_failed_at || op.updated_at;
+        if (lastAttempt) {
+          const elapsed = Date.now() - new Date(lastAttempt).getTime();
+          if (elapsed < backoffMs) return false;
+        }
+        return true;
+      });
+      if (eligibleOps.length > 0) {
+        offlineDbLogger.info('Sync', `Forwarding ${eligibleOps.length} non-check operation(s) to CAPS...`);
+      } else if (nonCheckOps.length > 0) {
+        offlineDbLogger.debug('Sync', `${nonCheckOps.length} non-check op(s) waiting for backoff retry`);
       }
 
       const maxBatchSize = 50;
-      const batchOps = nonCheckOps.slice(0, maxBatchSize);
+      const batchOps = eligibleOps.slice(0, maxBatchSize);
 
       for (const op of batchOps) {
         try {
