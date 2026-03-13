@@ -1,0 +1,31 @@
+Here's the full plan. You can pass this to the other agent to merge with their v3.1.51 work:
+
+Three fixes to include in v3.1.51 (alongside the total_price / addItems fix):
+
+1. Fix syncCheck skipped-response handling
+
+In service-host/src/sync/transaction-sync.ts (lines 236-252) and electron/service-host-embedded.cjs (lines 33477-33492), the syncCheck method only marks a check as cloud_synced = 1 when the server response has a result.id. But when the server already has that transaction, it returns the ID in the skipped array instead — no result.id field. So the local check never gets marked synced and keeps getting resubmitted every 5 seconds.
+
+The fix: after the POST, also check result.skipped — if the transaction's localId appears there, mark cloud_synced = 1 on the local check using the ID from result.cloudIds if available, or just mark it synced without a cloud ID. Apply the same pattern to syncPayment and syncTimeEntry if they have the same gap.
+
+2. Bundle frontend assets for offline-first Electron boot
+
+When the Electron app starts offline with no prior cache, it tries to load the remote URL which fails, showing either a blank screen or a useless "connect to internet" page.
+
+The fix: In electron/electron-builder.json, add dist/public to extraResources so the built frontend ships inside the app. In electron/main.cjs (around lines 2887-2893 and 3087-3106), add a serveBundledAsset() helper in the protocol interceptor that serves files from process.resourcesPath + '/dist/public' when offline and no disk cache exists. For SPA routes (paths without file extensions like /, /kds, /pos), serve the bundled index.html.
+
+3. Guard offline database sync against cloud-unreachable state
+
+In electron/offline-database.cjs (around lines 669-692), the fullSync() fires on a timer regardless of connection state, producing 56 failed table-sync error lines every cycle when the cloud is down.
+
+The fix: before running fullSync(), check the current connection mode. If YELLOW or RED, skip the sync and log a single debug line instead.
+
+Files involved:
+
+service-host/src/sync/transaction-sync.ts (lines 236-252)
+electron/service-host-embedded.cjs (lines 33477-33492)
+electron/main.cjs (lines 2887-2893, 3087-3106)
+electron/electron-builder.json
+electron/offline-database.cjs (lines 669-692)
+server/routes.ts (lines 24912-24976 — reference only, no changes needed here)
+All of this should go into the same v3.1.51 release alongside the total_price fix from the other agent.
