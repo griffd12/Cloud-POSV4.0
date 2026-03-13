@@ -242,21 +242,29 @@ export class CapsService {
       }
       
       const unitPrice = item.priceOverride || menuItem.price;
+      const qty = item.quantity || 1;
+      const totalPrice = Math.round(qty * parseFloat(unitPrice as any));
+      const modifiersJson = JSON.stringify(item.modifiers || []);
+      const now = new Date().toISOString();
       
       this.db.run(
-        `INSERT INTO check_items (id, check_id, round_number, menu_item_id, name, quantity, unit_price, tax_group_id, modifiers, seat_number)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO check_items (id, check_id, round_number, menu_item_id, name, quantity, unit_price, total_price, print_class_id, tax_group_id, modifiers, modifiers_json, seat_number, sent_to_kitchen, sent, voided, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?)`,
         [
           id,
           checkId,
           check.currentRound,
           item.menuItemId,
           menuItem.name,
-          item.quantity || 1,
+          qty,
           unitPrice,
+          totalPrice,
+          menuItem.print_class_id || null,
           menuItem.tax_group_id || null,
-          JSON.stringify(item.modifiers || []),
+          modifiersJson,
+          modifiersJson,
           item.seatNumber,
+          now,
         ]
       );
       
@@ -266,8 +274,9 @@ export class CapsService {
         roundNumber: check.currentRound,
         menuItemId: item.menuItemId,
         name: menuItem.name,
-        quantity: item.quantity || 1,
+        quantity: qty,
         unitPrice,
+        totalPrice,
         modifiers: item.modifiers || [],
         seatNumber: item.seatNumber,
         sentToKitchen: false,
