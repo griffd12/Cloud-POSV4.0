@@ -268,17 +268,20 @@ class ServiceHost {
       next();
     });
     
-    // Health check (unauthenticated)
-    this.app.get('/health', (req, res) => {
-      res.json({
-        status: 'ok',
-        version: '1.0.0',
-        serviceHostId: this.config.serviceHostId,
-        cloudConnected: this.cloudConnection.isConnected(),
-        propertyId: this.config.propertyId,
-        uptime: process.uptime(),
-        installedPackages: this.calSync.getInstalledPackages(),
-      });
+    const healthResponse = () => ({
+      status: 'ok',
+      version: '1.0.0',
+      serviceHostId: this.config.serviceHostId,
+      cloudConnected: this.cloudConnection.isConnected(),
+      propertyId: this.config.propertyId,
+      uptime: process.uptime(),
+      installedPackages: this.calSync.getInstalledPackages(),
+    });
+    this.app.get('/health', (_req, res) => {
+      res.json(healthResponse());
+    });
+    this.app.get('/api/health', (_req, res) => {
+      res.json(healthResponse());
     });
     
     // CAPS connected devices endpoint (unauthenticated for local network visibility)
