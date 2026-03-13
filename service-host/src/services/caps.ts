@@ -241,9 +241,14 @@ export class CapsService {
         continue;
       }
       
-      const unitPrice = item.priceOverride || menuItem.price;
+      const rawPrice = item.priceOverride != null ? item.priceOverride : ((item as any).unitPrice != null ? (item as any).unitPrice : menuItem.price);
+      const unitPrice = typeof rawPrice === 'number' ? rawPrice : (parseFloat(String(rawPrice)) || 0);
       const qty = item.quantity || 1;
-      const totalPrice = Math.round(qty * parseFloat(String(unitPrice)));
+      const computedTotal = qty * unitPrice;
+      const totalPrice = Number.isFinite(computedTotal) ? Math.round(computedTotal) : 0;
+      if (!Number.isFinite(computedTotal)) {
+        console.warn(`[CAPS] addItems: totalPrice fallback to 0 for item ${menuItem.name} (rawPrice=${rawPrice}, unitPrice=${unitPrice}, qty=${qty})`);
+      }
       const modifiersJson = JSON.stringify(item.modifiers || []);
       const now = new Date().toISOString();
       
