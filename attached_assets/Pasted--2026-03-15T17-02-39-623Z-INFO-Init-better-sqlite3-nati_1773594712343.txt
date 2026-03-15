@@ -1,0 +1,105 @@
+[2026-03-15T17:02:39.623Z] [INFO] [Init] better-sqlite3 native module loaded successfully
+[2026-03-15T17:02:39.629Z] [WARN] [Encryption] keytar not available for Credential Manager, using file-based key | DATA: Cannot find module 'keytar'
+Require stack:
+- C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\offline-database.cjs
+- C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\main.cjs
+- 
+[2026-03-15T17:02:39.633Z] [WARN] [Encryption] better-sqlite3 not compiled with SQLCipher. To enable encryption, rebuild with: npm rebuild better-sqlite3 --build-from-source --sqlite3=sqlcipher
+[2026-03-15T17:02:39.664Z] [INFO] [Init] SQLite database initialized | DATA: C:\Users\DG\AppData\Local\Cloud POS\data\offline.db
+[2026-03-15T17:02:39.665Z] [INFO] [Init] Encryption: DISABLED (build with SQLCipher to enable)
+[2026-03-15T17:02:40.294Z] [INFO] [Sync] Starting full sync from cloud...
+[2026-03-15T17:02:44.504Z] [INFO] [Sync] Sync complete. 56 tables synced, 0 errors
+[2026-03-15T17:02:44.872Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:02:49.878Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:02:54.890Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:02:59.891Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:04.899Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:09.906Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:16.286Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:21.301Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:26.306Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:31.309Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:36.316Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:41.319Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:46.327Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:51.339Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:56.351Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:01.357Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:06.372Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:11.381Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:16.390Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:21.391Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:26.400Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:31.404Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:36.406Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:41.420Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:46.419Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:51.426Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:56.435Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:01.445Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:06.448Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:11.464Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:16.471Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:21.475Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:26.476Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:31.483Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:36.495Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:41.507Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:46.514Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:51.519Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:56.525Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:01.530Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:06.544Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:11.546Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:16.546Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:21.555Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:26.558Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:31.568Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:36.578Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:41.587Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:46.590Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:51.591Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:56.607Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:07:01.623Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:07:06.635Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:07:11.649Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:07:16.656Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:07:21.666Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:07:26.665Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:07:31.669Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:07:36.676Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:07:39.874Z] [INFO] [Sync] Starting full sync from cloud...
+[2026-03-15T17:07:45.187Z] [INFO] [Sync] Sync complete. 56 tables synced, 0 errors
+[2026-03-15T17:07:46.692Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:07:51.699Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:07:56.707Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:01.721Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:06.729Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:11.732Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:16.738Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:21.741Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:26.741Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:31.746Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:36.755Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:41.761Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:46.767Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:51.779Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:08:56.784Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:01.790Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:06.806Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:11.816Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:16.824Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:21.829Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:26.832Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:31.839Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:36.883Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:41.886Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:46.889Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:51.907Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:09:56.916Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:10:01.923Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:10:06.933Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:10:11.948Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:10:16.947Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:10:21.954Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:10:26.966Z] [DEBUG] [Sync] 2 non-check op(s) waiting for backoff retry

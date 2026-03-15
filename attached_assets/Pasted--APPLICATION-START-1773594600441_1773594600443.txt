@@ -1,0 +1,365 @@
+================================================================================
+  APPLICATION STARTUP - 2026-03-15T17:02:39.537Z
+================================================================================
+[2026-03-15T17:02:39.541Z] [INFO] [App] Cloud POS starting | DATA: {"version":"3.1.52","mode":"pos","kiosk":false,"platform":"win32"}
+[2026-03-15T17:02:39.547Z] [INFO] [App] Directories | DATA: {"config":"C:\\Users\\DG\\AppData\\Local\\Cloud POS\\config","data":"C:\\Users\\DG\\AppData\\Local\\Cloud POS\\data","logs":"C:\\Users\\DG\\AppData\\Local\\Cloud POS\\logs"}
+[2026-03-15T17:02:39.554Z] [INFO] [App] Setup previously completed, initializing all services
+[2026-03-15T17:02:39.560Z] [INFO] [AutoStartup] Registered "Cloud POS" for auto-startup on boot | DATA: {"exePath":"C:\\Program Files\\Cloud POS\\Cloud POS\\Cloud POS.exe","mode":"pos"}
+[2026-03-15T17:02:39.564Z] [WARN] [AutoStartup] Upgrade migration: auto-startup registration could not be confirmed, will retry on next launch
+[2026-03-15T17:02:39.568Z] [INFO] [App] Initializing services after setup verification
+[2026-03-15T17:02:39.570Z] [INFO] [CAPS] Loaded cached CAPS config | DATA: {"serviceHostUrl":"http://127.0.0.1:3001","isCaps":true}
+[2026-03-15T17:02:39.620Z] [INFO] [OfflineDB] SQLite database initialized | DATA: {"path":"C:\\Users\\DG\\AppData\\Local\\Cloud POS\\data\\offline.db"}
+[2026-03-15T17:02:39.668Z] [INFO] [OfflineDB] Enhanced offline database initialized
+[2026-03-15T17:02:39.797Z] [INFO] [Connectivity] Check interval set to 15s (mode: green)
+[2026-03-15T17:02:39.861Z] [INFO] [Sync] Background sync worker started (5s interval, syncs to CAPS in GREEN/YELLOW)
+[2026-03-15T17:02:40.286Z] [INFO] [OfflineDB] Cloud reachable (db-probe OK), starting initial data sync
+[2026-03-15T17:02:44.508Z] [INFO] [OfflineDB] Initial sync completed | DATA: {"tables":56,"errors":0}
+[2026-03-15T17:02:44.877Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:02:44.901Z] [INFO] [Interceptor] Service host URL set: http://127.0.0.1:3001
+[2026-03-15T17:02:44.904Z] [INFO] [CAPS] Activation config fetched | DATA: {"serviceHostUrl":"http://127.0.0.1:3001","capsWorkstationId":"32fb06f3-837f-42ed-a6f5-90436ca62e06","capsWorkstationName":"SNS-001-WS01","isCaps":true}
+[2026-03-15T17:02:44.910Z] [INFO] [ServiceHost] Starting embedded service host (CAPS mode) | DATA: {"dataDir":"C:\\Users\\DG\\AppData\\Local\\Cloud POS\\data\\service-host","port":3001,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev"}
+[2026-03-15T17:02:44.958Z] [WARN] [Sync] CAPS forward error: /api/item-availability/increment | DATA: fetch failed
+[2026-03-15T17:02:45.863Z] [INFO] [ServiceHost] ============================================================
+[2026-03-15T17:02:45.866Z] [INFO] [ServiceHost] Cloud POS Service Host v1.0.0
+============================================================
+Cloud URL: https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev
+Service Host ID: 7cfb0d8b-73e4-4950-9baa-12f020e8deba
+Property ID: b0c038b1-5c55-4c63-85fe-5ea9dc64a767
+Data Directory: C:\Users\DG\AppData\Local\Cloud POS\data\service-host
+CAL Root Directory: C:\OPS-POS
+
+[DB] Database already initialized in constructor
+Database initialized
+[2026-03-15T17:02:46.152Z] [INFO] [ServiceHost] WebSocket connected to cloud
+[2026-03-15T17:02:46.204Z] [INFO] [ServiceHost] Authenticated with cloud
+[2026-03-15T17:02:46.214Z] [INFO] [ServiceHost] Connected to cloud
+Starting full configuration sync for property b0c038b1-5c55-4c63-85fe-5ea9dc64a767...
+[2026-03-15T17:02:48.433Z] [INFO] [ServiceHost] [ConfigSync] Raw response keys: configVersion, timestamp, data
+[ConfigSync] Inner data keys: enterprise, property, revenueCenters, employees, roles, menuItems, modifierGroups, modifiers, modifierGroupModifiers, menuItemModifierGroups, slus, taxGroups, tenders, discounts, serviceCharges, printers, kdsDevices, workstations, printClasses, orderDevices, orderDevicePrinters, orderDeviceKds, printClassRouting, jobCodes, posLayouts, posLayoutCells, posLayoutRvcAssignments
+[ConfigSync] Enterprise: Blue Oceans Management (587bd7b1-db7e-487c-b1f7-2315ab093502)
+[ConfigSync] Property: SNS-Newport Beach (b0c038b1-5c55-4c63-85fe-5ea9dc64a767)
+[2026-03-15T17:02:48.438Z] [INFO] [ServiceHost] [ConfigSync] Mapped entity arrays: enterprises:1, properties:1, rvcs:1, slus:5, menuItems:26, modifierGroups:6, modifiers:34, modifierGroupModifiers:39, menuItemModifierGroups:40, printClasses:4, employees:7, roles:2, jobCodes:4, workstations:3, printers:2, kdsDevices:3, orderDevices:3, printClassRouting:5, taxGroups:2, tenders:4, discounts:4, posLayouts:1, posLayoutCells:26, posLayoutRvcAssignments:1
+  Synced 1 enterprises
+[2026-03-15T17:02:48.506Z] [INFO] [ServiceHost] Synced 1 properties
+[2026-03-15T17:02:48.510Z] [INFO] [ServiceHost] Synced 1 revenue centers
+[2026-03-15T17:02:48.512Z] [INFO] [ServiceHost] Synced 5 SLUs
+[2026-03-15T17:02:48.519Z] [INFO] [ServiceHost] Synced 26 menu items
+[2026-03-15T17:02:48.522Z] [INFO] [ServiceHost] Synced 6 modifier groups
+[2026-03-15T17:02:48.527Z] [INFO] [ServiceHost] Synced 34 modifiers
+[2026-03-15T17:02:48.534Z] [INFO] [ServiceHost] Synced 39 modifier group assignments
+[2026-03-15T17:02:48.541Z] [INFO] [ServiceHost] Synced 40 menu item modifier groups
+[2026-03-15T17:02:48.543Z] [INFO] [ServiceHost] Synced 4 print classes
+  Synced 2 roles
+[2026-03-15T17:02:48.546Z] [INFO] [ServiceHost] Synced 7 employees
+  Synced 4 job codes
+[2026-03-15T17:02:48.549Z] [INFO] [ServiceHost] Synced 3 workstations
+  Synced 2 printers
+[2026-03-15T17:02:48.552Z] [INFO] [ServiceHost] Synced 3 KDS devices
+  Synced 3 order devices
+  Synced 0 order device printers
+  Synced 0 order device KDS
+  Synced 5 print class routings
+[2026-03-15T17:02:48.554Z] [INFO] [ServiceHost] Synced 2 tax groups
+  Synced 4 tenders
+[2026-03-15T17:02:48.557Z] [INFO] [ServiceHost] Synced 4 discounts
+  Synced 0 service charges
+  Synced 1 POS layouts
+[2026-03-15T17:02:48.562Z] [INFO] [ServiceHost] Synced 26 POS layout cells
+[2026-03-15T17:02:48.565Z] [INFO] [ServiceHost] Synced 1 POS layout RVC assignments
+Full sync complete: 224 records, version 1
+Configuration synced from cloud
+[CAL] Starting CAL sync service
+[CAL] Root directory: C:\OPS-POS
+[2026-03-15T17:02:48.761Z] [INFO] [ServiceHost] [CAL] Found 0 pending deployment(s)
+CAL deployment sync started
+[2026-03-15T17:02:48.765Z] [INFO] [ServiceHost] [36m[2026-03-15T17:02:48.757Z] [INFO] [ServiceHost:TransactionSync][0m Starting transaction sync worker... {"interval":5000}
+[2026-03-15T17:02:48.776Z] [INFO] [ServiceHost] CAPS device tracker started
+[2026-03-15T17:02:48.788Z] [INFO] [ServiceHost] Service Host listening on http://0.0.0.0:3001
+
+Available endpoints:
+  GET  /health              - Health check
+  POST /api/caps/checks     - Create check
+  GET  /api/caps/checks     - List open checks
+  POST /api/caps/checks/:id/items - Add items
+  POST /api/caps/checks/:id/send  - Send to kitchen
+  POST /api/caps/checks/:id/pay   - Process payment
+[2026-03-15T17:02:48.794Z] [INFO] [ServiceHost] POST /api/print/jobs      - Submit print job
+  GET  /api/kds/tickets     - Get KDS tickets
+  POST /api/payment/authorize - Authorize payment
+  GET  /api/caps/connected-devices - CAPS device tracker
+  POST /api/caps/sync/check-state  - WS check sync
+  POST /api/caps/sync/queue-operation - WS operation sync
+  WS   /ws                  - Real-time updates
+[2026-03-15T17:02:49.028Z] [INFO] [ServiceHost] Service host is ready on port 3001 (CAPS mode)
+[2026-03-15T17:02:49.044Z] [INFO] [App] All services initialized successfully
+[2026-03-15T17:02:49.075Z] [INFO] [Interceptor] HTTPS protocol interceptor registered for offline support
+[2026-03-15T17:02:49.277Z] [INFO] [Window] Launching POS mode | DATA: {"kiosk":false,"maximized":true}
+[2026-03-15T17:02:49.279Z] [INFO] [Window] Loading URL: https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/
+[2026-03-15T17:02:49.666Z] [INFO] [Window] Loading screen shown, navigating to server...
+[2026-03-15T17:02:49.882Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:02:49.914Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:02:49.929Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:02:54.894Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:02:54.906Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:02:54.915Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:02:57.481Z] [INFO] [Window] Page loaded successfully: https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/
+[2026-03-15T17:02:59.895Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:02:59.913Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:02:59.926Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:04.813Z] [INFO] [Interceptor] Offline login auth attempt, 7 employees in cache
+[2026-03-15T17:03:04.818Z] [INFO] [Interceptor] Offline login auth SUCCESS: Derek Griffin
+[2026-03-15T17:03:04.826Z] [INFO] [Interceptor] LOCAL-FIRST: POST /api/auth/login -> 200 [mode=green]
+[2026-03-15T17:03:04.907Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:04.921Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:04.928Z] [INFO] [R:RENDERER:Connecting to wss://7c25787c-567] 
+[2026-03-15T17:03:04.936Z] [INFO] [Interceptor] LOCAL-FIRST: POST /api/system-status/workstation/heartbeat -> 200 [mode=green]
+[2026-03-15T17:03:04.974Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:05.106Z] [INFO] [R:RENDERER:Connecting to wss://7c25787c-567] 
+[2026-03-15T17:03:05.112Z] [INFO] [Interceptor] LOCAL-FIRST: POST /api/system-status/workstation/heartbeat -> 200 [mode=green]
+[2026-03-15T17:03:05.210Z] [ERROR] [R:RENDERER:WebSocket error, closing connect] 
+[2026-03-15T17:03:05.213Z] [INFO] [R:RENDERER:Stale socket closed (connId=1, a] 
+[2026-03-15T17:03:05.673Z] [INFO] [R:RENDERER:WebSocket connected (first conne] 
+[2026-03-15T17:03:09.913Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:09.926Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:09.936Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:12.265Z] [INFO] [Interceptor] LOCAL-FIRST: POST /api/system-status/workstation/heartbeat -> 200 [mode=green]
+[2026-03-15T17:03:12.381Z] [INFO] [R:RENDERER:Stale socket closed (connId=2, a] 
+[2026-03-15T17:03:16.290Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:16.462Z] [WARN] [Diagnostics] Registry COM port query failed | DATA: Command failed: reg query HKLM\HARDWARE\DEVICEMAP\SERIALCOMM 2>nul
+[2026-03-15T17:03:19.335Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:19.352Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:21.309Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:21.328Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:21.340Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:26.311Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:26.320Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:26.328Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:31.313Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:31.323Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:31.333Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:36.321Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:36.330Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:36.340Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:39.869Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:39.875Z] [INFO] [Status] Mode: GREEN | Cloud: connected | Device: SNS-001-WS01 | Uptime: 1m | Pending sync: 2 | Interceptor (last 60s): 4 requests handled
+[2026-03-15T17:03:39.881Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:39.889Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:41.323Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:41.331Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:41.339Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:46.332Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:46.346Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:46.361Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:48.779Z] [INFO] [ServiceHost] [CAPS] No devices tracked | CAPS uptime: 1min
+[2026-03-15T17:03:51.344Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:51.352Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:51.359Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:56.354Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:56.360Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:56.367Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:01.361Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:01.371Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:01.382Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:06.376Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:06.385Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:06.394Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:11.385Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:11.395Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:11.404Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:16.394Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:16.404Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:16.412Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:21.395Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:21.405Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:21.413Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:26.406Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:26.418Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:26.430Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:31.409Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:31.417Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:31.427Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:36.411Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:36.421Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:36.441Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:39.877Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:39.882Z] [INFO] [Status] Mode: GREEN | Cloud: connected | Device: SNS-001-WS01 | Uptime: 2m | Pending sync: 2
+[2026-03-15T17:04:39.894Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:39.901Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:41.425Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:41.433Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:41.441Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:46.423Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:46.437Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:46.453Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:48.786Z] [INFO] [ServiceHost] [CAPS] No devices tracked | CAPS uptime: 2min
+[2026-03-15T17:04:51.430Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:51.438Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:51.446Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:56.441Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:56.459Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:56.476Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:01.450Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:01.459Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:01.467Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:06.453Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:06.462Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:06.472Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:11.470Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:11.483Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:11.498Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:16.475Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:16.484Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:16.494Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:21.485Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:21.499Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:21.512Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:26.479Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:26.488Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:26.498Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:31.487Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:31.497Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:31.509Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:36.503Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:36.522Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:36.536Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:39.894Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:39.909Z] [INFO] [Status] Mode: GREEN | Cloud: connected | Device: SNS-001-WS01 | Uptime: 3m | Pending sync: 2
+[2026-03-15T17:05:39.933Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:39.964Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:41.518Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:41.535Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:41.554Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:46.519Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:46.532Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:46.546Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:48.793Z] [INFO] [ServiceHost] [CAPS] No devices tracked | CAPS uptime: 3min
+[2026-03-15T17:05:51.531Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:51.553Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:51.580Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:56.528Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:56.544Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:56.557Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:01.535Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:01.550Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:01.566Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:06.552Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:06.570Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:06.587Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:11.552Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:11.571Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:11.589Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:16.550Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:16.559Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:16.568Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:21.560Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:21.569Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:21.577Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:26.562Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:26.570Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:26.579Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:31.571Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:31.579Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:31.585Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:36.584Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:36.598Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:36.613Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:39.897Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:39.910Z] [INFO] [Status] Mode: GREEN | Cloud: connected | Device: SNS-001-WS01 | Uptime: 4m | Pending sync: 2
+[2026-03-15T17:06:39.918Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:39.929Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:41.591Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:41.598Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:41.605Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:46.595Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:46.604Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:46.612Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:48.798Z] [INFO] [ServiceHost] [CAPS] No devices tracked | CAPS uptime: 4min
+[2026-03-15T17:06:51.594Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:51.606Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:51.615Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:56.613Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:56.629Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:56.639Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:01.634Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:01.659Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:01.679Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:06.639Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:06.646Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:06.656Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:11.664Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:11.675Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:11.687Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:16.660Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:16.669Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:16.678Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:21.681Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:21.713Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:21.732Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:26.669Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:26.675Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:26.684Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:31.675Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:31.683Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:31.693Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:36.681Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:36.693Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:36.702Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:39.898Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:39.908Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:39.915Z] [INFO] [Status] Mode: GREEN | Cloud: connected | Device: SNS-001-WS01 | Uptime: 5m | Pending sync: 2
+[2026-03-15T17:07:39.923Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:41.687Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:41.695Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:41.704Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:46.698Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:46.710Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:46.720Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:48.823Z] [INFO] [ServiceHost] [CAPS] No devices tracked | CAPS uptime: 5min
+[2026-03-15T17:07:48.985Z] [INFO] [ServiceHost] [CAL] Found 0 pending deployment(s)
+[2026-03-15T17:07:51.704Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:51.715Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:51.726Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:56.712Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:07:56.721Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:07:56.730Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:01.724Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:01.732Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:01.742Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:06.735Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:06.747Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:06.758Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:11.736Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:11.746Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:11.758Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:16.748Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:16.761Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:16.768Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:21.750Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:21.766Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:21.782Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:26.746Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:26.755Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:26.764Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:31.750Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:31.757Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:31.766Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:36.759Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:36.769Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:36.777Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:39.905Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:39.921Z] [INFO] [Status] Mode: GREEN | Cloud: connected | Device: SNS-001-WS01 | Uptime: 6m | Pending sync: 2
+[2026-03-15T17:08:39.929Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:39.945Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:41.770Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:41.790Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:41.804Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:46.776Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:46.792Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:46.811Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:48.819Z] [INFO] [ServiceHost] [CAPS] No devices tracked | CAPS uptime: 6min
+[2026-03-15T17:08:51.784Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:51.793Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:51.801Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:56.788Z] [INFO] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:08:56.800Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:08:56.809Z] [WARN] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400

@@ -1,0 +1,338 @@
+====================================================================================================
+  [APP] APPLICATION STARTUP - 2026-03-15T17:02:39.540Z
+====================================================================================================
+[2026-03-15T17:02:39.541Z] [INFO ] [APP         ] [App] Cloud POS starting | DATA: {"version":"3.1.52","mode":"pos","kiosk":false,"platform":"win32"}
+[2026-03-15T17:02:39.547Z] [INFO ] [APP         ] [App] Directories | DATA: {"config":"C:\\Users\\DG\\AppData\\Local\\Cloud POS\\config","data":"C:\\Users\\DG\\AppData\\Local\\Cloud POS\\data","logs":"C:\\Users\\DG\\AppData\\Local\\Cloud POS\\logs"}
+[2026-03-15T17:02:39.554Z] [INFO ] [APP         ] [App] Setup previously completed, initializing all services
+[2026-03-15T17:02:39.560Z] [INFO ] [APP         ] [AutoStartup] Registered "Cloud POS" for auto-startup on boot | DATA: {"exePath":"C:\\Program Files\\Cloud POS\\Cloud POS\\Cloud POS.exe","mode":"pos"}
+[2026-03-15T17:02:39.564Z] [WARN ] [APP         ] [AutoStartup] Upgrade migration: auto-startup registration could not be confirmed, will retry on next launch
+[2026-03-15T17:02:39.568Z] [INFO ] [APP         ] [App] Initializing services after setup verification
+[2026-03-15T17:02:39.570Z] [INFO ] [APP         ] [CAPS] Loaded cached CAPS config | DATA: {"serviceHostUrl":"http://127.0.0.1:3001","isCaps":true}
+[2026-03-15T17:02:39.620Z] [INFO ] [APP         ] [OfflineDB] SQLite database initialized | DATA: {"path":"C:\\Users\\DG\\AppData\\Local\\Cloud POS\\data\\offline.db"}
+[2026-03-15T17:02:39.623Z] [INFO ] [OFFLINEDB   ] [Init] better-sqlite3 native module loaded successfully
+[2026-03-15T17:02:39.629Z] [WARN ] [OFFLINEDB   ] [Encryption] keytar not available for Credential Manager, using file-based key | DATA: Cannot find module 'keytar'
+Require stack:
+- C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\offline-database.cjs
+- C:\Program Files\Cloud POS\Cloud POS\resources\app.asar\electron\main.cjs
+- 
+[2026-03-15T17:02:39.633Z] [WARN ] [OFFLINEDB   ] [Encryption] better-sqlite3 not compiled with SQLCipher. To enable encryption, rebuild with: npm rebuild better-sqlite3 --build-from-source --sqlite3=sqlcipher
+[2026-03-15T17:02:39.664Z] [INFO ] [OFFLINEDB   ] [Init] SQLite database initialized | DATA: C:\Users\DG\AppData\Local\Cloud POS\data\offline.db
+[2026-03-15T17:02:39.665Z] [INFO ] [OFFLINEDB   ] [Init] Encryption: DISABLED (build with SQLCipher to enable)
+[2026-03-15T17:02:39.668Z] [INFO ] [APP         ] [OfflineDB] Enhanced offline database initialized
+[2026-03-15T17:02:39.674Z] [INFO ] [PRINT       ] [Service] Starting print agent service
+[2026-03-15T17:02:39.725Z] [INFO ] [PRINT       ] [Connect] Connecting to wss://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/ws/print-agents
+[2026-03-15T17:02:39.797Z] [INFO ] [APP         ] [Connectivity] Check interval set to 15s (mode: green)
+[2026-03-15T17:02:39.861Z] [INFO ] [APP         ] [Sync] Background sync worker started (5s interval, syncs to CAPS in GREEN/YELLOW)
+[2026-03-15T17:02:40.226Z] [INFO ] [PRINT       ] [Connect] WebSocket connected, authenticating
+[2026-03-15T17:02:40.286Z] [INFO ] [APP         ] [OfflineDB] Cloud reachable (db-probe OK), starting initial data sync
+[2026-03-15T17:02:40.294Z] [INFO ] [OFFLINEDB   ] [Sync] Starting full sync from cloud...
+[2026-03-15T17:02:40.322Z] [INFO ] [PRINT       ] [Auth] Authenticated as: SNS-001-WS01 (Embedded Agent) (58663b6c-dc06-4ec2-848f-dfd0c2dbdcf4)
+[2026-03-15T17:02:40.330Z] [INFO ] [PRINT       ] [Status] connected=true, auth=true
+[2026-03-15T17:02:44.504Z] [INFO ] [OFFLINEDB   ] [Sync] Sync complete. 56 tables synced, 0 errors
+[2026-03-15T17:02:44.508Z] [INFO ] [APP         ] [OfflineDB] Initial sync completed | DATA: {"tables":56,"errors":0}
+[2026-03-15T17:02:44.872Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:02:44.877Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:02:44.901Z] [INFO ] [APP         ] [Interceptor] Service host URL set: http://127.0.0.1:3001
+[2026-03-15T17:02:44.904Z] [INFO ] [APP         ] [CAPS] Activation config fetched | DATA: {"serviceHostUrl":"http://127.0.0.1:3001","capsWorkstationId":"32fb06f3-837f-42ed-a6f5-90436ca62e06","capsWorkstationName":"SNS-001-WS01","isCaps":true}
+[2026-03-15T17:02:44.910Z] [INFO ] [APP         ] [ServiceHost] Starting embedded service host (CAPS mode) | DATA: {"dataDir":"C:\\Users\\DG\\AppData\\Local\\Cloud POS\\data\\service-host","port":3001,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev"}
+[2026-03-15T17:02:44.958Z] [WARN ] [APP         ] [Sync] CAPS forward error: /api/item-availability/increment | DATA: fetch failed
+[2026-03-15T17:02:45.863Z] [INFO ] [APP         ] [ServiceHost] ============================================================
+[2026-03-15T17:02:45.866Z] [INFO ] [APP         ] [ServiceHost] Cloud POS Service Host v1.0.0
+============================================================
+Cloud URL: https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev
+Service Host ID: 7cfb0d8b-73e4-4950-9baa-12f020e8deba
+Property ID: b0c038b1-5c55-4c63-85fe-5ea9dc64a767
+Data Directory: C:\Users\DG\AppData\Local\Cloud POS\data\service-host
+CAL Root Directory: C:\OPS-POS
+
+[DB] Database already initialized in constructor
+Database initialized
+[2026-03-15T17:02:46.152Z] [INFO ] [APP         ] [ServiceHost] WebSocket connected to cloud
+[2026-03-15T17:02:46.204Z] [INFO ] [APP         ] [ServiceHost] Authenticated with cloud
+[2026-03-15T17:02:46.214Z] [INFO ] [APP         ] [ServiceHost] Connected to cloud
+Starting full configuration sync for property b0c038b1-5c55-4c63-85fe-5ea9dc64a767...
+[2026-03-15T17:02:48.433Z] [INFO ] [APP         ] [ServiceHost] [ConfigSync] Raw response keys: configVersion, timestamp, data
+[ConfigSync] Inner data keys: enterprise, property, revenueCenters, employees, roles, menuItems, modifierGroups, modifiers, modifierGroupModifiers, menuItemModifierGroups, slus, taxGroups, tenders, discounts, serviceCharges, printers, kdsDevices, workstations, printClasses, orderDevices, orderDevicePrinters, orderDeviceKds, printClassRouting, jobCodes, posLayouts, posLayoutCells, posLayoutRvcAssignments
+[ConfigSync] Enterprise: Blue Oceans Management (587bd7b1-db7e-487c-b1f7-2315ab093502)
+[ConfigSync] Property: SNS-Newport Beach (b0c038b1-5c55-4c63-85fe-5ea9dc64a767)
+[2026-03-15T17:02:48.438Z] [INFO ] [APP         ] [ServiceHost] [ConfigSync] Mapped entity arrays: enterprises:1, properties:1, rvcs:1, slus:5, menuItems:26, modifierGroups:6, modifiers:34, modifierGroupModifiers:39, menuItemModifierGroups:40, printClasses:4, employees:7, roles:2, jobCodes:4, workstations:3, printers:2, kdsDevices:3, orderDevices:3, printClassRouting:5, taxGroups:2, tenders:4, discounts:4, posLayouts:1, posLayoutCells:26, posLayoutRvcAssignments:1
+  Synced 1 enterprises
+[2026-03-15T17:02:48.506Z] [INFO ] [APP         ] [ServiceHost] Synced 1 properties
+[2026-03-15T17:02:48.510Z] [INFO ] [APP         ] [ServiceHost] Synced 1 revenue centers
+[2026-03-15T17:02:48.512Z] [INFO ] [APP         ] [ServiceHost] Synced 5 SLUs
+[2026-03-15T17:02:48.519Z] [INFO ] [APP         ] [ServiceHost] Synced 26 menu items
+[2026-03-15T17:02:48.522Z] [INFO ] [APP         ] [ServiceHost] Synced 6 modifier groups
+[2026-03-15T17:02:48.527Z] [INFO ] [APP         ] [ServiceHost] Synced 34 modifiers
+[2026-03-15T17:02:48.534Z] [INFO ] [APP         ] [ServiceHost] Synced 39 modifier group assignments
+[2026-03-15T17:02:48.541Z] [INFO ] [APP         ] [ServiceHost] Synced 40 menu item modifier groups
+[2026-03-15T17:02:48.543Z] [INFO ] [APP         ] [ServiceHost] Synced 4 print classes
+  Synced 2 roles
+[2026-03-15T17:02:48.546Z] [INFO ] [APP         ] [ServiceHost] Synced 7 employees
+  Synced 4 job codes
+[2026-03-15T17:02:48.549Z] [INFO ] [APP         ] [ServiceHost] Synced 3 workstations
+  Synced 2 printers
+[2026-03-15T17:02:48.552Z] [INFO ] [APP         ] [ServiceHost] Synced 3 KDS devices
+  Synced 3 order devices
+  Synced 0 order device printers
+  Synced 0 order device KDS
+  Synced 5 print class routings
+[2026-03-15T17:02:48.554Z] [INFO ] [APP         ] [ServiceHost] Synced 2 tax groups
+  Synced 4 tenders
+[2026-03-15T17:02:48.557Z] [INFO ] [APP         ] [ServiceHost] Synced 4 discounts
+  Synced 0 service charges
+  Synced 1 POS layouts
+[2026-03-15T17:02:48.562Z] [INFO ] [APP         ] [ServiceHost] Synced 26 POS layout cells
+[2026-03-15T17:02:48.565Z] [INFO ] [APP         ] [ServiceHost] Synced 1 POS layout RVC assignments
+Full sync complete: 224 records, version 1
+Configuration synced from cloud
+[CAL] Starting CAL sync service
+[CAL] Root directory: C:\OPS-POS
+[2026-03-15T17:02:48.761Z] [INFO ] [APP         ] [ServiceHost] [CAL] Found 0 pending deployment(s)
+CAL deployment sync started
+[2026-03-15T17:02:48.765Z] [INFO ] [APP         ] [ServiceHost] [36m[2026-03-15T17:02:48.757Z] [INFO] [ServiceHost:TransactionSync][0m Starting transaction sync worker... {"interval":5000}
+[2026-03-15T17:02:48.776Z] [INFO ] [APP         ] [ServiceHost] CAPS device tracker started
+[2026-03-15T17:02:48.788Z] [INFO ] [APP         ] [ServiceHost] Service Host listening on http://0.0.0.0:3001
+
+Available endpoints:
+  GET  /health              - Health check
+  POST /api/caps/checks     - Create check
+  GET  /api/caps/checks     - List open checks
+  POST /api/caps/checks/:id/items - Add items
+  POST /api/caps/checks/:id/send  - Send to kitchen
+  POST /api/caps/checks/:id/pay   - Process payment
+[2026-03-15T17:02:48.794Z] [INFO ] [APP         ] [ServiceHost] POST /api/print/jobs      - Submit print job
+  GET  /api/kds/tickets     - Get KDS tickets
+  POST /api/payment/authorize - Authorize payment
+  GET  /api/caps/connected-devices - CAPS device tracker
+  POST /api/caps/sync/check-state  - WS check sync
+  POST /api/caps/sync/queue-operation - WS operation sync
+  WS   /ws                  - Real-time updates
+[2026-03-15T17:02:49.028Z] [INFO ] [APP         ] [ServiceHost] Service host is ready on port 3001 (CAPS mode)
+[2026-03-15T17:02:49.033Z] [WARN ] [UPDATER     ] [Init] No GitHub token found - auto-update will only work with public repos
+[2026-03-15T17:02:49.037Z] [INFO ] [UPDATER     ] [Init] Auto-updater initialized (v3.1.52)
+[2026-03-15T17:02:49.040Z] [INFO ] [UPDATER     ] [Init] Auto-download: true, Auto-install on quit: true
+[2026-03-15T17:02:49.044Z] [INFO ] [APP         ] [App] All services initialized successfully
+[2026-03-15T17:02:49.075Z] [INFO ] [APP         ] [Interceptor] HTTPS protocol interceptor registered for offline support
+[2026-03-15T17:02:49.277Z] [INFO ] [APP         ] [Window] Launching POS mode | DATA: {"kiosk":false,"maximized":true}
+[2026-03-15T17:02:49.279Z] [INFO ] [APP         ] [Window] Loading URL: https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/
+[2026-03-15T17:02:49.666Z] [INFO ] [APP         ] [Window] Loading screen shown, navigating to server...
+[2026-03-15T17:02:49.878Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:02:49.882Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:02:49.914Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:02:49.929Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:02:54.890Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:02:54.894Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:02:54.906Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:02:54.915Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:02:57.481Z] [INFO ] [APP         ] [Window] Page loaded successfully: https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/
+[2026-03-15T17:02:59.891Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:02:59.895Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:02:59.913Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:02:59.926Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:04.058Z] [INFO ] [UPDATER     ] [Check] Initiating update check...
+[2026-03-15T17:03:04.062Z] [INFO ] [UPDATER     ] [Core] Checking for update
+[2026-03-15T17:03:04.065Z] [INFO ] [UPDATER     ] [Check] Checking for updates...
+[2026-03-15T17:03:04.813Z] [INFO ] [APP         ] [Interceptor] Offline login auth attempt, 7 employees in cache
+[2026-03-15T17:03:04.818Z] [INFO ] [APP         ] [Interceptor] Offline login auth SUCCESS: Derek Griffin
+[2026-03-15T17:03:04.826Z] [INFO ] [APP         ] [Interceptor] LOCAL-FIRST: POST /api/auth/login -> 200 [mode=green]
+[2026-03-15T17:03:04.899Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:04.907Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:04.921Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:04.928Z] [INFO ] [APP         ] [R:RENDERER:Connecting to wss://7c25787c-567] 
+[2026-03-15T17:03:04.936Z] [INFO ] [APP         ] [Interceptor] LOCAL-FIRST: POST /api/system-status/workstation/heartbeat -> 200 [mode=green]
+[2026-03-15T17:03:04.974Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:05.106Z] [INFO ] [APP         ] [R:RENDERER:Connecting to wss://7c25787c-567] 
+[2026-03-15T17:03:05.112Z] [INFO ] [APP         ] [Interceptor] LOCAL-FIRST: POST /api/system-status/workstation/heartbeat -> 200 [mode=green]
+[2026-03-15T17:03:05.210Z] [ERROR] [APP         ] [R:RENDERER:WebSocket error, closing connect] 
+[2026-03-15T17:03:05.213Z] [INFO ] [APP         ] [R:RENDERER:Stale socket closed (connId=1, a] 
+[2026-03-15T17:03:05.372Z] [INFO ] [UPDATER     ] [Core] Update for version 3.1.52 is not available (latest version: 3.1.52, downgrade is disallowed).
+[2026-03-15T17:03:05.376Z] [INFO ] [UPDATER     ] [Check] App is up to date (v3.1.52)
+[2026-03-15T17:03:05.673Z] [INFO ] [APP         ] [R:RENDERER:WebSocket connected (first conne] 
+[2026-03-15T17:03:09.906Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:09.913Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:09.926Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:09.936Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:12.265Z] [INFO ] [APP         ] [Interceptor] LOCAL-FIRST: POST /api/system-status/workstation/heartbeat -> 200 [mode=green]
+[2026-03-15T17:03:12.381Z] [INFO ] [APP         ] [R:RENDERER:Stale socket closed (connId=2, a] 
+[2026-03-15T17:03:16.286Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:16.290Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:16.462Z] [WARN ] [APP         ] [Diagnostics] Registry COM port query failed | DATA: Command failed: reg query HKLM\HARDWARE\DEVICEMAP\SERIALCOMM 2>nul
+[2026-03-15T17:03:19.335Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:19.352Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:19.384Z] [INFO ] [UPDATER     ] [IPC] Manual update check requested by user
+[2026-03-15T17:03:19.387Z] [INFO ] [UPDATER     ] [Check] Initiating update check...
+[2026-03-15T17:03:19.389Z] [INFO ] [UPDATER     ] [Core] Checking for update
+[2026-03-15T17:03:19.392Z] [INFO ] [UPDATER     ] [Check] Checking for updates...
+[2026-03-15T17:03:19.621Z] [INFO ] [UPDATER     ] [Core] Update for version 3.1.52 is not available (latest version: 3.1.52, downgrade is disallowed).
+[2026-03-15T17:03:19.624Z] [INFO ] [UPDATER     ] [Check] App is up to date (v3.1.52)
+[2026-03-15T17:03:21.301Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:21.309Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:21.328Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:21.340Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:26.306Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:26.311Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:26.320Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:26.328Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:31.309Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:31.313Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:31.323Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:31.333Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:36.316Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:36.321Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:36.330Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:36.340Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:39.869Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:39.875Z] [INFO ] [APP         ] [Status] Mode: GREEN | Cloud: connected | Device: SNS-001-WS01 | Uptime: 1m | Pending sync: 2 | Interceptor (last 60s): 4 requests handled
+[2026-03-15T17:03:39.881Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:39.889Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:41.319Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:41.323Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:41.331Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:41.339Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:46.327Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:46.332Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:46.346Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:46.361Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:48.779Z] [INFO ] [APP         ] [ServiceHost] [CAPS] No devices tracked | CAPS uptime: 1min
+[2026-03-15T17:03:51.339Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:51.344Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:51.352Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:51.359Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:56.351Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:03:56.354Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:03:56.360Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:03:56.367Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:01.357Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:01.361Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:01.371Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:01.382Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:06.372Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:06.376Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:06.385Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:06.394Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:11.381Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:11.385Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:11.395Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:11.404Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:16.390Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:16.394Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:16.404Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:16.412Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:21.391Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:21.395Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:21.405Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:21.413Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:26.400Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:26.406Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:26.418Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:26.430Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:31.404Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:31.409Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:31.417Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:31.427Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:36.406Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:36.411Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:36.421Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:36.441Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:39.877Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:39.882Z] [INFO ] [APP         ] [Status] Mode: GREEN | Cloud: connected | Device: SNS-001-WS01 | Uptime: 2m | Pending sync: 2
+[2026-03-15T17:04:39.894Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:39.901Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:41.420Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:41.425Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:41.433Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:41.441Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:46.419Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:46.423Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:46.437Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:46.453Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:48.786Z] [INFO ] [APP         ] [ServiceHost] [CAPS] No devices tracked | CAPS uptime: 2min
+[2026-03-15T17:04:51.426Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:51.430Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:51.438Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:51.446Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:56.435Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:04:56.441Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:04:56.459Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:04:56.476Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:01.445Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:01.450Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:01.459Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:01.467Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:06.448Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:06.453Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:06.462Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:06.472Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:11.464Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:11.470Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:11.483Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:11.498Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:16.471Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:16.475Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:16.484Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:16.494Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:21.475Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:21.485Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:21.499Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:21.512Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:26.476Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:26.479Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:26.488Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:26.498Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:31.483Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:31.487Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:31.497Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:31.509Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:36.495Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:36.503Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:36.522Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:36.536Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:39.894Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:39.909Z] [INFO ] [APP         ] [Status] Mode: GREEN | Cloud: connected | Device: SNS-001-WS01 | Uptime: 3m | Pending sync: 2
+[2026-03-15T17:05:39.933Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:39.964Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:41.507Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:41.518Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:41.535Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:41.554Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:46.514Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:46.519Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:46.532Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:46.546Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:48.793Z] [INFO ] [APP         ] [ServiceHost] [CAPS] No devices tracked | CAPS uptime: 3min
+[2026-03-15T17:05:51.519Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:51.531Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:51.553Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:51.580Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:56.525Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:05:56.528Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:05:56.544Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:05:56.557Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:01.530Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:01.535Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:01.550Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:01.566Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:06.544Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:06.552Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:06.570Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:06.587Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:11.546Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:11.552Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:11.571Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:11.589Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:16.546Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:16.550Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:16.559Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:16.568Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:21.555Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:21.560Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:21.569Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:21.577Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:26.558Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:26.562Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:26.570Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:26.579Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:31.568Z] [DEBUG] [OFFLINEDB   ] [Sync] 2 non-check op(s) waiting for backoff retry
+[2026-03-15T17:06:31.571Z] [INFO ] [APP         ] [Sync] Forwarding 2 legacy offline operations to CAPS
+[2026-03-15T17:06:31.579Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
+[2026-03-15T17:06:31.585Z] [WARN ] [APP         ] [Sync] CAPS forward failed: /api/item-availability/increment -> HTTP 400
