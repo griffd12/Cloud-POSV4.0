@@ -1183,10 +1183,9 @@ class OfflineDatabase {
     try {
       if (!this.usingSqlite || this._staleCleanupDone) return;
       this._staleCleanupDone = true;
-      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const stale = this.db.prepare(
-        "SELECT id, type, endpoint, created_at FROM offline_queue WHERE synced = 0 AND retry_count < 10 AND created_at < ?"
-      ).all(cutoff);
+        "SELECT id, type, endpoint, created_at FROM offline_queue WHERE synced = 0 AND retry_count < 10 AND datetime(created_at) < datetime('now', '-24 hours')"
+      ).all();
       if (stale.length > 0) {
         offlineDbLogger.warn('Sync', `Cleaning up ${stale.length} stale operation(s) older than 24h`);
         const stmt = this.db.prepare("UPDATE offline_queue SET retry_count = 10, error = 'expired: stale operation older than 24h' WHERE id = ?");
