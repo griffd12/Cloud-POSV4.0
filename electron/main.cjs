@@ -51,6 +51,7 @@ const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/print-jobs(\/|$)/,
   /^\/api\/cash-drawer-kick(\/|$)/,
   /^\/api\/item-availability\/decrement/,
+  /^\/api\/item-availability\/increment/,
   /^\/api\/registered-devices\/heartbeat/,
   /^\/api\/system-status/,
   /^\/api\/gift-cards(\/|$)/,
@@ -444,7 +445,7 @@ async function triggerBackgroundSync() {
       }
     }
 
-    if (isOnline) {
+    if (isOnline && !enhancedOfflineDb) {
       await syncOfflineData();
     }
   } catch (e) {

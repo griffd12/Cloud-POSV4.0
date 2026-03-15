@@ -13,6 +13,8 @@ class OfflineDatabase {
     this.cacheDir = path.join(this.dataDir, 'cache');
     this.lastSyncTime = null;
     this.syncInProgress = false;
+    this._lastBackoffLogCount = -1;
+    this._staleCleanupDone = false;
 
     this.ensureDirectories();
   }
@@ -1177,6 +1179,27 @@ class OfflineDatabase {
     } catch (e) {}
   }
 
+  cleanupStaleOperations() {
+    try {
+      if (!this.usingSqlite || this._staleCleanupDone) return;
+      this._staleCleanupDone = true;
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const stale = this.db.prepare(
+        "SELECT id, type, endpoint, created_at FROM offline_queue WHERE synced = 0 AND retry_count < 10 AND created_at < ?"
+      ).all(cutoff);
+      if (stale.length > 0) {
+        offlineDbLogger.warn('Sync', `Cleaning up ${stale.length} stale operation(s) older than 24h`);
+        const stmt = this.db.prepare("UPDATE offline_queue SET retry_count = 10, error = 'expired: stale operation older than 24h' WHERE id = ?");
+        for (const op of stale) {
+          stmt.run(op.id);
+          offlineDbLogger.info('Sync', `Expired stale op ${op.id}: ${op.type} -> ${op.endpoint} (created ${op.created_at})`);
+        }
+      }
+    } catch (e) {
+      offlineDbLogger.error('Sync', `Stale cleanup error: ${e.message}`);
+    }
+  }
+
   saveOfflineCheck(check) {
     try {
       if (this.usingSqlite) {
@@ -1723,6 +1746,8 @@ class OfflineDatabase {
     if (this.syncInProgress) return { synced: 0, failed: 0, reason: 'sync already in progress' };
     this.syncInProgress = true;
 
+    this.cleanupStaleOperations();
+
     let synced = 0;
     let failed = 0;
 
@@ -1784,8 +1809,9 @@ class OfflineDatabase {
       });
       if (eligibleOps.length > 0) {
         offlineDbLogger.info('Sync', `Forwarding ${eligibleOps.length} non-check operation(s) to CAPS...`);
-      } else if (nonCheckOps.length > 0) {
+      } else if (nonCheckOps.length > 0 && nonCheckOps.length !== this._lastBackoffLogCount) {
         offlineDbLogger.debug('Sync', `${nonCheckOps.length} non-check op(s) waiting for backoff retry`);
+        this._lastBackoffLogCount = nonCheckOps.length;
       }
 
       const maxBatchSize = 50;
@@ -1816,6 +1842,9 @@ class OfflineDatabase {
             this.markOperationSynced(op.id);
             synced++;
             offlineDbLogger.info('Sync', `CAPS op synced: ${op.type} -> ${op.endpoint}`);
+          } else if (response.status === 400 || response.status === 404 || response.status === 422) {
+            this.markOperationPermanentlyFailed(op.id, `CAPS HTTP ${response.status} (permanent)`);
+            failed++;
           } else {
             this.markOperationFailed(op.id, `CAPS HTTP ${response.status}`);
             failed++;

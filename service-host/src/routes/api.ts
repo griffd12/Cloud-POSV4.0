@@ -2291,9 +2291,10 @@ export function createApiRoutes(
       if (!db) {
         return res.status(503).json({ error: 'Database not available' });
       }
-      const { method, path: opPath, body, headers } = req.body;
-      if (!method || !opPath) {
-        return res.status(400).json({ error: 'method and path required' });
+      const { path: opPath, body, headers } = req.body;
+      const method = req.body.method || 'POST';
+      if (!opPath) {
+        return res.status(400).json({ error: 'path is required' });
       }
 
       const id = `op_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
