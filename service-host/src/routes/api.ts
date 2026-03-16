@@ -1298,8 +1298,50 @@ export function createApiRoutes(
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
       if (!check.discounts) check.discounts = [];
-      check.discounts.push(req.body);
-      res.json({ success: true });
+
+      const { discountId, name, type, amount, rate, managerPin, requiredPrivilege } = req.body;
+
+      if (managerPin) {
+        const employees = config.getEmployees();
+        const manager = employees.find((emp: any) =>
+          emp.pin === managerPin || emp.posPin === managerPin
+        );
+        if (!manager) return res.status(401).json({ error: 'Invalid manager PIN' });
+        if (requiredPrivilege) {
+          const hasPrivilege = manager.privileges && (
+            Array.isArray(manager.privileges)
+              ? manager.privileges.includes(requiredPrivilege)
+              : manager.privileges[requiredPrivilege]
+          );
+          if (!hasPrivilege && manager.role !== 'admin' && manager.role !== 'manager') {
+            return res.status(403).json({ error: `Employee does not have required privilege: ${requiredPrivilege}` });
+          }
+        }
+      }
+
+      let discountAmount = 0;
+      const discountType = type || 'fixed';
+      if (discountType === 'percentage' || discountType === 'percent') {
+        const subtotal = parseFloat(check.subtotal || '0');
+        discountAmount = (subtotal * parseFloat(rate || amount || '0')) / 100;
+      } else {
+        discountAmount = parseFloat(amount || '0');
+      }
+
+      const discountRecord = {
+        id: `caps_disc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+        discountId: discountId || null,
+        name: name || 'Discount',
+        type: discountType,
+        amount: discountAmount.toFixed(2),
+        rate: rate || null,
+        createdAt: new Date().toISOString(),
+      };
+      check.discounts.push(discountRecord);
+
+      caps.recalculateTotals(req.params.id);
+      const updated = caps.getCheck(req.params.id);
+      res.json({ success: true, discount: discountRecord, check: updated });
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
@@ -1797,19 +1839,62 @@ export function createApiRoutes(
     }
   });
 
+  const localTerminalSessions: Map<string, any> = new Map();
+
   router.post('/terminal-sessions', async (req, res) => {
     try {
-      res.status(503).json({ error: 'Credit card processing requires cloud connection in service-host mode.' });
+      const sessionId = `caps_ts_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+      const session = {
+        id: sessionId,
+        terminalDeviceId: req.body.terminalDeviceId,
+        checkId: req.body.checkId,
+        amount: req.body.amount,
+        tipAmount: req.body.tipAmount || '0.00',
+        status: 'pending',
+        transactionType: req.body.transactionType || 'sale',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        localCaps: true,
+      };
+      localTerminalSessions.set(sessionId, session);
+      console.log(`[CAPS] Terminal session created locally: ${sessionId}`);
+      res.json(session);
     } catch (e) {
-      res.status(503).json({ error: (e as Error).message });
+      res.status(500).json({ error: (e as Error).message });
     }
   });
 
   router.get('/terminal-sessions', async (_req, res) => {
     try {
-      res.status(503).json({ error: 'Credit card processing requires cloud connection in service-host mode.' });
+      const sessions = Array.from(localTerminalSessions.values());
+      res.json(sessions);
     } catch (e) {
-      res.status(503).json({ error: (e as Error).message });
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/terminal-sessions/:id', async (req, res) => {
+    try {
+      const session = localTerminalSessions.get(req.params.id);
+      if (session) return res.json(session);
+      res.status(404).json({ error: 'Terminal session not found' });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.patch('/terminal-sessions/:id', async (req, res) => {
+    try {
+      const session = localTerminalSessions.get(req.params.id);
+      if (session) {
+        Object.assign(session, req.body, { updatedAt: new Date().toISOString() });
+        localTerminalSessions.set(req.params.id, session);
+        console.log(`[CAPS] Terminal session updated: ${req.params.id} -> ${session.status}`);
+        return res.json(session);
+      }
+      res.status(404).json({ error: 'Terminal session not found' });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
     }
   });
 

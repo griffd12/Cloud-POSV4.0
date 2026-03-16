@@ -3189,6 +3189,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/sync/pos-layout-rvc-assignments", async (req, res) => {
+    try {
+      const propertyId = req.query.propertyId as string | undefined;
+      let data = await db.select().from(posLayoutRvcAssignments);
+      if (propertyId) {
+        data = data.filter((a: any) => a.propertyId === propertyId);
+      }
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch pos layout rvc assignments" });
+    }
+  });
+
+  app.get("/api/sync/menu-item-slus", async (req, res) => {
+    try {
+      const menuItemSlus = await storage.getMenuItemSlus();
+      res.json(menuItemSlus);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch menu item slus" });
+    }
+  });
+
   app.get("/api/pos/modifier-map", async (req, res) => {
     try {
       let enterpriseId = await getEnforcedEnterpriseId(req);

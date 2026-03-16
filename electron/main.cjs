@@ -38,8 +38,9 @@ let lastSyncError = null;
 let backgroundSyncTimer = null;
 let protocolInterceptorStartTime = 0;
 let protocolConsecutiveFailCount = 0;
-const PROTOCOL_STARTUP_GRACE_MS = 15000;
+const PROTOCOL_STARTUP_GRACE_MS = 3000;
 const PROTOCOL_FAIL_THRESHOLD = 3;
+let firstBootConnectivityChecked = false;
 
 const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/auth\/login(\/|$)/,
@@ -74,6 +75,7 @@ const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/check-service-charges(\/|$)/,
   /^\/api\/payments(\/|$)/,
   /^\/api\/kds-tickets(\/|$)/,
+  /^\/api\/terminal-sessions(\/|$)/,
 ];
 
 function isLocalFirstWrite(method, pathname) {
@@ -82,6 +84,41 @@ function isLocalFirstWrite(method, pathname) {
 }
 
 const LOCAL_FIRST_READ_PATTERNS = [
+  /^\/api\/menu-items/,
+  /^\/api\/modifier-groups/,
+  /^\/api\/modifiers/,
+  /^\/api\/employees/,
+  /^\/api\/tax-rates/,
+  /^\/api\/tax-groups/,
+  /^\/api\/discounts/,
+  /^\/api\/tender-types/,
+  /^\/api\/tenders/,
+  /^\/api\/order-types/,
+  /^\/api\/service-charges/,
+  /^\/api\/revenue-centers/,
+  /^\/api\/rvcs/,
+  /^\/api\/slus/,
+  /^\/api\/properties/,
+  /^\/api\/printers/,
+  /^\/api\/workstations/,
+  /^\/api\/pos-layouts/,
+  /^\/api\/pos-layout-rvc-assignments/,
+  /^\/api\/menu-item-slus/,
+  /^\/api\/terminal-devices/,
+  /^\/api\/payment-processors/,
+  /^\/api\/ingredient-prefixes/,
+  /^\/api\/pos\/modifier-map/,
+  /^\/api\/option-flags/,
+  /^\/api\/kds-devices/,
+  /^\/api\/order-devices/,
+  /^\/api\/print-classes/,
+  /^\/api\/print-class-routings/,
+  /^\/api\/break-rules/,
+  /^\/api\/checks\/open/,
+  /^\/api\/checks\/locks/,
+  /^\/api\/checks\/orders/,
+  /^\/api\/sync\//,
+  /^\/api\/auth\/offline-employees/,
 ];
 
 function isLocalFirstRead(method, pathname, search) {
@@ -529,6 +566,7 @@ async function checkConnectivity(options = {}) {
     }
 
     if (isOnline) {
+      firstBootConnectivityChecked = true;
       connectivityFailCount = 0;
       connectivitySuccessCount++;
       if (connectionMode !== 'green') {
@@ -567,9 +605,13 @@ async function checkConnectivity(options = {}) {
     connectivitySuccessCount = 0;
     connectivityFailCount++;
     
-    if (!forceImmediate && connectionMode === 'green' && connectivityFailCount < HYSTERESIS_THRESHOLD) {
+    if (!forceImmediate && firstBootConnectivityChecked && connectionMode === 'green' && connectivityFailCount < HYSTERESIS_THRESHOLD) {
       appLogger.info('Network', `Cloud unreachable (${connectivityFailCount}/${HYSTERESIS_THRESHOLD} failures) — waiting before switching mode`);
       return;
+    }
+    if (!firstBootConnectivityChecked) {
+      firstBootConnectivityChecked = true;
+      appLogger.info('Network', 'First boot connectivity check failed — immediately switching to offline mode');
     }
 
     const wasOnline = isOnline;
@@ -663,19 +705,40 @@ function createWindow() {
     const targetUrl = `${serverUrl}${startPath}`;
     appLogger.info('Window', `Loading URL: ${targetUrl}`);
 
-    const loadingHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS</title>
+    if (!isOnline) {
+      const bundledDir = getBundledAssetsDir();
+      const bundledIndex = path.join(bundledDir, 'index.html');
+      if (fs.existsSync(bundledIndex)) {
+        appLogger.info('Window', 'Offline boot — loading bundled frontend directly');
+        mainWindow.loadFile(bundledIndex);
+      } else {
+        appLogger.warn('Window', 'Offline boot — bundled frontend not found, showing offline page');
+        const offlineHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS - Offline</title>
+<style>body{font-family:system-ui;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
+.c{max-width:480px;padding:40px}h1{margin-bottom:12px}p{opacity:0.8;line-height:1.6;margin-bottom:20px}
+button{padding:12px 32px;font-size:16px;border:1px solid #4a4a6a;border-radius:8px;background:#2a2a4a;color:#fff;cursor:pointer}
+button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:13px;opacity:0.5}</style></head>
+<body><div class="c"><h1>Cloud POS Offline</h1>
+<p>Bundled frontend not found. Please reinstall the application or connect to the internet.</p>
+<button onclick="location.reload()">Retry</button>
+<p class="info">Restart required to load the application.</p></div></body></html>`;
+        mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(offlineHtml)}`);
+      }
+    } else {
+      const loadingHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS</title>
 <style>body{font-family:system-ui,sans-serif;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
 .c{max-width:480px;padding:40px}.spinner{width:40px;height:40px;border:3px solid #2a3a52;border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 20px}
 @keyframes spin{to{transform:rotate(360deg)}}h2{margin:0 0 8px;font-weight:500}p{opacity:0.6;font-size:14px;margin:0}</style></head>
 <body><div class="c"><div class="spinner"></div><h2>Cloud POS</h2><p>Connecting to server...</p></div></body></html>`;
 
-    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml)}`).then(() => {
-      appLogger.info('Window', 'Loading screen shown, navigating to server...');
-      mainWindow.loadURL(targetUrl);
-    }).catch((err) => {
-      appLogger.error('Window', `Failed to show loading screen: ${err.message}`);
-      mainWindow.loadURL(targetUrl);
-    });
+      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml)}`).then(() => {
+        appLogger.info('Window', 'Loading screen shown, navigating to server...');
+        mainWindow.loadURL(targetUrl);
+      }).catch((err) => {
+        appLogger.error('Window', `Failed to show loading screen: ${err.message}`);
+        mainWindow.loadURL(targetUrl);
+      });
+    }
   }
 
   if (process.env.NODE_ENV !== 'production' && !isKiosk) {
@@ -2884,20 +2947,46 @@ function registerProtocolInterceptor() {
                   appLogger.warn('Interceptor', `CAPS send: pre-sync failed (will still attempt send): ${syncErr.message}`);
                 }
                 const capsSendUrl = `${capsUrl}/api/caps/checks/${capsCheckId}/send`;
-                try {
-                  const r = await fetch(capsSendUrl, {
-                    method: 'POST',
-                    headers: fwdHeaders,
-                    body: JSON.stringify(body || {}),
-                    signal: AbortSignal.timeout(8000),
-                  });
-                  appLogger.info('Interceptor', `CAPS send-to-kitchen forwarded: ${capsCheckId} -> ${r.status}`);
-                  if (r.status >= 400) {
-                    const errBody = await r.text().catch(() => '');
-                    appLogger.warn('Interceptor', `CAPS send-to-kitchen error body: ${errBody}`);
+                const maxRetries = 3;
+                let lastError = null;
+                for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                  try {
+                    const r = await fetch(capsSendUrl, {
+                      method: 'POST',
+                      headers: fwdHeaders,
+                      body: JSON.stringify(body || {}),
+                      signal: AbortSignal.timeout(8000),
+                    });
+                    appLogger.info('Interceptor', `CAPS send-to-kitchen forwarded: ${capsCheckId} -> ${r.status} (attempt ${attempt})`);
+                    if (r.status >= 500 || r.status === 429) {
+                      const errBody = await r.text().catch(() => '');
+                      appLogger.warn('Interceptor', `CAPS send-to-kitchen server error (retryable): ${errBody}`);
+                      lastError = new Error(`Server error ${r.status}`);
+                      if (attempt < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                        continue;
+                      }
+                      break;
+                    }
+                    if (r.status >= 400) {
+                      const errBody = await r.text().catch(() => '');
+                      appLogger.warn('Interceptor', `CAPS send-to-kitchen client error (not retryable): ${errBody}`);
+                    }
+                    lastError = null;
+                    break;
+                  } catch (e) {
+                    lastError = e;
+                    appLogger.warn('Interceptor', `CAPS send-to-kitchen attempt ${attempt}/${maxRetries} failed: ${e.message}`);
+                    if (attempt < maxRetries) {
+                      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                    }
                   }
-                } catch (e) {
-                  appLogger.warn('Interceptor', `CAPS send-to-kitchen forward failed: ${e.message}`);
+                }
+                if (lastError) {
+                  appLogger.error('Interceptor', `CAPS send-to-kitchen all ${maxRetries} attempts failed for check ${capsCheckId}, queuing for retry`);
+                  if (enhancedOfflineDb && enhancedOfflineDb.queueOperation) {
+                    enhancedOfflineDb.queueOperation('kds_send_retry', `/api/caps/checks/${capsCheckId}/send`, 'POST', body || {}, 1);
+                  }
                 }
               })();
             }
