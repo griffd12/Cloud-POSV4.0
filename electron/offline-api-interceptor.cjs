@@ -1345,6 +1345,34 @@ class OfflineApiInterceptor {
       return { status: 200, data: { success: true, offline: true, message: 'Service charge voided (offline)' } };
     }
 
+    const termSessionPatchMatch = pathname.match(/^\/api\/terminal-sessions\/([^/]+)$/);
+    if (termSessionPatchMatch) {
+      const sessionId = termSessionPatchMatch[1];
+      try {
+        const existing = this.db.getEntity('terminal_sessions', sessionId);
+        if (existing) {
+          const updated = { ...existing, ...body, updatedAt: new Date().toISOString() };
+          if (this.db.usingSqlite) {
+            this.db.db.prepare(`
+              UPDATE terminal_sessions SET data = ?, status = ?, updated_at = datetime('now')
+              WHERE id = ?
+            `).run(JSON.stringify(updated), updated.status || existing.status || 'pending', sessionId);
+          }
+          return { status: 200, data: updated };
+        }
+        const newSession = { id: sessionId, ...body, updatedAt: new Date().toISOString() };
+        if (this.db.usingSqlite) {
+          this.db.db.prepare(`
+            INSERT OR REPLACE INTO terminal_sessions (id, data, status, created_at, updated_at)
+            VALUES (?, ?, ?, datetime('now'), datetime('now'))
+          `).run(sessionId, JSON.stringify(newSession), newSession.status || 'pending');
+        }
+        return { status: 200, data: newSession };
+      } catch (e) {
+        return { status: 200, data: { id: sessionId, ...body, offline: true } };
+      }
+    }
+
     this.db.queueOperation('offline_update', pathname, 'PATCH', body, 5);
     return { status: 202, data: { message: 'Queued for sync', offline: true } };
   }

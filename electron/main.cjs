@@ -707,24 +707,8 @@ function createWindow() {
     appLogger.info('Window', `Loading URL: ${targetUrl}`);
 
     if (!isOnline) {
-      const bundledDir = getBundledAssetsDir();
-      const bundledIndex = path.join(bundledDir, 'index.html');
-      if (fs.existsSync(bundledIndex)) {
-        appLogger.info('Window', 'Offline boot — loading bundled frontend directly');
-        mainWindow.loadFile(bundledIndex);
-      } else {
-        appLogger.warn('Window', 'Offline boot — bundled frontend not found, showing offline page');
-        const offlineHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS - Offline</title>
-<style>body{font-family:system-ui;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
-.c{max-width:480px;padding:40px}h1{margin-bottom:12px}p{opacity:0.8;line-height:1.6;margin-bottom:20px}
-button{padding:12px 32px;font-size:16px;border:1px solid #4a4a6a;border-radius:8px;background:#2a2a4a;color:#fff;cursor:pointer}
-button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:13px;opacity:0.5}</style></head>
-<body><div class="c"><h1>Cloud POS Offline</h1>
-<p>Bundled frontend not found. Please reinstall the application or connect to the internet.</p>
-<button onclick="location.reload()">Retry</button>
-<p class="info">Restart required to load the application.</p></div></body></html>`;
-        mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(offlineHtml)}`);
-      }
+      appLogger.info('Window', 'Offline boot — loading via protocol interceptor (bundled assets)');
+      mainWindow.loadURL(targetUrl);
     } else {
       const loadingHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS</title>
 <style>body{font-family:system-ui,sans-serif;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
@@ -3063,6 +3047,45 @@ function registerProtocolInterceptor() {
     }
 
     if (isApiRequest && offlineInterceptor && isLocalFirstRead(request.method, url.pathname, url.search)) {
+      const isTerminalSessionPoll = url.pathname.match(/^\/api\/terminal-sessions\/[^/]+$/);
+      if (isTerminalSessionPoll) {
+        const capsUrl = getCapsServiceHostUrl();
+        if (capsUrl) {
+          try {
+            const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
+            const tsConfig = loadConfig();
+            const tsHeaders = { 'Content-Type': 'application/json' };
+            if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
+            const sessionId = url.pathname.match(/^\/api\/terminal-sessions\/([^/]+)$/)[1];
+            const mappedId = (offlineInterceptor._capsTerminalSessionMap && offlineInterceptor._capsTerminalSessionMap[sessionId]) || sessionId;
+            const capsResp = await fetch(`${capsUrl}/api/caps/terminal-sessions/${mappedId}`, {
+              method: 'GET',
+              headers: tsHeaders,
+              signal: AbortSignal.timeout(2000),
+            });
+            if (capsResp.ok) {
+              const capsData = await capsResp.json();
+              if (capsData.status && capsData.status !== 'pending') {
+                const existing = offlineInterceptor.db.getEntity('terminal_sessions', sessionId);
+                if (existing && existing.status !== capsData.status) {
+                  const updated = { ...existing, status: capsData.status, updatedAt: new Date().toISOString() };
+                  if (offlineInterceptor.db.usingSqlite) {
+                    offlineInterceptor.db.db.prepare(`
+                      UPDATE terminal_sessions SET data = ?, status = ?, updated_at = datetime('now') WHERE id = ?
+                    `).run(JSON.stringify(updated), capsData.status, sessionId);
+                  }
+                }
+              }
+              return new Response(JSON.stringify(capsData), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json', 'X-Local-First': 'true', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
+              });
+            }
+          } catch (capsErr) {
+            appLogger.debug('Interceptor', `Terminal session CAPS poll failed, using local: ${capsErr.message}`);
+          }
+        }
+      }
       const queryParams = Object.fromEntries(url.searchParams);
       const result = offlineInterceptor.handleRequest('GET', url.pathname, queryParams, null);
       if (result) {
