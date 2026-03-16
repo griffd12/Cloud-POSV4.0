@@ -38,7 +38,7 @@ let lastSyncError = null;
 let backgroundSyncTimer = null;
 let protocolInterceptorStartTime = 0;
 let protocolConsecutiveFailCount = 0;
-const PROTOCOL_STARTUP_GRACE_MS = 3000;
+const PROTOCOL_STARTUP_GRACE_MS = 2000;
 const PROTOCOL_FAIL_THRESHOLD = 3;
 let firstBootConnectivityChecked = false;
 
@@ -105,6 +105,7 @@ const LOCAL_FIRST_READ_PATTERNS = [
   /^\/api\/pos-layout-rvc-assignments/,
   /^\/api\/menu-item-slus/,
   /^\/api\/terminal-devices/,
+  /^\/api\/terminal-sessions/,
   /^\/api\/payment-processors/,
   /^\/api\/ingredient-prefixes/,
   /^\/api\/pos\/modifier-map/,
@@ -2991,6 +2992,53 @@ function registerProtocolInterceptor() {
               })();
             }
           }
+          const termSessionCreateMatch = url.pathname.match(/^\/api\/terminal-sessions\/?$/);
+          if (termSessionCreateMatch && request.method === 'POST') {
+            const capsUrl = getCapsServiceHostUrl();
+            if (capsUrl) {
+              const tsConfig = loadConfig();
+              const tsHeaders = { 'Content-Type': 'application/json' };
+              if (tsConfig.deviceId) tsHeaders['x-workstation-id'] = tsConfig.deviceId;
+              if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
+              (async () => {
+                try {
+                  const capsResp = await fetch(`${capsUrl}/api/caps/terminal-sessions`, {
+                    method: 'POST',
+                    headers: tsHeaders,
+                    body: JSON.stringify(body || {}),
+                    signal: AbortSignal.timeout(5000),
+                  });
+                  const capsData = await capsResp.json().catch(() => ({}));
+                  appLogger.info('Interceptor', `CAPS terminal-session forwarded: ${capsResp.status} -> id=${capsData.id || 'unknown'}`);
+                  if (capsData.id && result.data && result.data.id) {
+                    if (offlineInterceptor) {
+                      offlineInterceptor._capsTerminalSessionMap = offlineInterceptor._capsTerminalSessionMap || {};
+                      offlineInterceptor._capsTerminalSessionMap[result.data.id] = capsData.id;
+                    }
+                  }
+                } catch (e) {
+                  appLogger.warn('Interceptor', `CAPS terminal-session forward failed: ${e.message}`);
+                }
+              })();
+            }
+          }
+          const termSessionPatchMatch = url.pathname.match(/^\/api\/terminal-sessions\/([^/]+)$/);
+          if (termSessionPatchMatch && (request.method === 'PATCH' || request.method === 'PUT')) {
+            const capsUrl = getCapsServiceHostUrl();
+            if (capsUrl) {
+              const tsId = termSessionPatchMatch[1];
+              const mappedId = (offlineInterceptor && offlineInterceptor._capsTerminalSessionMap && offlineInterceptor._capsTerminalSessionMap[tsId]) || tsId;
+              const tsConfig = loadConfig();
+              const tsHeaders = { 'Content-Type': 'application/json' };
+              if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
+              fetch(`${capsUrl}/api/caps/terminal-sessions/${mappedId}`, {
+                method: 'PATCH',
+                headers: tsHeaders,
+                body: JSON.stringify(body || {}),
+                signal: AbortSignal.timeout(3000),
+              }).catch(e => appLogger.warn('Interceptor', `CAPS terminal-session patch forward failed: ${e.message}`));
+            }
+          }
           return new Response(JSON.stringify(result.data), {
             status: result.status,
             headers: { 'Content-Type': 'application/json', 'X-Local-First': 'true', 'X-Connection-Mode': connectionMode },
@@ -3088,15 +3136,15 @@ function registerProtocolInterceptor() {
     try {
       let fetchSignal;
       if (typeof AbortSignal.timeout === 'function') {
-        fetchSignal = AbortSignal.timeout(4000);
+        fetchSignal = AbortSignal.timeout(2000);
       } else {
         const ac = new AbortController();
-        setTimeout(() => ac.abort(), 4000);
+        setTimeout(() => ac.abort(), 2000);
         fetchSignal = ac.signal;
       }
       const response = await Promise.race([
         electronNet.fetch(request, { bypassCustomProtocolHandlers: true, signal: fetchSignal }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Protocol fetch timeout (4s)')), 4500)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Protocol fetch timeout (2s)')), 2500)),
       ]);
 
       if (response.status === 502 || response.status === 503 || response.status === 504) {

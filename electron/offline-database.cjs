@@ -965,8 +965,7 @@ class OfflineDatabase {
       { table: 'employee_assignments', url: `/api/sync/employee-assignments` },
       { table: 'workstation_order_devices', url: `/api/sync/workstation-order-devices` },
       { table: 'workstation_service_bindings', url: `/api/sync/workstation-service-bindings` },
-      { table: 'pos_layout_rvc_assignments', url: `/api/sync/pos-layout-rvc-assignments` },
-      { table: 'menu_item_slus', url: `/api/sync/menu-item-slus` },
+      { table: 'menu_item_slus', url: `/api/sync/menu-item-slus?enterpriseId=${enterpriseId}` },
     ];
 
     if (propertyId) {
@@ -979,6 +978,7 @@ class OfflineDatabase {
         { table: 'order_devices', url: `/api/order-devices?propertyId=${propertyId}` },
         { table: 'order_device_printers', url: `/api/sync/order-device-printers` },
         { table: 'order_device_kds', url: `/api/sync/order-device-kds` },
+        { table: 'pos_layout_rvc_assignments', url: `/api/sync/pos-layout-rvc-assignments?propertyId=${propertyId}` },
         { table: 'payment_terminals', url: `/api/terminal-devices?propertyId=${propertyId}` },
         { table: 'payment_processors', url: `/api/payment-processors?propertyId=${propertyId}` },
         { table: 'registered_devices', url: `/api/registered-devices?propertyId=${propertyId}` },
