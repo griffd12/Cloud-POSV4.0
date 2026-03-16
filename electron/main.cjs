@@ -70,6 +70,13 @@ const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/pos\/capture-with-tip(\/|$)/,
   /^\/api\/pos\/record-external-payment(\/|$)/,
   /^\/api\/pos\/loyalty\/earn(\/|$)/,
+  /^\/api\/check-items(\/|$)/,
+  /^\/api\/check-payments(\/|$)/,
+  /^\/api\/check-discounts(\/|$)/,
+  /^\/api\/check-service-charges(\/|$)/,
+  /^\/api\/payments(\/|$)/,
+  /^\/api\/pos\/(checks|process-card-payment)(\/|$)/,
+  /^\/api\/kds-tickets(\/|$)/,
 ];
 
 function isLocalFirstWrite(method, pathname) {
