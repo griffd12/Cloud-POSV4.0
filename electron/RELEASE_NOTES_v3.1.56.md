@@ -11,15 +11,15 @@
 ### Complete Local-First Write Coverage
 
 Added these missing patterns to `LOCAL_FIRST_WRITE_PATTERNS`:
+- `/api/pos/` (broad) — covers all POS transaction endpoints: capture-with-tip, record-external-payment, loyalty/earn, process-card-payment, checks, etc.
 - `/api/check-items/` — modifier updates, item voids, item deletes
 - `/api/check-payments/` — payment voids and restores
 - `/api/check-discounts/` — discount operations
 - `/api/check-service-charges/` — service charge operations
 - `/api/payments/` — direct payment endpoints
-- `/api/pos/checks`, `/api/pos/process-card-payment` — POS transaction endpoints
 - `/api/kds-tickets/` — KDS ticket updates
 
-All of these were already handled by the offline interceptor's `canHandleOffline()` — the only gap was the pattern list in `main.cjs` that gates entry into the local-first flow.
+All of these were already handled by the offline interceptor's `canHandleOffline()` — the only gap was the pattern list in `main.cjs` that gates entry into the local-first flow. The broad `/api/pos/` pattern ensures full parity with the interceptor.
 
 ## Logs Before (v3.1.55)
 ```
@@ -36,5 +36,5 @@ LOCAL-FIRST: PATCH /api/check-items/.../modifiers -> 200 [mode=green]   ← hand
 ```
 
 ## Files Changed
-- `electron/main.cjs` — added 7 patterns to `LOCAL_FIRST_WRITE_PATTERNS`
+- `electron/main.cjs` — consolidated POS patterns into broad `/api/pos/` matcher, added check-items/payments/discounts/service-charges/kds-tickets patterns
 - `electron/electron-builder.json` — version bump to 3.1.56
