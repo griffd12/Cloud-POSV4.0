@@ -67,15 +67,12 @@ const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/checks\/[^/]+\/close(\/|$)/,
   /^\/api\/checks\/[^/]+\/print(\/|$)/,
   /^\/api\/checks\/[^/]+\/service-charges?(\/|$)/,
-  /^\/api\/pos\/capture-with-tip(\/|$)/,
-  /^\/api\/pos\/record-external-payment(\/|$)/,
-  /^\/api\/pos\/loyalty\/earn(\/|$)/,
+  /^\/api\/pos\//,
   /^\/api\/check-items(\/|$)/,
   /^\/api\/check-payments(\/|$)/,
   /^\/api\/check-discounts(\/|$)/,
   /^\/api\/check-service-charges(\/|$)/,
   /^\/api\/payments(\/|$)/,
-  /^\/api\/pos\/(checks|process-card-payment)(\/|$)/,
   /^\/api\/kds-tickets(\/|$)/,
 ];
 
