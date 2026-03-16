@@ -2867,12 +2867,44 @@ function serveBundledAsset(pathname) {
   }
 }
 
+let bundledAssetsAvailable = false;
+function checkBundledAssetsIntegrity() {
+  try {
+    const assetsDir = getBundledAssetsDir();
+    const indexPath = path.join(assetsDir, 'index.html');
+    if (!fs.existsSync(indexPath)) {
+      appLogger.warn('BundledAssets', `Integrity check FAILED: index.html not found at ${indexPath}`);
+      bundledAssetsAvailable = false;
+      return false;
+    }
+    const indexSize = fs.statSync(indexPath).size;
+    if (indexSize < 100) {
+      appLogger.warn('BundledAssets', `Integrity check FAILED: index.html too small (${indexSize} bytes)`);
+      bundledAssetsAvailable = false;
+      return false;
+    }
+    const assetsSubdir = path.join(assetsDir, 'assets');
+    const hasAssets = fs.existsSync(assetsSubdir) && fs.readdirSync(assetsSubdir).length > 0;
+    if (!hasAssets) {
+      appLogger.warn('BundledAssets', 'Integrity check WARNING: assets/ directory empty or missing');
+    }
+    appLogger.info('BundledAssets', `Integrity check passed: index.html=${indexSize}b, assets=${hasAssets}`);
+    bundledAssetsAvailable = true;
+    return true;
+  } catch (e) {
+    appLogger.warn('BundledAssets', `Integrity check error: ${e.message}`);
+    bundledAssetsAvailable = false;
+    return false;
+  }
+}
+
 function registerProtocolInterceptor() {
   if (protocolInterceptorRegistered) return;
   protocolInterceptorRegistered = true;
   protocolInterceptorStartTime = Date.now();
   protocolConsecutiveFailCount = 0;
   ensurePageCacheDir();
+  checkBundledAssetsIntegrity();
 
   protocol.handle('https', async (request) => {
     const url = new URL(request.url);
@@ -2984,7 +3016,8 @@ function registerProtocolInterceptor() {
               const tsHeaders = { 'Content-Type': 'application/json' };
               if (tsConfig.deviceId) tsHeaders['x-workstation-id'] = tsConfig.deviceId;
               if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
-              (async () => {
+              let capsForwardSuccess = false;
+              for (let tsAttempt = 1; tsAttempt <= 2; tsAttempt++) {
                 try {
                   const capsResp = await fetch(`${capsUrl}/api/terminal-sessions`, {
                     method: 'POST',
@@ -2993,17 +3026,28 @@ function registerProtocolInterceptor() {
                     signal: AbortSignal.timeout(5000),
                   });
                   const capsData = await capsResp.json().catch(() => ({}));
-                  appLogger.info('Interceptor', `CAPS terminal-session forwarded: ${capsResp.status} -> id=${capsData.id || 'unknown'}`);
+                  appLogger.info('Interceptor', `CAPS terminal-session created: ${capsResp.status} -> id=${capsData.id || 'unknown'} (attempt ${tsAttempt})`);
                   if (capsData.id && result.data && result.data.id) {
                     if (offlineInterceptor) {
                       offlineInterceptor._capsTerminalSessionMap = offlineInterceptor._capsTerminalSessionMap || {};
                       offlineInterceptor._capsTerminalSessionMap[result.data.id] = capsData.id;
                     }
+                    result.data.capsSessionId = capsData.id;
                   }
+                  capsForwardSuccess = true;
+                  break;
                 } catch (e) {
-                  appLogger.warn('Interceptor', `CAPS terminal-session forward failed: ${e.message}`);
+                  appLogger.warn('Interceptor', `CAPS terminal-session create attempt ${tsAttempt}/2 failed: ${e.message}`);
+                  if (tsAttempt < 2) await new Promise(r => setTimeout(r, 500));
                 }
-              })();
+              }
+              if (!capsForwardSuccess) {
+                appLogger.error('Interceptor', 'CAPS terminal-session create failed after 2 attempts, queuing for retry');
+                if (enhancedOfflineDb && enhancedOfflineDb.queueOperation) {
+                  enhancedOfflineDb.queueOperation('terminal_session_create', '/api/terminal-sessions', 'POST', body || {}, 1);
+                }
+                result.data.capsForwardPending = true;
+              }
             }
           }
           const termSessionPatchMatch = url.pathname.match(/^\/api\/terminal-sessions\/([^/]+)$/);
@@ -3015,12 +3059,21 @@ function registerProtocolInterceptor() {
               const tsConfig = loadConfig();
               const tsHeaders = { 'Content-Type': 'application/json' };
               if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
-              fetch(`${capsUrl}/api/terminal-sessions/${mappedId}`, {
-                method: 'PATCH',
-                headers: tsHeaders,
-                body: JSON.stringify(body || {}),
-                signal: AbortSignal.timeout(3000),
-              }).catch(e => appLogger.warn('Interceptor', `CAPS terminal-session patch forward failed: ${e.message}`));
+              for (let patchAttempt = 1; patchAttempt <= 2; patchAttempt++) {
+                try {
+                  const patchResp = await fetch(`${capsUrl}/api/terminal-sessions/${mappedId}`, {
+                    method: 'PATCH',
+                    headers: tsHeaders,
+                    body: JSON.stringify(body || {}),
+                    signal: AbortSignal.timeout(3000),
+                  });
+                  appLogger.info('Interceptor', `CAPS terminal-session patch: ${mappedId} -> ${patchResp.status} (attempt ${patchAttempt})`);
+                  break;
+                } catch (e) {
+                  appLogger.warn('Interceptor', `CAPS terminal-session patch attempt ${patchAttempt}/2 failed: ${e.message}`);
+                  if (patchAttempt < 2) await new Promise(r => setTimeout(r, 500));
+                }
+              }
             }
           }
           return new Response(JSON.stringify(result.data), {
@@ -3378,7 +3431,21 @@ button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:13px;opacity:0.5
         });
       }
 
-      return new Response('', { status: 503 });
+      appLogger.warn('BundledAssets', `No fallback available for asset: ${url.pathname}, serving minimal offline response`);
+      const offlineFallbackHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS - Restart Required</title>
+<style>body{font-family:system-ui;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
+.c{max-width:480px;padding:40px}h1{margin-bottom:12px;color:#f59e0b}p{opacity:0.8;line-height:1.6;margin-bottom:20px}
+button{padding:12px 32px;font-size:16px;border:1px solid #4a4a6a;border-radius:8px;background:#2a2a4a;color:#fff;cursor:pointer}
+button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:13px;opacity:0.5}</style></head>
+<body><div class="c"><h1>Restart Required</h1>
+<p>The application needs to be restarted. Bundled assets are missing or unavailable.</p>
+<p>Please close and reopen the application, or connect to the internet to download the latest version.</p>
+<button onclick="location.reload()">Retry</button>
+<p class="info">If this persists, reinstall the application.</p></div></body></html>`;
+      return new Response(offlineFallbackHtml, {
+        status: 503,
+        headers: { 'Content-Type': 'text/html' },
+      });
     }
   });
 
