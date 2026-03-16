@@ -72,12 +72,6 @@ class OfflineApiInterceptor {
   }
 
   canHandleOffline(method, pathname) {
-    const isRedMode = this._connectionMode === 'red';
-
-    if (this._isCheckEndpoint(pathname) && !isRedMode) {
-      return false;
-    }
-
     if (method === 'GET') {
       const readEndpoints = [
         /^\/api\/menu-items/,
