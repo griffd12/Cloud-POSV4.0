@@ -2986,7 +2986,7 @@ function registerProtocolInterceptor() {
               if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
               (async () => {
                 try {
-                  const capsResp = await fetch(`${capsUrl}/api/caps/terminal-sessions`, {
+                  const capsResp = await fetch(`${capsUrl}/api/terminal-sessions`, {
                     method: 'POST',
                     headers: tsHeaders,
                     body: JSON.stringify(body || {}),
@@ -3015,7 +3015,7 @@ function registerProtocolInterceptor() {
               const tsConfig = loadConfig();
               const tsHeaders = { 'Content-Type': 'application/json' };
               if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
-              fetch(`${capsUrl}/api/caps/terminal-sessions/${mappedId}`, {
+              fetch(`${capsUrl}/api/terminal-sessions/${mappedId}`, {
                 method: 'PATCH',
                 headers: tsHeaders,
                 body: JSON.stringify(body || {}),
@@ -3058,7 +3058,7 @@ function registerProtocolInterceptor() {
             if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
             const sessionId = url.pathname.match(/^\/api\/terminal-sessions\/([^/]+)$/)[1];
             const mappedId = (offlineInterceptor._capsTerminalSessionMap && offlineInterceptor._capsTerminalSessionMap[sessionId]) || sessionId;
-            const capsResp = await fetch(`${capsUrl}/api/caps/terminal-sessions/${mappedId}`, {
+            const capsResp = await fetch(`${capsUrl}/api/terminal-sessions/${mappedId}`, {
               method: 'GET',
               headers: tsHeaders,
               signal: AbortSignal.timeout(2000),
