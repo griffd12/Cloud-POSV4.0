@@ -1611,6 +1611,10 @@ export default function PosPage() {
 
   const handleEditModifiers = async (item: CheckItem) => {
     console.log('[POS] handleEditModifiers called for item:', item.menuItemName, 'id:', item.id);
+    if (editingClosedCheckId || pendingReopenCheckId) {
+      toast({ title: "Cannot edit modifiers", description: "Only tender changes are allowed", variant: "destructive" });
+      return;
+    }
     if (item.sent) {
       toast({ title: "Cannot modify sent items", variant: "destructive" });
       return;
@@ -2272,8 +2276,14 @@ export default function PosPage() {
             onPay={() => {
               setShowPaymentModal(true);
             }}
-            onNewCheck={() => setShowOrderTypeModal(true)}
-            onChangeOrderType={() => setShowOrderTypeModal(true)}
+            onNewCheck={() => {
+              if (editingClosedCheckId || pendingReopenCheckId) return;
+              setShowOrderTypeModal(true);
+            }}
+            onChangeOrderType={() => {
+              if (editingClosedCheckId || pendingReopenCheckId) return;
+              setShowOrderTypeModal(true);
+            }}
             onPriceOverride={(item) => {
               if (pendingReopenCheckId || editingClosedCheckId) {
                 toast({ title: "Cannot modify price", description: "Only tender changes are allowed", variant: "destructive" });

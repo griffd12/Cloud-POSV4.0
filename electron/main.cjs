@@ -3302,6 +3302,26 @@ function registerProtocolInterceptor() {
         }
       }
 
+      if (response.ok && isApiRequest && request.method === 'GET' && enhancedOfflineDb) {
+        const singleCheckReadMatch = url.pathname.match(/^\/api\/checks\/([0-9a-f][^/]*)$/);
+        if (singleCheckReadMatch) {
+          const persistClone = response.clone();
+          (async () => {
+            try {
+              const ct = persistClone.headers.get('content-type') || '';
+              if (!ct.includes('json')) return;
+              const cloudData = await persistClone.json();
+              if (cloudData && cloudData.check && cloudData.check.id) {
+                const checkToSave = { ...cloudData.check, items: cloudData.items || [], payments: cloudData.payments || [] };
+                enhancedOfflineDb.saveOfflineCheck(checkToSave);
+              }
+            } catch (e) {
+              appLogger.debug('Interceptor', `Failed to persist cloud check read locally: ${e.message}`);
+            }
+          })();
+        }
+      }
+
       if (response.ok && isApiRequest && /^\/api\/checks/.test(url.pathname) && request.method !== 'GET' && connectionMode === 'green') {
         const capsUrl = getCapsServiceHostUrl();
         if (capsUrl) {

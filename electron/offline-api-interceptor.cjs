@@ -420,6 +420,9 @@ class OfflineApiInterceptor {
       const check = this.db.getOfflineCheck(checkId);
       if (check) {
         const payments = check.payments || [];
+        if (payments.length === 0 && this._connectionMode === 'green') {
+          return null;
+        }
         const activePayments = payments.filter(p => p.paymentStatus !== 'voided' && !p.voided);
         const paidAmount = activePayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
         const totalDue = parseFloat(check.total || check.subtotal || 0);
