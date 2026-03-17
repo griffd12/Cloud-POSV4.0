@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -166,6 +167,12 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    if (window.electronAPI?.signalBootstrapReady) {
+      window.electronAPI.signalBootstrapReady().catch(() => {});
+    }
+  }, []);
+
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light" storageKey="pos-ui-theme">

@@ -110,6 +110,7 @@ declare global {
       emvCancel: (address: string, port?: number) => Promise<{ success: boolean; reason?: string }>;
       emvGetPendingPayments: () => Promise<OfflinePayment[]>;
       emvMarkPaymentSynced: (id: string) => Promise<{ success: boolean }>;
+      signalBootstrapReady: () => Promise<{ success: boolean }>;
       onOnlineStatus: (callback: (status: boolean) => void) => () => void;
       onConnectionMode: (callback: (mode: string) => void) => () => void;
       onSyncStatus: (callback: (status: { pending: number; lastSync: string }) => void) => () => void;

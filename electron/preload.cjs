@@ -91,6 +91,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSystemLog: (lines) => ipcRenderer.invoke('get-log-content', { logName: 'system', lines: lines || 300 }),
   log: (level, subsystem, category, message, data) =>
     ipcRenderer.invoke('renderer-log', { level, subsystem, category, message, data }),
+  signalBootstrapReady: () => ipcRenderer.invoke('renderer-bootstrap-ready'),
 
   // === Auto-Updater API ===
   updater: {
