@@ -494,6 +494,14 @@ class OfflineDatabase {
       );
       CREATE INDEX IF NOT EXISTS idx_offline_idempotency_expires ON idempotency_keys (expires_at);
 
+      -- Offline refunds
+      CREATE TABLE IF NOT EXISTS offline_refunds (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
       -- Sync metadata
       CREATE TABLE IF NOT EXISTS sync_metadata (
         key TEXT PRIMARY KEY,
@@ -908,6 +916,24 @@ class OfflineDatabase {
       return [];
     } catch (e) {
       return [];
+    }
+  }
+
+  saveEntity(tableName, entity) {
+    if (!entity || !entity.id) return;
+    if (!this.usingSqlite) {
+      const all = this.getCachedConfig(tableName) || [];
+      const idx = all.findIndex(item => item.id === entity.id);
+      if (idx >= 0) all[idx] = entity;
+      else all.push(entity);
+      this.setCachedConfig(tableName, all);
+      return;
+    }
+    try {
+      this.db.prepare(`CREATE TABLE IF NOT EXISTS ${tableName} (id TEXT PRIMARY KEY, enterprise_id TEXT, data TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))`).run();
+      this.db.prepare(`INSERT OR REPLACE INTO ${tableName} (id, enterprise_id, data) VALUES (?, ?, ?)`).run(entity.id, entity.enterpriseId || null, JSON.stringify(entity));
+    } catch (e) {
+      offlineDbLogger.error('DB', `Failed to save entity to ${tableName}: ${e.message}`);
     }
   }
 

@@ -1021,6 +1021,7 @@ export default function PosPage() {
         setCurrentCheck(data.check);
         setCheckItems(data.items);
         setPendingReopenCheckId(checkId);
+        queryClient.invalidateQueries({ queryKey: ["/api/checks", checkId, "payments"] });
         setShowReopenModal(false);
       } else {
         toast({ title: "Failed to load check", variant: "destructive" });
@@ -1383,7 +1384,10 @@ export default function PosPage() {
   };
 
   const handleSelectItem = async (item: MenuItemWithModifiers, skipAvailabilityCheck?: boolean) => {
-    // Prevent adding items when viewing a closed check (pending reopen mode)
+    if (editingClosedCheckId) {
+      toast({ title: "Cannot add items", description: "Only tender changes are allowed when editing a closed check", variant: "destructive" });
+      return;
+    }
     if (pendingReopenCheckId) {
       toast({ title: "Cannot add items", description: "Void a payment first to reopen this check", variant: "destructive" });
       return;
@@ -1577,7 +1581,10 @@ export default function PosPage() {
   };
 
   const handleVoidItem = (item: CheckItem) => {
-    // Block voiding items on a closed check being viewed (use void payment to reopen first)
+    if (editingClosedCheckId) {
+      toast({ title: "Cannot void items", description: "Only tender changes are allowed when editing a closed check", variant: "destructive" });
+      return;
+    }
     if (pendingReopenCheckId) {
       toast({ title: "Cannot void items", description: "Void a payment first to reopen this check", variant: "destructive" });
       return;
@@ -2263,25 +2270,21 @@ export default function PosPage() {
             onSelectItem={handleSelectCheckItem}
             selectedItemId={selectedItemId}
             onPay={() => {
-              if (pendingReopenCheckId) {
-                toast({ title: "Cannot add payment", description: "Void a payment first to reopen this check", variant: "destructive" });
-                return;
-              }
               setShowPaymentModal(true);
             }}
             onNewCheck={() => setShowOrderTypeModal(true)}
             onChangeOrderType={() => setShowOrderTypeModal(true)}
             onPriceOverride={(item) => {
-              if (pendingReopenCheckId) {
-                toast({ title: "Cannot modify price", description: "Void a payment first to reopen this check", variant: "destructive" });
+              if (pendingReopenCheckId || editingClosedCheckId) {
+                toast({ title: "Cannot modify price", description: "Only tender changes are allowed", variant: "destructive" });
                 return;
               }
               setSelectedItemId(item.id);
               setShowPriceOverrideModal(true);
             }}
             onDiscountItem={(item) => {
-              if (pendingReopenCheckId) {
-                toast({ title: "Cannot apply discount", description: "Void a payment first to reopen this check", variant: "destructive" });
+              if (pendingReopenCheckId || editingClosedCheckId) {
+                toast({ title: "Cannot apply discount", description: "Only tender changes are allowed", variant: "destructive" });
                 return;
               }
               setDiscountItem(item);
