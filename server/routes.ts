@@ -18217,9 +18217,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       
       await storage.updateRegisteredDevice(device.id, {
         lastAccessAt: new Date(),
+        ipAddress: req.body?.ipAddress || device.ipAddress,
       });
+
+      if (device.workstationId) {
+        await storage.updateWorkstation(device.workstationId, {
+          isOnline: true,
+          lastSeenAt: new Date(),
+          ipAddress: req.body?.ipAddress || undefined,
+          hostname: req.body?.hostname || undefined,
+        });
+      }
       
-      console.log(`[DeviceTracker] Device heartbeat: ${device.name} (${device.id})`);
+      console.log(`[DeviceTracker] Device heartbeat: ${device.name} (${device.id}) WS: ${device.workstationId || 'none'}`);
       
       res.json({ success: true, timestamp: new Date().toISOString() });
     } catch (error) {
