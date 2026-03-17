@@ -580,7 +580,14 @@ class OfflineApiInterceptor {
       return { status: 200, data };
     }
 
-    if (pathname.match(/^\/api\/checks\/[^/]+\/service-charges/)) {
+    if (pathname.match(/^\/api\/checks\/([^/]+)\/service-charges$/)) {
+      const scMatch = pathname.match(/^\/api\/checks\/([^/]+)\/service-charges$/);
+      if (scMatch) {
+        const check = this.db.getOfflineCheck(scMatch[1]);
+        if (check) {
+          return { status: 200, data: check.serviceCharges || [] };
+        }
+      }
       return { status: 200, data: [] };
     }
 

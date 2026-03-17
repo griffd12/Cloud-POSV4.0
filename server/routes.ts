@@ -25029,57 +25029,43 @@ connect();
 
             const wsCheckId = d.id || d.checkId || d.check_id || null;
 
-            let existingCheck = wsCheckId
+            const checkFields = {
+              employeeId,
+              orderType,
+              status: checkStatus,
+              subtotal,
+              taxTotal,
+              discountTotal,
+              serviceChargeTotal,
+              total,
+              guestCount: d.guestCount || d.guest_count || 1,
+              tableNumber: d.tableNumber || d.table_number || null,
+              businessDate: d.businessDate || d.business_date,
+              closedAt: d.closedAt || d.closed_at ? new Date(d.closedAt || d.closed_at) : undefined,
+              customerName: d.customerName || d.customer_name || null,
+              customerId: d.customerId || d.customer_id || null,
+            };
+
+            let existingById = wsCheckId
               ? await db.select().from(checks).where(eq(checks.id, wsCheckId)).limit(1)
               : [];
-            if (existingCheck.length === 0) {
-              existingCheck = await db.select().from(checks)
-                .where(and(eq(checks.rvcId, rvcId), eq(checks.checkNumber, checkNumber)))
-                .limit(1);
-            }
 
             let cloudCheck;
-            if (existingCheck.length > 0) {
-              cloudCheck = await storage.updateCheck(existingCheck[0].id, {
-                employeeId,
-                orderType,
-                status: checkStatus,
-                subtotal,
-                taxTotal,
-                discountTotal,
-                serviceChargeTotal,
-                total,
-                guestCount: d.guestCount || d.guest_count || 1,
-                tableNumber: d.tableNumber || d.table_number || null,
-                businessDate: d.businessDate || d.business_date,
-                closedAt: d.closedAt || d.closed_at ? new Date(d.closedAt || d.closed_at) : undefined,
-                customerName: d.customerName || d.customer_name || null,
-                customerId: d.customerId || d.customer_id || null,
-              });
+            if (existingById.length > 0) {
+              cloudCheck = await storage.updateCheck(existingById[0].id, checkFields);
             } else {
-              const checkInsertData: any = {
-                checkNumber,
-                employeeId,
-                rvcId,
-                orderType,
-                status: checkStatus,
-                subtotal,
-                taxTotal,
-                discountTotal,
-                serviceChargeTotal,
-                total,
-                guestCount: d.guestCount || d.guest_count || 1,
-                tableNumber: d.tableNumber || d.table_number || null,
-                businessDate: d.businessDate || d.business_date,
-                closedAt: d.closedAt || d.closed_at ? new Date(d.closedAt || d.closed_at) : undefined,
-                customerName: d.customerName || d.customer_name || null,
-                customerId: d.customerId || d.customer_id || null,
-              };
-              if (wsCheckId) {
-                const [result] = await db.insert(checks).values({ ...checkInsertData, id: wsCheckId }).returning();
-                cloudCheck = result;
+              const existingByNumber = await db.select().from(checks)
+                .where(and(eq(checks.rvcId, rvcId), eq(checks.checkNumber, checkNumber)))
+                .limit(1);
+
+              if (existingByNumber.length > 0) {
+                cloudCheck = await storage.updateCheck(existingByNumber[0].id, checkFields);
               } else {
-                cloudCheck = await storage.createCheck(checkInsertData);
+                const [result] = await db.insert(checks).values({
+                  ...(wsCheckId ? { id: wsCheckId } : {}),
+                  checkNumber, rvcId, ...checkFields,
+                }).returning();
+                cloudCheck = result;
               }
             }
 
