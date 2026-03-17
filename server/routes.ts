@@ -1737,11 +1737,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // HEALTH CHECK
   // ============================================================================
 
+  const BUILD_HASH = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+
   app.get("/api/health", (req, res) => {
     res.json({ 
       status: "ok", 
       timestamp: new Date().toISOString()
     });
+  });
+
+  app.get("/api/health/build-version", (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.json({ buildHash: BUILD_HASH, serverStartedAt: new Date().toISOString() });
   });
 
   app.get("/api/health/db-probe", async (req, res) => {

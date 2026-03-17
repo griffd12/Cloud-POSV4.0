@@ -717,7 +717,47 @@ function createWindow() {
     const startPath = appMode === 'kds' ? '/kds' : '/';
     const targetUrl = `${serverUrl}${startPath}`;
     appLogger.info('Window', `Loading URL: ${targetUrl} (always-local frontend via protocol interceptor)`);
+    
+    mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
+      details.requestHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+      details.requestHeaders['Pragma'] = 'no-cache';
+      callback({ requestHeaders: details.requestHeaders });
+    });
+
     mainWindow.loadURL(targetUrl);
+
+    let lastBuildHash = null;
+    const REFRESH_INTERVAL_MS = 2 * 60 * 1000;
+    const buildCheckInterval = setInterval(async () => {
+      try {
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          clearInterval(buildCheckInterval);
+          return;
+        }
+        const serverUrl = getServerUrl();
+        const resp = await require('electron').net.fetch(`${serverUrl}/api/health/build-version`, {
+          cache: 'no-store',
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data.buildHash) return;
+        
+        if (lastBuildHash === null) {
+          lastBuildHash = data.buildHash;
+          appLogger.info('FrontendRefresh', `Initial build hash: ${lastBuildHash}`);
+        } else if (lastBuildHash !== data.buildHash) {
+          appLogger.info('FrontendRefresh', `Build hash changed: ${lastBuildHash} → ${data.buildHash}. Reloading frontend.`);
+          lastBuildHash = data.buildHash;
+          mainWindow.webContents.reloadIgnoringCache();
+        }
+      } catch (err) {
+        appLogger.debug('FrontendRefresh', `Build version check failed (offline?): ${err.message}`);
+      }
+    }, REFRESH_INTERVAL_MS);
+
+    mainWindow.on('closed', () => {
+      clearInterval(buildCheckInterval);
+    });
   }
 
   if (process.env.NODE_ENV !== 'production' && !isKiosk) {
