@@ -280,15 +280,25 @@ class ServiceHost {
       next();
     });
     
-    const healthResponse = () => ({
-      status: 'ok',
-      version: '1.0.0',
-      serviceHostId: this.config.serviceHostId,
-      cloudConnected: this.cloudConnection.isConnected(),
-      propertyId: this.config.propertyId,
-      uptime: process.uptime(),
-      installedPackages: this.calSync.getInstalledPackages(),
-    });
+    const healthResponse = () => {
+      let dbHealthy = false;
+      try {
+        const row = this.db.getDb().prepare('SELECT 1 AS ok').get() as { ok: number } | undefined;
+        dbHealthy = row?.ok === 1;
+      } catch {
+        dbHealthy = false;
+      }
+      return {
+        status: dbHealthy ? 'ok' : 'degraded',
+        version: '1.0.0',
+        serviceHostId: this.config.serviceHostId,
+        cloudConnected: this.cloudConnection.isConnected(),
+        propertyId: this.config.propertyId,
+        uptime: process.uptime(),
+        dbHealthy,
+        installedPackages: this.calSync.getInstalledPackages(),
+      };
+    };
     this.app.get('/health', (_req, res) => {
       res.json(healthResponse());
     });

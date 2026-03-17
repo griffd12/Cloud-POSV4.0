@@ -69,6 +69,10 @@ export class Database {
   async initialize(): Promise<void> {
     console.log('[DB] Database already initialized in constructor');
   }
+
+  getDb(): any {
+    return this.db;
+  }
   
   private createSchema(): void {
     try {

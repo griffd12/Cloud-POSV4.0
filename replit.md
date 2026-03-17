@@ -70,7 +70,16 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - Cloud `/api/check-service-charges/*` → CAPS `/api/check-service-charges/*` (same path)
 - Cloud `/api/payments/*` → CAPS `/api/payment/*` (singular on CAPS)
 - Cloud `/api/refunds/*` → CAPS `/api/payment/*` (handled by payment controller on CAPS)
+- Cloud `/api/auth/login`, `/api/auth/pin`, `/api/employees/*/authenticate` → CAPS (same paths)
+- Cloud `/api/kds-tickets/*` → CAPS `/api/kds-tickets/*` (same path)
+- Cloud `/api/time-punches/*`, `/api/time-clock/*` → CAPS (same paths)
 - Config reads (menu-items, slus, modifiers, etc.) are served by CAPS at same paths
+
+#### CAPS-First Write Protection (v3.1.70+):
+- All WRITE operations (POST/PUT/PATCH/DELETE) to CAPS-first routes that fail at CAPS return 503 to the UI — they NEVER fall through to cloud
+- Only READ operations (GET/HEAD) may fall through to cloud as a fallback
+- In RED mode, ALL writes across the entire API return 503 with hard-fail error
+- YELLOW mode health probe uses `/api/health` and checks `dbHealthy` field — not just a ping
 
 #### When building ANY feature, ask in this order:
 1. **Does CAPS handle this operation?** (CAPS is the authority)

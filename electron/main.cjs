@@ -3104,6 +3104,14 @@ function registerProtocolInterceptor() {
       }
     }
 
+    if (isApiRequest && connectionMode === 'red' && isWriteMethod) {
+      appLogger.error('Interceptor', `RED mode HARD FAIL: blocking WRITE ${request.method} ${url.pathname} — CAPS unreachable (Architecture Contract: pilot hard fail)`);
+      return new Response(JSON.stringify({ error: 'Store server unreachable — POS operations disabled', mode: 'red', path: url.pathname }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': 'red', 'X-Source': 'red-blocked' },
+      });
+    }
+
     if (isApiRequest && offlineInterceptor && isLocalFirstWrite(request.method, url.pathname)) {
       const cloudFallbackClone = request.clone();
       const body = await parseRequestBody(request);
