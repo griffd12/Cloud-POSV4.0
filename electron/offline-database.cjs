@@ -1034,7 +1034,15 @@ class OfflineDatabase {
       }
     }
 
+    let consecutiveNetworkFailures = 0;
+    const MAX_CONSECUTIVE_FAILURES = 3;
+
     for (const ep of endpoints) {
+      if (consecutiveNetworkFailures >= MAX_CONSECUTIVE_FAILURES) {
+        offlineDbLogger.warn('Sync', `Aborting sync: ${consecutiveNetworkFailures} consecutive network failures — cloud likely unreachable (${endpoints.length - results.synced.length - results.errors.length} tables skipped)`);
+        results.aborted = true;
+        break;
+      }
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15000);
@@ -1045,6 +1053,7 @@ class OfflineDatabase {
         clearTimeout(timeout);
 
         if (response.ok) {
+          consecutiveNetworkFailures = 0;
           const data = await response.json();
           if (ep.table) {
             const items = Array.isArray(data) ? data : [data];
@@ -1059,9 +1068,11 @@ class OfflineDatabase {
             results.synced.push({ key: ep.key });
           }
         } else {
+          consecutiveNetworkFailures++;
           results.errors.push({ endpoint: ep.url, status: response.status });
         }
       } catch (e) {
+        consecutiveNetworkFailures++;
         results.errors.push({ endpoint: ep.url, error: e.message });
       }
     }

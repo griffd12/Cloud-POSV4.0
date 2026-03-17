@@ -41,6 +41,11 @@ let protocolConsecutiveFailCount = 0;
 const PROTOCOL_STARTUP_GRACE_MS = 2000;
 const PROTOCOL_FAIL_THRESHOLD = 3;
 let firstBootConnectivityChecked = false;
+let bootstrapWatchdogTimer = null;
+let bootstrapWatchdogCleared = false;
+let bootstrapReloadCount = 0;
+const BOOTSTRAP_WATCHDOG_MS = 10000;
+const BOOTSTRAP_MAX_RELOADS = 2;
 
 const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/auth\/login(\/|$)/,
@@ -989,6 +994,19 @@ ${countdownText}${isKdsMode ? '<div style="width:32px;height:32px;border:3px sol
     if (!url.startsWith('data:')) {
       appLogger.info('Window', `Page loaded successfully: ${url}`);
       injectServiceHostUrl();
+
+      if (!bootstrapWatchdogCleared && bootstrapReloadCount < BOOTSTRAP_MAX_RELOADS) {
+        if (bootstrapWatchdogTimer) clearTimeout(bootstrapWatchdogTimer);
+        bootstrapWatchdogTimer = setTimeout(() => {
+          if (!bootstrapWatchdogCleared && mainWindow && !mainWindow.isDestroyed()) {
+            bootstrapReloadCount++;
+            appLogger.warn('Window', `Bootstrap watchdog: no renderer activity after ${BOOTSTRAP_WATCHDOG_MS / 1000}s, reloading (attempt ${bootstrapReloadCount}/${BOOTSTRAP_MAX_RELOADS})`);
+            mainWindow.webContents.reloadIgnoringCache();
+          }
+        }, BOOTSTRAP_WATCHDOG_MS);
+      } else if (bootstrapReloadCount >= BOOTSTRAP_MAX_RELOADS && !bootstrapWatchdogCleared) {
+        appLogger.error('Window', `Bootstrap watchdog: ${BOOTSTRAP_MAX_RELOADS} reload attempts exhausted, app may be stuck`);
+      }
     }
   });
 }
@@ -1268,6 +1286,11 @@ function setupIpcHandlers() {
 
   ipcMain.handle('renderer-log', (event, payload) => {
     try {
+      if (!bootstrapWatchdogCleared) {
+        bootstrapWatchdogCleared = true;
+        if (bootstrapWatchdogTimer) { clearTimeout(bootstrapWatchdogTimer); bootstrapWatchdogTimer = null; }
+        appLogger.info('Window', 'Bootstrap watchdog cleared via renderer-log IPC');
+      }
       if (!payload || typeof payload !== 'object') return { success: false };
       const allowedLevels = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
       const allowedSubsystems = ['RENDERER', 'NETWORK', 'POS', 'KDS', 'SYNC', 'UI', 'AUTH'];
@@ -1290,6 +1313,18 @@ function setupIpcHandlers() {
     } catch {
       return { success: false };
     }
+  });
+
+  ipcMain.handle('renderer-bootstrap-ready', () => {
+    if (!bootstrapWatchdogCleared) {
+      bootstrapWatchdogCleared = true;
+      if (bootstrapWatchdogTimer) {
+        clearTimeout(bootstrapWatchdogTimer);
+        bootstrapWatchdogTimer = null;
+      }
+      appLogger.info('Window', `Bootstrap watchdog cleared: renderer confirmed ready (after ${bootstrapReloadCount} reload(s))`);
+    }
+    return { success: true };
   });
 
   ipcMain.handle('print-raw', async (event, { address, port, data }) => {
@@ -3432,6 +3467,13 @@ function registerProtocolInterceptor() {
       if (bundled) {
         return bundled;
       }
+      if (bundledAssetsAvailable) {
+        const spaFallback = serveBundledAsset('/');
+        if (spaFallback) {
+          appLogger.debug('Interceptor', `Bundled SPA fallback for: ${url.pathname}`);
+          return spaFallback;
+        }
+      }
     }
 
     const failoverClone = isApiRequest ? request.clone() : null;
@@ -3667,6 +3709,13 @@ function registerProtocolInterceptor() {
       if (bundled) {
         appLogger.info('BundledAssets', `Serving bundled asset (network error fallback): ${url.pathname}`);
         return bundled;
+      }
+      if (bundledAssetsAvailable) {
+        const spaFallback = serveBundledAsset('/');
+        if (spaFallback) {
+          appLogger.info('BundledAssets', `SPA fallback (network error): ${url.pathname}`);
+          return spaFallback;
+        }
       }
 
       if (!url.pathname.includes('.')) {
