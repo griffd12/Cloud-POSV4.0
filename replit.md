@@ -126,6 +126,9 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - **Device Tracker**: Unified tracking for WS and KDS Electron devices.
 - **CAPS Service Host Resilience**: Ensures critical tables and token management.
 - **Real-time Sync Push Notifications**: Critical sync events trigger WebSocket notifications and UI updates.
+- **Bootstrap Watchdog (v3.1.75)**: 10s timer after page load auto-reloads if renderer doesn't signal React bootstrap (max 2 retries). Cleared by `renderer-log` or `renderer-bootstrap-ready` IPC.
+- **Bundled Asset Priority (v3.1.75)**: Protocol interceptor always serves bundled production assets for non-API requests when available — never falls through to cloud Vite dev server for UI content.
+- **Sync Early-Abort (v3.1.75)**: `syncFromCloud()` aborts after 3 consecutive network failures instead of attempting all 56+ table endpoints.
 
 ## External Dependencies
 
