@@ -2343,6 +2343,41 @@ async function initPrintAgent() {
   }
 }
 
+async function initOfflineDbEarly() {
+  try {
+    if (enhancedOfflineDb) return;
+    enhancedOfflineDb = new OfflineDatabase({ dataDir: DATA_DIR });
+    await enhancedOfflineDb.initialize();
+    const config = loadConfig();
+    enhancedOfflineDb.config = {
+      deviceId: config.deviceId || null,
+      deviceName: config.deviceName || null,
+      enterpriseId: config.enterpriseId || null,
+      propertyId: config.propertyId || null,
+    };
+    offlineInterceptor = new OfflineApiInterceptor(enhancedOfflineDb);
+    offlineInterceptor.setConfig({
+      enterpriseId: config.enterpriseId || null,
+      propertyId: config.propertyId || null,
+      rvcId: config.rvcId || null,
+    });
+    if (config.serviceHostUrl) {
+      capsConfig = {
+        serviceHostUrl: config.serviceHostUrl,
+        capsWorkstationId: config.capsWorkstationId || null,
+        capsWorkstationName: config.capsWorkstationName || null,
+        isCapsWorkstation: config.isCapsWorkstation || false,
+        propertyId: config.propertyId,
+        serviceHostId: null,
+      };
+    }
+    initOfflineDatabase();
+    appLogger.info('OfflineDB', 'Early offline DB + interceptor initialized for instant boot');
+  } catch (e) {
+    appLogger.warn('OfflineDB', `Early init failed (will retry in full init): ${e.message}`);
+  }
+}
+
 async function initEnhancedOfflineDb() {
   enhancedOfflineDb = new OfflineDatabase({
     dataDir: DATA_DIR,
@@ -3603,17 +3638,25 @@ app.whenReady().then(async () => {
 
   setupIpcHandlers();
 
-  if (config.setupComplete) {
-    appLogger.info('App', 'Setup previously completed, initializing all services');
-    migrateAutoStartup(config);
-    await initAllServices();
-  } else {
-    appLogger.info('App', 'Setup not yet completed, launching Setup Wizard only (no services initialized)');
-  }
-
   registerProtocolInterceptor();
 
-  createWindow();
+  if (config.setupComplete) {
+    appLogger.info('App', 'Setup previously completed — launching window first, services in background');
+    migrateAutoStartup(config);
+
+    await initOfflineDbEarly();
+
+    createWindow();
+
+    initAllServices().then(() => {
+      appLogger.info('App', 'Background service initialization complete');
+    }).catch(err => {
+      appLogger.error('App', `Background service init failed: ${err.message}`);
+    });
+  } else {
+    appLogger.info('App', 'Setup not yet completed, launching Setup Wizard only (no services initialized)');
+    createWindow();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -1839,7 +1839,25 @@ export function createApiRoutes(
     }
   });
 
-  const localTerminalSessions: Map<string, any> = new Map();
+  try {
+    caps.db.run(`
+      CREATE TABLE IF NOT EXISTS terminal_sessions (
+        id TEXT PRIMARY KEY,
+        terminal_device_id TEXT,
+        check_id TEXT,
+        amount TEXT,
+        tip_amount TEXT DEFAULT '0.00',
+        status TEXT DEFAULT 'pending',
+        transaction_type TEXT DEFAULT 'sale',
+        data TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    console.log('[CAPS] terminal_sessions table ensured in CAPS database');
+  } catch (e) {
+    console.error('[CAPS] Failed to create terminal_sessions table:', (e as Error).message);
+  }
 
   router.post('/terminal-sessions', async (req, res) => {
     try {
@@ -1856,8 +1874,14 @@ export function createApiRoutes(
         updatedAt: new Date().toISOString(),
         localCaps: true,
       };
-      localTerminalSessions.set(sessionId, session);
-      console.log(`[CAPS] Terminal session created locally: ${sessionId}`);
+      caps.db.run(
+        `INSERT INTO terminal_sessions (id, terminal_device_id, check_id, amount, tip_amount, status, transaction_type, data, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [session.id, session.terminalDeviceId, session.checkId, session.amount,
+         session.tipAmount, session.status, session.transactionType,
+         JSON.stringify(session), session.createdAt, session.updatedAt]
+      );
+      console.log(`[CAPS] Terminal session created (SQLite): ${sessionId}`);
       res.json(session);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -1866,7 +1890,10 @@ export function createApiRoutes(
 
   router.get('/terminal-sessions', async (_req, res) => {
     try {
-      const sessions = Array.from(localTerminalSessions.values());
+      const rows = caps.db.all<any>('SELECT data FROM terminal_sessions ORDER BY created_at DESC');
+      const sessions = rows.map((r: any) => {
+        try { return JSON.parse(r.data); } catch { return r; }
+      });
       res.json(sessions);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -1875,8 +1902,10 @@ export function createApiRoutes(
 
   router.get('/terminal-sessions/:id', async (req, res) => {
     try {
-      const session = localTerminalSessions.get(req.params.id);
-      if (session) return res.json(session);
+      const row = caps.db.get<any>('SELECT data FROM terminal_sessions WHERE id = ?', [req.params.id]);
+      if (row) {
+        try { return res.json(JSON.parse(row.data)); } catch { return res.json(row); }
+      }
       res.status(404).json({ error: 'Terminal session not found' });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -1885,11 +1914,16 @@ export function createApiRoutes(
 
   router.patch('/terminal-sessions/:id', async (req, res) => {
     try {
-      const session = localTerminalSessions.get(req.params.id);
-      if (session) {
+      const row = caps.db.get<any>('SELECT data FROM terminal_sessions WHERE id = ?', [req.params.id]);
+      if (row) {
+        let session: any;
+        try { session = JSON.parse(row.data); } catch { session = { id: req.params.id }; }
         Object.assign(session, req.body, { updatedAt: new Date().toISOString() });
-        localTerminalSessions.set(req.params.id, session);
-        console.log(`[CAPS] Terminal session updated: ${req.params.id} -> ${session.status}`);
+        caps.db.run(
+          `UPDATE terminal_sessions SET data = ?, status = ?, updated_at = ? WHERE id = ?`,
+          [JSON.stringify(session), session.status || 'pending', session.updatedAt, req.params.id]
+        );
+        console.log(`[CAPS] Terminal session updated (SQLite): ${req.params.id} -> ${session.status}`);
         return res.json(session);
       }
       res.status(404).json({ error: 'Terminal session not found' });
