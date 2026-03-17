@@ -21,7 +21,7 @@ let enhancedOfflineDb = null;
 let offlineInterceptor = null;
 let printAgent = null;
 let syncInterval = null;
-let isOnline = false;
+let isOnline = true;
 let emvManager = null;
 let dataSyncInterval = null;
 let protocolInterceptorRegistered = false;
@@ -3060,6 +3060,12 @@ function registerProtocolInterceptor() {
                     body: JSON.stringify(body || {}),
                     signal: AbortSignal.timeout(5000),
                   });
+                  if (!capsResp.ok) {
+                    const errBody = await capsResp.text().catch(() => '');
+                    appLogger.warn('Interceptor', `CAPS terminal-session create returned ${capsResp.status}: ${errBody} (attempt ${tsAttempt})`);
+                    if (tsAttempt < 2) await new Promise(r => setTimeout(r, 500));
+                    continue;
+                  }
                   const capsData = await capsResp.json().catch(() => ({}));
                   appLogger.info('Interceptor', `CAPS terminal-session created: ${capsResp.status} -> id=${capsData.id || 'unknown'} (attempt ${tsAttempt})`);
                   if (capsData.id && result.data && result.data.id) {
