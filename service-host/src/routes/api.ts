@@ -1308,7 +1308,7 @@ export function createApiRoutes(
       if (managerPin) {
         const employees = config.getEmployees();
         const manager = employees.find((emp: any) =>
-          emp.pin === managerPin || emp.posPin === managerPin
+          emp.pinHash === managerPin || emp.pin_hash === managerPin || emp.pin === managerPin || emp.posPin === managerPin || emp.pos_pin === managerPin
         );
         if (!manager) return res.status(401).json({ error: 'Invalid manager PIN' });
         if (requiredPrivilege) {
@@ -1942,20 +1942,20 @@ export function createApiRoutes(
       if (!pin) return res.status(400).json({ message: 'PIN required' });
       const employees = config.getEmployees();
       const employee = employees.find((emp: any) =>
-        emp.pinHash === pin || emp.pin === pin || emp.posPin === pin
+        emp.pinHash === pin || emp.pin_hash === pin || emp.pin === pin || emp.posPin === pin || emp.pos_pin === pin
       );
       if (!employee) return res.status(401).json({ message: 'Invalid PIN' });
       res.json({
         employee: {
           id: employee.id,
-          firstName: employee.firstName,
-          lastName: employee.lastName,
-          pinHash: employee.pinHash,
-          roleId: employee.roleId,
-          roleName: employee.roleName,
+          firstName: employee.firstName || employee.first_name,
+          lastName: employee.lastName || employee.last_name,
+          pinHash: employee.pinHash || employee.pin_hash,
+          roleId: employee.roleId || employee.role_id,
+          roleName: employee.roleName || employee.role_name,
           active: employee.active !== undefined ? employee.active : true,
-          jobTitle: employee.jobTitle || null,
-          enterpriseId: employee.enterpriseId || null,
+          jobTitle: employee.jobTitle || employee.job_title || null,
+          enterpriseId: employee.enterpriseId || employee.enterprise_id || null,
         },
         privileges: employee.privileges || employee.rolePrivileges || [
           'fast_transaction', 'send_to_kitchen', 'void_unsent', 'void_sent',
@@ -1977,7 +1977,7 @@ export function createApiRoutes(
       if (!pin) return res.status(400).json({ success: false, message: 'PIN required' });
       const employees = config.getEmployees();
       const employee = employees.find((emp: any) =>
-        emp.pinHash === pin || emp.pin === pin || emp.posPin === pin
+        emp.pinHash === pin || emp.pin_hash === pin || emp.pin === pin || emp.posPin === pin || emp.pos_pin === pin
       );
       if (!employee) return res.status(401).json({ success: false, message: 'Invalid PIN' });
       res.json({
@@ -1999,12 +1999,12 @@ export function createApiRoutes(
       const employees = config.getEmployees();
       res.json(employees.map((emp: any) => ({
         id: emp.id,
-        firstName: emp.firstName,
-        lastName: emp.lastName,
-        pinHash: emp.pinHash,
-        posPin: emp.posPin,
-        roleId: emp.roleId,
-        roleName: emp.roleName,
+        firstName: emp.firstName || emp.first_name,
+        lastName: emp.lastName || emp.last_name,
+        pinHash: emp.pinHash || emp.pin_hash,
+        posPin: emp.posPin || emp.pos_pin,
+        roleId: emp.roleId || emp.role_id,
+        roleName: emp.roleName || emp.role_name,
         active: emp.active,
       })));
     } catch (e) {
@@ -2019,7 +2019,7 @@ export function createApiRoutes(
       if (!pin) return res.status(400).json({ success: false, message: 'Manager PIN required' });
       const employees = config.getEmployees();
       const manager = employees.find((emp: any) =>
-        emp.pinHash === pin || emp.pin === pin || emp.posPin === pin
+        emp.pinHash === pin || emp.pin_hash === pin || emp.pin === pin || emp.posPin === pin || emp.pos_pin === pin
       );
       if (!manager) return res.status(401).json({ success: false, message: 'Invalid manager PIN' });
       const privs = manager.privileges || manager.rolePrivileges || [];
