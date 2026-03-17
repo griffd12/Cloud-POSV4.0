@@ -2455,5 +2455,8 @@ export function createApiRoutes(
     }
   });
 
+  payment.startPolling(5000);
+  console.log('[CAPS] Payment controller polling started (5s interval)');
+
   return router;
 }

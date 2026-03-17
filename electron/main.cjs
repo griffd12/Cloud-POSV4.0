@@ -114,6 +114,7 @@ const LOCAL_FIRST_READ_PATTERNS = [
   /^\/api\/order-devices/,
   /^\/api\/print-classes/,
   /^\/api\/print-class-routings/,
+  /^\/api\/pos\/reports/,
   /^\/api\/break-rules/,
   /^\/api\/checks\/open/,
   /^\/api\/checks\/locks/,
@@ -3666,14 +3667,22 @@ app.whenReady().then(async () => {
         appLogger.info('App', 'Quick connectivity check: ONLINE');
       } else {
         isOnline = false;
+        connectionMode = 'red';
         firstBootConnectivityChecked = true;
-        if (offlineInterceptor) offlineInterceptor.setOffline(true);
+        if (offlineInterceptor) {
+          offlineInterceptor.setOffline(true);
+          offlineInterceptor.setConnectionMode('red');
+        }
         appLogger.info('App', `Quick connectivity check: OFFLINE (status ${quickCheck.status})`);
       }
     } catch (e) {
       isOnline = false;
+      connectionMode = 'red';
       firstBootConnectivityChecked = true;
-      if (offlineInterceptor) offlineInterceptor.setOffline(true);
+      if (offlineInterceptor) {
+        offlineInterceptor.setOffline(true);
+        offlineInterceptor.setConnectionMode('red');
+      }
       appLogger.info('App', `Quick connectivity check: OFFLINE (${e.message})`);
     }
 

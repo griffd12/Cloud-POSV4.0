@@ -323,7 +323,55 @@ export class PaymentController {
     }
   }
 
-  // Helper to generate auth code
+  async processPendingSessions(): Promise<{ processed: number; failed: number }> {
+    let processed = 0;
+    let failed = 0;
+    try {
+      const pending = this.db.all(
+        `SELECT id, data FROM terminal_sessions WHERE status = 'pending' OR status = 'processing' ORDER BY created_at ASC LIMIT 10`
+      );
+      for (const row of pending as any[]) {
+        const session = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+        try {
+          this.db.run(
+            `UPDATE terminal_sessions SET status = 'processing', updated_at = datetime('now') WHERE id = ?`,
+            [row.id]
+          );
+          await this.processTerminalSession(row.id, session);
+          processed++;
+        } catch (e: any) {
+          failed++;
+        }
+      }
+    } catch (e: any) {
+      console.error(`[PaymentController] Poll pending sessions error: ${e.message}`);
+    }
+    return { processed, failed };
+  }
+
+  startPolling(intervalMs: number = 5000): void {
+    if (this._pollInterval) return;
+    this._pollInterval = setInterval(async () => {
+      try {
+        const result = await this.processPendingSessions();
+        if (result.processed > 0 || result.failed > 0) {
+          console.log(`[PaymentController] Poll: ${result.processed} processed, ${result.failed} failed`);
+        }
+      } catch (e: any) {
+        console.error(`[PaymentController] Poll error: ${e.message}`);
+      }
+    }, intervalMs);
+  }
+
+  stopPolling(): void {
+    if (this._pollInterval) {
+      clearInterval(this._pollInterval);
+      this._pollInterval = null;
+    }
+  }
+
+  private _pollInterval: ReturnType<typeof setInterval> | null = null;
+
   private generateAuthCode(): string {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
   }
