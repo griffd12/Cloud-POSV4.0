@@ -3026,6 +3026,43 @@ function registerProtocolInterceptor() {
 
     const isApiRequest = url.pathname.startsWith('/api/');
 
+    // CAPS-FIRST ROUTING: Transaction operations always go through CAPS when reachable
+    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|payments|refunds)/.test(url.pathname);
+    if (isCapsTransactionRoute && connectionMode === 'green') {
+      const capsUrl = getCapsServiceHostUrl();
+      if (capsUrl) {
+        try {
+          const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
+          const capsReqHeaders = {};
+          for (const [key, value] of request.headers.entries()) {
+            if (key.toLowerCase() !== 'host') capsReqHeaders[key] = value;
+          }
+          const cfgForCaps = loadConfig();
+          if (cfgForCaps.serviceHostToken) capsReqHeaders['x-workstation-token'] = cfgForCaps.serviceHostToken;
+          if (cfgForCaps.deviceId) capsReqHeaders['x-workstation-id'] = cfgForCaps.deviceId;
+          if (cfgForCaps.deviceName) capsReqHeaders['x-device-name'] = cfgForCaps.deviceName;
+          const capsBody = (request.method !== 'GET' && request.method !== 'HEAD') ? await request.clone().arrayBuffer() : undefined;
+          const capsResp = await fetch(capsApiUrl, {
+            method: request.method,
+            headers: capsReqHeaders,
+            body: capsBody,
+            signal: AbortSignal.timeout(5000),
+          });
+          if (capsResp.status !== 401 && capsResp.status !== 404) {
+            appLogger.info('Interceptor', `CAPS-FIRST: ${request.method} ${url.pathname} -> CAPS ${capsResp.status} [mode=green]`);
+            return new Response(capsResp.body, {
+              status: capsResp.status,
+              statusText: capsResp.statusText,
+              headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': 'green', 'X-Source': 'caps' },
+            });
+          }
+          appLogger.info('Interceptor', `CAPS-FIRST: CAPS returned ${capsResp.status}, falling through to cloud`);
+        } catch (capsFirstErr) {
+          appLogger.warn('Interceptor', `CAPS-FIRST: CAPS unreachable (${capsFirstErr.message}), falling through to cloud`);
+        }
+      }
+    }
+
     if (isApiRequest && offlineInterceptor && isLocalFirstWrite(request.method, url.pathname)) {
       const cloudFallbackClone = request.clone();
       const body = await parseRequestBody(request);
@@ -3250,7 +3287,7 @@ function registerProtocolInterceptor() {
       }
     }
 
-    if (!isOnline && isApiRequest) {
+    if (isApiRequest && (connectionMode === 'yellow' || connectionMode === 'red')) {
       const capsUrl = getCapsServiceHostUrl();
       if (capsUrl && connectionMode === 'yellow') {
         try {
