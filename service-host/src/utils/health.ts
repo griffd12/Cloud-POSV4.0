@@ -45,6 +45,7 @@ export interface HealthReport {
   resources: SystemResources;
   syncQueueSize: number;
   activeConnections: number;
+  connectedDeviceIds: string[];
 }
 
 export type HealthCheckFn = () => Promise<ServiceHealth> | ServiceHealth;
@@ -59,6 +60,7 @@ export class HealthMonitor {
   
   private getSyncQueueSize: () => number = () => 0;
   private getActiveConnections: () => number = () => 0;
+  private getConnectedDeviceIds: () => string[] = () => [];
 
   constructor(propertyId: string, serviceHostId: string) {
     this.propertyId = propertyId;
@@ -80,6 +82,10 @@ export class HealthMonitor {
 
   setActiveConnectionsGetter(getter: () => number): void {
     this.getActiveConnections = getter;
+  }
+
+  setConnectedDeviceIdsGetter(getter: () => string[]): void {
+    this.getConnectedDeviceIds = getter;
   }
 
   setHeartbeatCallback(callback: (report: HealthReport) => Promise<void>): void {
@@ -115,6 +121,7 @@ export class HealthMonitor {
       resources,
       syncQueueSize: this.getSyncQueueSize(),
       activeConnections: this.getActiveConnections(),
+      connectedDeviceIds: this.getConnectedDeviceIds(),
     };
 
     this.lastReport = report;

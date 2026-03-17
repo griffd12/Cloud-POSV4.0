@@ -78,6 +78,17 @@ class CapsDeviceTracker {
     return result;
   }
 
+  getActiveDeviceIds(): string[] {
+    const now = Date.now();
+    const ids: string[] = [];
+    for (const device of this.devices.values()) {
+      if (now - device.lastSeen <= this.ACTIVE_THRESHOLD_MS) {
+        ids.push(device.deviceId);
+      }
+    }
+    return ids;
+  }
+
   getUptimeMinutes(): number {
     return Math.floor((Date.now() - this.startTime) / 60000);
   }
@@ -208,6 +219,7 @@ class ServiceHost {
   private kdsController: KdsController;
   private paymentController: PaymentController;
   private deviceTracker: CapsDeviceTracker;
+  private cloudHeartbeatInterval: ReturnType<typeof setInterval> | null = null;
   
   constructor(config: Config) {
     this.config = config;
@@ -257,13 +269,13 @@ class ServiceHost {
       if (req.path === '/health' || req.method === 'OPTIONS') {
         return next();
       }
-      const deviceToken = req.headers['x-device-token'] as string | undefined;
       const workstationId = req.headers['x-workstation-id'] as string | undefined;
-      const deviceId = deviceToken || workstationId;
+      const deviceToken = req.headers['x-device-token'] as string | undefined;
+      const deviceId = workstationId || deviceToken;
       if (deviceId) {
         const deviceName = (req.headers['x-device-name'] as string) || deviceId;
         this.deviceTracker.trackDevice(deviceId, deviceName);
-        console.log(`[CAPS] Request: ${req.method} ${req.path} from ${deviceName} (${deviceToken ? 'token' : 'wsId'}=${deviceId})`);
+        console.log(`[CAPS] Request: ${req.method} ${req.path} from ${deviceName} (${workstationId ? 'wsId' : 'token'}=${deviceId})`);
       }
       next();
     });
@@ -434,6 +446,9 @@ class ServiceHost {
     this.deviceTracker.startPeriodicLog();
     console.log('CAPS device tracker started');
     
+    // Start periodic cloud heartbeat with connected device IDs
+    this.startCloudHeartbeat();
+    
     // Start HTTP server
     this.server.listen(this.config.port, '0.0.0.0', () => {
       console.log('');
@@ -461,8 +476,41 @@ class ServiceHost {
     process.on('SIGTERM', () => this.shutdown());
   }
   
+  private startCloudHeartbeat(): void {
+    const HEARTBEAT_INTERVAL = 60_000;
+    const sendHeartbeat = async () => {
+      if (!this.cloudConnection.isConnected()) return;
+      try {
+        const connectedDeviceIds = this.deviceTracker.getActiveDeviceIds();
+        const connectedDevices = this.deviceTracker.getConnectedDevices();
+        const activeCount = connectedDevices.filter(d => d.status === 'active').length;
+        
+        await this.cloudConnection.post(
+          `/api/service-hosts/${this.config.serviceHostId}/heartbeat`,
+          {
+            status: 'online',
+            connectedWorkstations: activeCount,
+            connectedDeviceIds,
+            activeChecks: 0,
+            pendingTransactions: 0,
+          }
+        );
+        console.log(`[CAPS] Cloud heartbeat sent — ${connectedDeviceIds.length} connected devices: [${connectedDeviceIds.join(', ')}]`);
+      } catch (e) {
+        console.warn('[CAPS] Cloud heartbeat failed:', (e as Error).message);
+      }
+    };
+
+    sendHeartbeat();
+    this.cloudHeartbeatInterval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
+    console.log(`Cloud heartbeat started (every ${HEARTBEAT_INTERVAL / 1000}s)`);
+  }
+
   private shutdown() {
     console.log('\nShutting down Service Host...');
+    if (this.cloudHeartbeatInterval) {
+      clearInterval(this.cloudHeartbeatInterval);
+    }
     this.deviceTracker.stop();
     this.calSync.stop();
     this.transactionSync.stopWorker();

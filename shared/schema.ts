@@ -3449,6 +3449,7 @@ export const serviceHosts = pgTable("service_hosts", {
   activeChecks: integer("active_checks").default(0),
   pendingTransactions: integer("pending_transactions").default(0),
   localConfigVersion: integer("local_config_version").default(0),
+  connectedDeviceIds: jsonb("connected_device_ids").$type<string[]>().default([]),
   // Service-specific configuration
   serviceConfig: jsonb("service_config").$type<{
     // CAPS config

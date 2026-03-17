@@ -19,7 +19,34 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 
 ## System Architecture
 
-### Core Design Principles
+### Core Design Principles — ON-PREM / LOCAL-FIRST
+
+**CRITICAL: THINK LOCAL/ON-PREM FIRST, THEN CLOUD.**
+The system is designed to operate 100% without the cloud. The cloud is a convenience layer for remote management and data aggregation — it is NEVER required for store operations.
+
+#### Data Flow (ALWAYS follow this order):
+1. **WS → CAPS (local network)**: ALL transaction data goes to CAPS first via LAN. CAPS is the on-prem authority.
+2. **CAPS → Cloud (internet)**: CAPS syncs data upstream to the cloud when internet is available. This is background/async.
+3. **Cloud → CAPS → WS (config only)**: Configuration changes flow DOWN from cloud through CAPS to workstations.
+
+#### Connectivity Status (what the colors mean):
+- **GREEN**: WS can reach CAPS AND CAPS can reach Cloud. Full connectivity.
+- **YELLOW**: WS can reach CAPS but CAPS cannot reach Cloud. Store operates normally — cloud sync is deferred.
+- **RED**: WS cannot reach CAPS. Fully offline. WS operates from its own local SQLite.
+
+#### Device Online/Offline Status:
+- A device (WS or KDS) is **ONLINE** if it can communicate with CAPS on the local network.
+- A device is **OFFLINE** if CAPS cannot reach it (or it cannot reach CAPS).
+- This is a LOCAL NETWORK status — it has NOTHING to do with cloud connectivity.
+- The CAPS service host tracks which devices are connected to it via WebSocket/heartbeat on the LAN.
+- The cloud DB is updated when CAPS syncs upstream, but the source of truth for device status is CAPS, not the cloud.
+
+#### When building ANY feature, ask in this order:
+1. **How does it work locally with just SQLite on the WS?** (RED mode)
+2. **How does it work with CAPS on the LAN?** (YELLOW mode)
+3. **How does it work when cloud is also available?** (GREEN mode)
+4. NEVER build cloud-first and retrofit offline. ALWAYS build offline-first and add cloud sync.
+
 - **Multi-Property Hierarchy**: Enterprise → Property → Revenue Center management.
 - **Simphony-Class Configuration**: Configuration inheritance with override capabilities.
 - **Touch-First UI**: High-contrast theming for POS terminals.
@@ -28,7 +55,6 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - **Offline Resilience**: On-premise CAPS with local SQLite for offline operations, ensuring an immutable `transaction_journal`.
 - **Non-Destructive Changes**: New features default to OFF/NULL/false to prevent impact on existing enterprises.
 - **Context Help**: Every configuration field requires help text.
-- **WS→CAPS→Cloud Architecture**: Transaction data flows from Workstation (WS) to CAPS then to Cloud; Cloud sends configuration down.
 
 ### Technical Stack
 - **Frontend**: React 18, TypeScript, Vite, Wouter, TanStack React Query, React Context, shadcn/ui, Tailwind CSS.

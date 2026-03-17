@@ -24414,29 +24414,38 @@ connect();
       const capsWs = capsWsId ? activeWs.find((w: any) => w.id === capsWsId) : null;
       
       let capsOnline = false;
+      let capsServiceHost: any = null;
       if (capsWs) {
-        const capsServiceHost = propertyServiceHosts.find((sh: any) => 
+        capsServiceHost = propertyServiceHosts.find((sh: any) => 
           sh.lastHeartbeatAt && new Date(sh.lastHeartbeatAt) > fiveMinutesAgo
         );
         if (capsServiceHost) {
           capsOnline = true;
-        } else if (capsWs.lastSeenAt && new Date(capsWs.lastSeenAt) > fiveMinutesAgo) {
-          capsOnline = true;
         }
       }
 
+      const capsConnectedIds: string[] = capsServiceHost?.connectedDeviceIds || [];
+
       const devices = activeWs.map((ws: any) => {
         const regDevice = registeredDevices.find((rd: any) => rd.workstationId === ws.id && rd.status === 'enrolled');
-        const wsLastSeen = ws.lastSeenAt && new Date(ws.lastSeenAt) > fiveMinutesAgo;
         const isCapsWs = ws.id === capsWsId;
-        const deviceOnline = isCapsWs ? capsOnline : wsLastSeen;
+
+        let deviceOnline = false;
+        if (isCapsWs) {
+          deviceOnline = capsOnline;
+        } else if (capsConnectedIds.length > 0) {
+          deviceOnline = capsConnectedIds.includes(ws.id);
+        } else {
+          const wsLastSeen = ws.lastSeenAt && new Date(ws.lastSeenAt) > fiveMinutesAgo;
+          deviceOnline = !!wsLastSeen;
+        }
 
         return {
           id: ws.id,
           name: ws.name,
           type: 'workstation',
           isCaps: isCapsWs,
-          isOnline: !!deviceOnline,
+          isOnline: deviceOnline,
           lastSeenAt: ws.lastSeenAt,
           ipAddress: ws.ipAddress || regDevice?.ipAddress || null,
           hostname: ws.hostname || regDevice?.osInfo || null,
@@ -24451,14 +24460,16 @@ connect();
 
       const kdsResults = kdsDevices.filter((k: any) => k.active !== false).map((kds: any) => {
         const regDevice = registeredDevices.find((rd: any) => rd.kdsDeviceId === kds.id && rd.status === 'enrolled');
-        const isOnline = regDevice?.lastAccessAt && new Date(regDevice.lastAccessAt) > fiveMinutesAgo;
+        const isOnlineViaCaps = capsConnectedIds.includes(kds.id);
+        const isOnlineViaLastAccess = regDevice?.lastAccessAt && new Date(regDevice.lastAccessAt) > fiveMinutesAgo;
+        const isOnline = capsConnectedIds.length > 0 ? isOnlineViaCaps : !!isOnlineViaLastAccess;
 
         return {
           id: kds.id,
           name: kds.name,
           type: 'kds',
           isCaps: false,
-          isOnline: !!isOnline,
+          isOnline,
           lastSeenAt: regDevice?.lastAccessAt || null,
           ipAddress: kds.ipAddress || regDevice?.ipAddress || null,
           hostname: regDevice?.osInfo || null,
@@ -24636,6 +24647,7 @@ connect();
         localConfigVersion, 
         connectionMode,
         connectedWorkstations,
+        connectedDeviceIds,
         pendingSyncItems,
         cpuUsagePercent,
         memoryUsageMB,
@@ -24652,13 +24664,17 @@ connect();
       const wasOffline = serviceHost.status === 'offline';
       const newStatus = status || "online";
       
-      await storage.updateServiceHost(id, {
+      const updateData: any = {
         status: newStatus,
         lastHeartbeatAt: new Date(),
         activeChecks: activeChecks ?? 0,
         pendingTransactions: pendingTransactions ?? 0,
         localConfigVersion: localConfigVersion ?? 0,
-      });
+      };
+      if (Array.isArray(connectedDeviceIds)) {
+        updateData.connectedDeviceIds = connectedDeviceIds;
+      }
+      await storage.updateServiceHost(id, updateData);
       
       // Store metrics for observability dashboard
       await storage.createServiceHostMetrics({
