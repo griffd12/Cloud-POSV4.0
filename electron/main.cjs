@@ -3045,7 +3045,7 @@ function registerProtocolInterceptor() {
 
     // CAPS-FIRST routing: All live POS/KDS operations go to CAPS first
     // Cloud is NEVER in the blocking write path (Architecture Contract Rule B)
-    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments|refunds|auth\/login|auth\/pin|employees\/[^/]+\/authenticate|kds-tickets|time-punches|time-clock)(\/|$)/.test(url.pathname);
+    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments|refunds|auth\/login|auth\/pin|kds-tickets|time-punches|time-clock)(\/|$)/.test(url.pathname);
     const isWriteMethod = request.method !== 'GET' && request.method !== 'HEAD';
     if (isCapsTransactionRoute) {
       const capsUrl = getCapsServiceHostUrl();

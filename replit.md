@@ -70,7 +70,7 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - Cloud `/api/check-service-charges/*` → CAPS `/api/check-service-charges/*` (same path)
 - Cloud `/api/payments/*` → CAPS `/api/payment/*` (singular on CAPS)
 - Cloud `/api/refunds/*` → CAPS `/api/payment/*` (handled by payment controller on CAPS)
-- Cloud `/api/auth/login`, `/api/auth/pin`, `/api/employees/*/authenticate` → CAPS (same paths)
+- Cloud `/api/auth/login`, `/api/auth/pin` → CAPS (same paths)
 - Cloud `/api/kds-tickets/*` → CAPS `/api/kds-tickets/*` (same path)
 - Cloud `/api/time-punches/*`, `/api/time-clock/*` → CAPS (same paths)
 - Config reads (menu-items, slus, modifiers, etc.) are served by CAPS at same paths
