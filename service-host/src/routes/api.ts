@@ -1297,14 +1297,14 @@ export function createApiRoutes(
     try {
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
-      if (!check.discounts) check.discounts = [];
 
-      const { discountId, name, type, amount, rate, managerPin, requiredPrivilege } = req.body;
+      const { discountId, checkItemId, name, type, amount, rate, managerPin, requiredPrivilege, employeeId } = req.body;
 
       if (requiredPrivilege && !managerPin) {
         return res.status(401).json({ error: 'Manager approval required for this discount' });
       }
 
+      let managerEmployeeId: string | undefined;
       if (managerPin) {
         const employees = config.getEmployees();
         const manager = employees.find((emp: any) =>
@@ -1321,6 +1321,7 @@ export function createApiRoutes(
             return res.status(403).json({ error: `Employee does not have required privilege: ${requiredPrivilege}` });
           }
         }
+        managerEmployeeId = manager.id;
       }
 
       let discountAmount = 0;
@@ -1332,20 +1333,19 @@ export function createApiRoutes(
         discountAmount = parseFloat(amount || '0');
       }
 
-      const discountRecord = {
-        id: `caps_disc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-        discountId: discountId || null,
+      const result = caps.addDiscount(req.params.id, {
+        discountId,
+        checkItemId,
         name: name || 'Discount',
         type: discountType,
-        amount: discountAmount.toFixed(2),
-        rate: rate || null,
-        createdAt: new Date().toISOString(),
-      };
-      check.discounts.push(discountRecord);
+        amount: discountAmount,
+        rate: rate ? parseFloat(rate) : undefined,
+        employeeId,
+        managerEmployeeId,
+      });
 
-      caps.recalculateTotals(req.params.id);
       const updated = caps.getCheck(req.params.id);
-      res.json({ success: true, discount: discountRecord, check: updated });
+      res.json({ success: true, discount: result, check: updated });
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
