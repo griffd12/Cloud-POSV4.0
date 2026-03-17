@@ -641,14 +641,31 @@ async function checkConnectivity(options = {}) {
     const serviceHostUrl = config.serviceHostUrl;
     if (serviceHostUrl) {
       try {
-        const capsCheck = await fetch(`${serviceHostUrl}/health`, {
+        const capsCheck = await fetch(`${serviceHostUrl}/api/health`, {
           signal: AbortSignal.timeout(3000),
         });
         if (capsCheck.ok) {
-          setConnectionMode('yellow');
-          if (offlineInterceptor) {
-            offlineInterceptor.setServiceHostUrl(serviceHostUrl);
-            offlineInterceptor.setConnectionMode('yellow');
+          let capsDbHealthy = true;
+          try {
+            const capsHealthData = await capsCheck.json();
+            if (capsHealthData.dbHealthy === false || capsHealthData.sqliteHealthy === false) {
+              capsDbHealthy = false;
+            }
+          } catch {
+            // If we can't parse JSON, treat as healthy if status was OK
+          }
+          if (capsDbHealthy) {
+            setConnectionMode('yellow');
+            if (offlineInterceptor) {
+              offlineInterceptor.setServiceHostUrl(serviceHostUrl);
+              offlineInterceptor.setConnectionMode('yellow');
+            }
+          } else {
+            appLogger.warn('Network', 'CAPS reachable but local DB unhealthy — setting RED mode');
+            setConnectionMode('red');
+            if (offlineInterceptor) {
+              offlineInterceptor.setConnectionMode('red');
+            }
           }
         } else {
           setConnectionMode('red');
@@ -3026,10 +3043,10 @@ function registerProtocolInterceptor() {
 
     const isApiRequest = url.pathname.startsWith('/api/');
 
-    // CAPS-FIRST ROUTING: Transaction operations always go through CAPS when reachable
-    // Cloud path /api/checks/* maps to CAPS path /api/caps/checks/*
-    // Cloud path /api/payments/* maps to CAPS path /api/payment/*
-    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments|refunds)(\/|$)/.test(url.pathname);
+    // CAPS-FIRST routing: All live POS/KDS operations go to CAPS first
+    // Cloud is NEVER in the blocking write path (Architecture Contract Rule B)
+    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments|refunds|auth\/login|auth\/pin|employees\/[^/]+\/authenticate|kds-tickets|time-punches|time-clock)(\/|$)/.test(url.pathname);
+    const isWriteMethod = request.method !== 'GET' && request.method !== 'HEAD';
     if (isCapsTransactionRoute) {
       const capsUrl = getCapsServiceHostUrl();
       if (capsUrl) {
@@ -3051,7 +3068,7 @@ function registerProtocolInterceptor() {
           if (cfgForCaps.serviceHostToken) capsReqHeaders['x-workstation-token'] = cfgForCaps.serviceHostToken;
           if (cfgForCaps.deviceId) capsReqHeaders['x-workstation-id'] = cfgForCaps.deviceId;
           if (cfgForCaps.deviceName) capsReqHeaders['x-device-name'] = cfgForCaps.deviceName;
-          const capsBody = (request.method !== 'GET' && request.method !== 'HEAD') ? await request.clone().arrayBuffer() : undefined;
+          const capsBody = isWriteMethod ? await request.clone().arrayBuffer() : undefined;
           const capsResp = await fetch(capsApiUrl, {
             method: request.method,
             headers: capsReqHeaders,
@@ -3066,9 +3083,23 @@ function registerProtocolInterceptor() {
               headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
             });
           }
-          appLogger.info('Interceptor', `CAPS-FIRST: CAPS returned ${capsResp.status} for ${capsPath}, falling through to cloud`);
+          if (isWriteMethod) {
+            appLogger.error('Interceptor', `CAPS-FIRST: CAPS returned ${capsResp.status} for WRITE ${request.method} ${capsPath} — BLOCKING (cloud never in write path)`);
+            return new Response(JSON.stringify({ error: 'Store server rejected the request', capsStatus: capsResp.status, path: capsPath }), {
+              status: capsResp.status === 404 ? 404 : 503,
+              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
+            });
+          }
+          appLogger.info('Interceptor', `CAPS-FIRST: CAPS returned ${capsResp.status} for READ ${capsPath}, falling through to cloud`);
         } catch (capsFirstErr) {
-          appLogger.warn('Interceptor', `CAPS-FIRST: CAPS unreachable (${capsFirstErr.message}), falling through to cloud`);
+          if (isWriteMethod) {
+            appLogger.error('Interceptor', `CAPS-FIRST: CAPS unreachable for WRITE ${request.method} ${url.pathname} — BLOCKING (${capsFirstErr.message})`);
+            return new Response(JSON.stringify({ error: 'Store server unreachable — cannot process write', detail: capsFirstErr.message }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
+            });
+          }
+          appLogger.warn('Interceptor', `CAPS-FIRST: CAPS unreachable for READ ${url.pathname} (${capsFirstErr.message}), falling through to cloud`);
         }
       }
     }
@@ -3334,8 +3365,21 @@ function registerProtocolInterceptor() {
         }
       }
 
-      if (offlineInterceptor) {
-        appLogger.info('Interceptor', `RED mode -> local: ${request.method} ${url.pathname}`);
+      if (connectionMode === 'red') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          appLogger.error('Interceptor', `RED mode HARD FAIL: blocking WRITE ${request.method} ${url.pathname} — CAPS unreachable (Architecture Contract: pilot hard fail)`);
+          return new Response(JSON.stringify({ error: 'Store server unreachable — POS operations disabled', mode: 'red', path: url.pathname }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': 'red', 'X-Source': 'red-blocked' },
+          });
+        }
+        if (offlineInterceptor) {
+          appLogger.info('Interceptor', `RED mode -> local cache READ: ${url.pathname}`);
+          const body = await parseRequestBody(request);
+          return routeToOfflineInterceptor(request.method, url, body);
+        }
+      } else if (offlineInterceptor) {
+        appLogger.info('Interceptor', `YELLOW fallback -> local: ${request.method} ${url.pathname}`);
         const body = await parseRequestBody(request);
         return routeToOfflineInterceptor(request.method, url, body);
       }

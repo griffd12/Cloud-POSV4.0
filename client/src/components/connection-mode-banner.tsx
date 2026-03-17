@@ -1,5 +1,5 @@
 import { useConnectionMode, type ConnectionMode } from "@/lib/api-client";
-import { Wifi, Signal, WifiOff } from "lucide-react";
+import { Wifi, Signal, WifiOff, AlertTriangle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useState, useEffect } from "react";
 
@@ -39,7 +39,7 @@ const modeConfig: Record<Exclude<ConnectionMode, 'orange'>, {
   red: {
     bgColor: "bg-red-500",
     textColor: "text-white",
-    label: "Standalone - Local database only",
+    label: "Store Server Unreachable — POS operations disabled",
     shortLabel: "OFFLINE",
     Icon: WifiOff,
   },
@@ -91,6 +91,36 @@ export function ConnectionModeBanner({ className = "" }: ConnectionModeBannerPro
           <p className="mt-4 text-sm opacity-70">The local SQLite database is not responding. No transactions can be processed.</p>
         </div>
       </div>
+    );
+  }
+
+  if (effectiveMode === 'red') {
+    return (
+      <>
+        <div
+          data-testid="caps-unreachable-overlay"
+          className="fixed inset-0 z-[9998] bg-red-900/95 flex items-center justify-center"
+        >
+          <div className="text-center text-white p-8 max-w-lg">
+            <AlertTriangle className="h-16 w-16 mx-auto mb-4 text-yellow-300" />
+            <h1 className="text-3xl font-bold mb-4" data-testid="text-caps-unreachable-title">Store Server Unreachable</h1>
+            <p className="text-lg opacity-90 mb-2">Cannot connect to the store server (CAPS).</p>
+            <p className="text-lg opacity-90">POS operations are disabled until the connection is restored.</p>
+            <p className="mt-6 text-sm opacity-70">Contact a manager if this persists. The system will automatically reconnect when the store server becomes available.</p>
+            <div className="mt-8 flex items-center justify-center gap-2 text-yellow-300">
+              <div className="w-2 h-2 rounded-full bg-yellow-300 animate-pulse" />
+              <span className="text-sm font-medium">Attempting to reconnect...</span>
+            </div>
+          </div>
+        </div>
+        <div
+          data-testid="connection-mode-banner"
+          className={`h-6 w-full flex items-center justify-center gap-2 ${config.bgColor} ${config.textColor} text-xs font-medium select-none cursor-default ${className}`}
+        >
+          <Icon className="h-3.5 w-3.5" />
+          <span>{config.shortLabel}</span>
+        </div>
+      </>
     );
   }
 
