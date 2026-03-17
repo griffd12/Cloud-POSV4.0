@@ -645,14 +645,12 @@ async function checkConnectivity(options = {}) {
           signal: AbortSignal.timeout(3000),
         });
         if (capsCheck.ok) {
-          let capsDbHealthy = true;
+          let capsDbHealthy = false;
           try {
             const capsHealthData = await capsCheck.json();
-            if (capsHealthData.dbHealthy === false || capsHealthData.sqliteHealthy === false) {
-              capsDbHealthy = false;
-            }
+            capsDbHealthy = capsHealthData.dbHealthy === true;
           } catch {
-            // If we can't parse JSON, treat as healthy if status was OK
+            appLogger.warn('Network', 'CAPS /api/health returned OK but unparseable response — treating as unhealthy');
           }
           if (capsDbHealthy) {
             setConnectionMode('yellow');
@@ -3613,7 +3611,14 @@ function registerProtocolInterceptor() {
         }
 
         if (offlineInterceptor && failoverClone) {
-          appLogger.info('Interceptor', `RED FAILOVER: ${request.method} ${url.pathname}`);
+          if (connectionMode === 'red' && request.method !== 'GET' && request.method !== 'HEAD') {
+            appLogger.error('Interceptor', `RED FAILOVER HARD FAIL: blocking WRITE ${request.method} ${url.pathname} — no offline write in RED mode`);
+            return new Response(JSON.stringify({ error: 'Store server unreachable — POS operations disabled', mode: 'red', path: url.pathname }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': 'red', 'X-Source': 'red-blocked' },
+            });
+          }
+          appLogger.info('Interceptor', `FAILOVER -> offline: ${request.method} ${url.pathname} [mode=${connectionMode}]`);
           const body = await parseRequestBody(failoverClone);
           return routeToOfflineInterceptor(request.method, url, body);
         }
