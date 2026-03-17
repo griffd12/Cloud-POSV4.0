@@ -3923,6 +3923,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.post("/api/workstations", async (req, res) => {
     try {
+      const { offlineCheckNumberStart, offlineCheckNumberEnd } = req.body;
+      if (offlineCheckNumberStart != null && offlineCheckNumberEnd != null && offlineCheckNumberStart > offlineCheckNumberEnd) {
+        return res.status(422).json({ message: "Offline check number range start must be less than or equal to end" });
+      }
       const validated = insertWorkstationSchema.parse(req.body);
       const data = await storage.createWorkstation(validated);
       broadcastConfigUpdate("workstations", "create", data.id, data.enterpriseId);

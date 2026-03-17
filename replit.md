@@ -48,7 +48,8 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - **Multi-Enterprise Architecture**: Server-side data isolation.
 - **Native Application Capabilities (Windows Electron)**: Embedded print agent, SQLite/SQLCipher, local reporting, store-and-forward, EMV terminal communication, auto-launch, kiosk mode, terminal setup wizard.
 - **Configuration Inheritance & Override**: Items inherit with override capabilities via OptionBits system.
-- **Concurrency-Safe Check Numbering**: Atomic, unique, sequential check numbers.
+- **Concurrency-Safe Check Numbering**: Atomic, unique, sequential check numbers with configurable per-workstation offline check number ranges (EMC → WS config → Electron offline DB).
+- **CAPS Connectivity Diagnostics**: System Diagnostics page shows real-time CAPS/Service Host status including online/offline, connected workstations, pending sync, last heartbeat, and version.
 - **Reporting**: Canonical Data Access Layer with 7 query functions.
 - **Customer Onboarding**: Excel-based bulk data import.
 - **Offline Mode Resilience**: Protocol interceptors, cached assets, robust transaction handling, CAPS auto-discovery, Yellow Mode failover, immutable transaction journal.

@@ -19,6 +19,8 @@ import {
   Printer,
   Plug,
   Usb,
+  Server,
+  Monitor,
 } from "lucide-react";
 import {
   Select,
@@ -88,6 +90,8 @@ export default function OfflineTestPage() {
   const [networkTestPort, setNetworkTestPort] = useState("9100");
   const [networkTestResult, setNetworkTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [networkTesting, setNetworkTesting] = useState(false);
+  const [capsStatus, setCapsStatus] = useState<any>(null);
+  const [capsLoading, setCapsLoading] = useState(false);
   const logIdRef = useRef(0);
   const originalFetchRef = useRef<typeof window.fetch | null>(null);
 
@@ -119,6 +123,23 @@ export default function OfflineTestPage() {
       return unsub;
     }
   }, []);
+
+  const loadCapsStatus = useCallback(async () => {
+    setCapsLoading(true);
+    try {
+      const res = await fetch('/api/service-hosts/status-dashboard');
+      if (res.ok) {
+        const data = await res.json();
+        setCapsStatus(data);
+      }
+    } catch {
+    }
+    setCapsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadCapsStatus();
+  }, [loadCapsStatus]);
 
   useEffect(() => {
     if (!isElectron()) return;
@@ -456,6 +477,95 @@ export default function OfflineTestPage() {
                 {appVersion ? `v${appVersion}` : "Web Browser"}
               </span>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-caps-status">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium">CAPS Connectivity</CardTitle>
+            <Server className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {capsLoading && !capsStatus ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <RefreshCw className="w-3 h-3 animate-spin" /> Loading...
+              </div>
+            ) : !capsStatus || capsStatus.serviceHosts?.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No Service Hosts configured</div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Service Hosts</span>
+                  <span className="text-sm font-mono" data-testid="text-caps-total">{capsStatus.summary?.total || 0}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Online</span>
+                  <Badge
+                    variant={capsStatus.summary?.online > 0 ? "default" : "destructive"}
+                    className="text-xs"
+                    data-testid="status-caps-online"
+                  >
+                    {capsStatus.summary?.online || 0} / {capsStatus.summary?.total || 0}
+                  </Badge>
+                </div>
+                {capsStatus.summary?.activeAlerts > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Active Alerts</span>
+                    <Badge variant="destructive" className="text-xs" data-testid="status-caps-alerts">
+                      {capsStatus.summary.activeAlerts}
+                    </Badge>
+                  </div>
+                )}
+                <div className="border-t pt-2 space-y-2">
+                  {capsStatus.serviceHosts?.map((sh: any) => (
+                    <div key={sh.id} className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Server className="w-3 h-3" />
+                          <span className="text-sm font-medium">{sh.name}</span>
+                        </div>
+                        <Badge
+                          variant={sh.status === 'online' ? 'default' : 'destructive'}
+                          className="text-xs"
+                          data-testid={`status-caps-host-${sh.id}`}
+                        >
+                          {sh.status === 'online' ? 'Connected' : 'Offline'}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground pl-4">
+                        <span className="flex items-center gap-1">
+                          <Monitor className="w-3 h-3" />
+                          {sh.connectedWorkstations || 0} WS connected
+                        </span>
+                        {sh.pendingSyncItems > 0 && (
+                          <span className="text-yellow-500">{sh.pendingSyncItems} pending sync</span>
+                        )}
+                      </div>
+                      {sh.lastHeartbeat && (
+                        <div className="text-xs text-muted-foreground pl-4">
+                          Last heartbeat: {new Date(sh.lastHeartbeat).toLocaleString()}
+                        </div>
+                      )}
+                      {sh.version && (
+                        <div className="text-xs text-muted-foreground pl-4">
+                          Version: v{sh.version}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadCapsStatus}
+              disabled={capsLoading}
+              data-testid="button-refresh-caps"
+            >
+              <RefreshCw className={`w-3 h-3 mr-1 ${capsLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
           </CardContent>
         </Card>
 

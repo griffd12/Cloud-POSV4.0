@@ -1198,6 +1198,8 @@ export class Database {
     );
     if (ws.offlineCheckNumberStart && ws.offlineCheckNumberEnd) {
       this.setWorkstationConfig(ws.id, ws.offlineCheckNumberStart, ws.offlineCheckNumberEnd);
+    } else {
+      this.clearWorkstationConfig(ws.id);
     }
   }
   
@@ -1638,12 +1640,28 @@ export class Database {
     };
   }
   
+  clearWorkstationConfig(workstationId: string): void {
+    try {
+      this.run('DELETE FROM workstation_config WHERE workstation_id = ?', [workstationId]);
+    } catch {
+    }
+  }
+
   setWorkstationConfig(workstationId: string, start: number, end: number, current?: number): void {
+    const existing = this.getWorkstationConfig(workstationId);
+    if (existing && existing.checkNumberStart === start && existing.checkNumberEnd === end) {
+      this.run(
+        `UPDATE workstation_config SET last_seen_at = datetime('now') WHERE workstation_id = ?`,
+        [workstationId]
+      );
+      return;
+    }
+    const currentNumber = current || (existing && existing.checkNumberStart === start ? existing.currentCheckNumber : start);
     this.run(
       `INSERT OR REPLACE INTO workstation_config 
        (workstation_id, check_number_start, check_number_end, current_check_number, last_seen_at)
        VALUES (?, ?, ?, ?, datetime('now'))`,
-      [workstationId, start, end, current || start]
+      [workstationId, start, end, currentNumber]
     );
   }
   
