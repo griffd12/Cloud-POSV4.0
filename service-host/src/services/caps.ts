@@ -149,9 +149,9 @@ export class CapsService {
     const businessDate = this.getBusinessDate();
     
     this.db.run(
-      `INSERT INTO checks (id, txn_group_id, check_number, rvc_id, employee_id, order_type, table_number, guest_count, status, business_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
-      [id, txnGroupId, checkNumber, params.rvcId, params.employeeId, params.orderType || 'dine_in', params.tableNumber, params.guestCount || 1, businessDate]
+      `INSERT INTO checks (id, txn_group_id, check_number, rvc_id, employee_id, workstation_id, order_type, table_number, guest_count, status, business_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+      [id, txnGroupId, checkNumber, params.rvcId, params.employeeId, params.workstationId || null, params.orderType || 'dine_in', params.tableNumber, params.guestCount || 1, businessDate]
     );
     
     const check = this.getCheck(id)!;

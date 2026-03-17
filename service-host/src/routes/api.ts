@@ -1178,8 +1178,8 @@ export function createApiRoutes(
     try {
       const { workstationId } = req.body;
       const items = caps.addItems(req.params.id, req.body.items || [req.body], workstationId);
-      const result = Array.isArray(items) ? items[items.length - 1] : items;
-      res.status(201).json(result);
+      const lastItem = Array.isArray(items) && items.length > 0 ? items[items.length - 1] : null;
+      res.status(201).json({ ...(lastItem || {}), items });
     } catch (e) {
       const error = e as Error;
       if (error.message.includes('locked by another')) return res.status(409).json({ error: error.message });
@@ -1737,8 +1737,10 @@ export function createApiRoutes(
         ]
       );
       caps.recalculateTotals(checkId);
-      caps.writeJournal(checkId, 'payment_added', { paymentId, amount: body.amount || 0, type: body.tenderType || body.tender_type || 'cash' });
-      caps.transactionSync.queueCheck(checkId, 'update');
+      const pmtTxnGroupId = caps.getTxnGroupId(checkId);
+      const pmtCheck = caps.getCheck(checkId);
+      caps.writeJournal(checkId, pmtTxnGroupId, pmtCheck?.rvcId || '', 'payment_added', { paymentId, amount: body.amount || 0, type: body.tenderType || body.tender_type || 'cash' });
+      caps.transactionSync.queueCheck(checkId, 'update', pmtCheck);
       console.log('[CAPS] Payment saved:', paymentId, 'for check:', checkId);
       res.json({ id: paymentId, checkId, status: body.status || 'completed', offline: false });
     } catch (e) {
@@ -2340,16 +2342,21 @@ export function createApiRoutes(
 
           if (check.items && Array.isArray(check.items)) {
             for (const item of check.items) {
-              db.run(`INSERT INTO check_items (id, check_id, round_id, round_number, menu_item_id, name, short_name, quantity, unit_price, total_price, tax_amount, tax_group_id, print_class_id, modifiers, seat_number, course_number, sent_at, kds_status, voided, void_reason, parent_item_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+              const modifiersStr = typeof item.modifiers === 'string' ? item.modifiers : JSON.stringify(item.modifiers || null);
+              const modifiersJsonStr = item.modifiersJson || item.modifiers_json || modifiersStr;
+              db.run(`INSERT INTO check_items (id, check_id, round_id, round_number, menu_item_id, name, short_name, quantity, unit_price, total_price, tax_amount, tax_group_id, print_class_id, modifiers, modifiers_json, seat_number, course_number, sent_to_kitchen, sent, sent_at, kds_status, voided, void_reason, discount_id, discount_name, discount_amount, discount_type, parent_item_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
                 item.id, check.id, item.roundId || item.round_id || null, item.roundNumber || item.round_number || 1,
                 item.menuItemId || item.menu_item_id || '', item.name || '', item.shortName || item.short_name || null,
                 item.quantity || 1, item.unitPrice || item.unit_price || 0, item.totalPrice || item.total_price || 0,
                 item.taxAmount || item.tax_amount || 0, item.taxGroupId || item.tax_group_id || null,
                 item.printClassId || item.print_class_id || null,
-                typeof item.modifiers === 'string' ? item.modifiers : JSON.stringify(item.modifiers || null),
+                modifiersStr, modifiersJsonStr,
                 item.seatNumber || item.seat_number || null, item.courseNumber || item.course_number || 1,
+                item.sentToKitchen || item.sent_to_kitchen ? 1 : 0, item.sent ? 1 : 0,
                 item.sentAt || item.sent_at || null, item.kdsStatus || item.kds_status || 'pending',
                 item.voided ? 1 : 0, item.voidReason || item.void_reason || null,
+                item.discountId || item.discount_id || null, item.discountName || item.discount_name || null,
+                item.discountAmount || item.discount_amount || 0, item.discountType || item.discount_type || null,
                 item.parentItemId || item.parent_item_id || null, item.createdAt || item.created_at || new Date().toISOString(),
               ]);
             }
@@ -2370,11 +2377,12 @@ export function createApiRoutes(
 
           if (check.discounts && Array.isArray(check.discounts)) {
             for (const disc of check.discounts) {
-              db.run(`INSERT INTO check_discounts (id, check_id, check_item_id, discount_id, name, discount_type, amount, employee_id, manager_employee_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+              db.run(`INSERT INTO check_discounts (id, check_id, check_item_id, discount_id, name, discount_type, amount, employee_id, manager_employee_id, voided, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
                 disc.id, check.id, disc.checkItemId || disc.check_item_id || null,
                 disc.discountId || disc.discount_id || '', disc.name || '',
                 disc.discountType || disc.discount_type || 'percent', disc.amount || 0,
                 disc.employeeId || disc.employee_id || null, disc.managerEmployeeId || disc.manager_employee_id || null,
+                disc.voided ? 1 : 0,
                 disc.createdAt || disc.created_at || new Date().toISOString(),
               ]);
             }
