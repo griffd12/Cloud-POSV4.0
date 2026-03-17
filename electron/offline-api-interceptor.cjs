@@ -2106,8 +2106,6 @@ class OfflineApiInterceptor {
       appLogger.warn('Interceptor', `Failed to save terminal session locally: ${e.message}`);
     }
 
-    this.db.queueOperation('create_terminal_session', '/api/terminal-sessions', 'POST', body, 1);
-
     return {
       status: 201,
       data: session,

@@ -2379,6 +2379,10 @@ async function initOfflineDbEarly() {
 }
 
 async function initEnhancedOfflineDb() {
+  if (enhancedOfflineDb && offlineInterceptor) {
+    appLogger.info('OfflineDB', 'Enhanced offline DB already initialized (from early init), skipping');
+    return;
+  }
   enhancedOfflineDb = new OfflineDatabase({
     dataDir: DATA_DIR,
   });
