@@ -127,6 +127,9 @@ class OfflineApiInterceptor {
         /^\/api\/menu-item-slus/,
         /^\/api\/terminal-sessions/,
         /^\/api\/pos\/reports/,
+        /^\/api\/refunds/,
+        /^\/api\/rvcs\/[^/]+\/closed-checks/,
+        /^\/api\/rvcs\/[^/]+\/refunds/,
       ];
       return readEndpoints.some(re => re.test(pathname));
     }
@@ -156,6 +159,7 @@ class OfflineApiInterceptor {
         /^\/api\/item-availability/,
         /^\/api\/terminal-sessions/,
         /^\/api\/checks\/merge/,
+        /^\/api\/refunds/,
       ];
       return writeEndpoints.some(re => re.test(pathname));
     }
@@ -416,10 +420,14 @@ class OfflineApiInterceptor {
       const check = this.db.getOfflineCheck(checkId);
       if (check) {
         const payments = check.payments || [];
-        const paidAmount = payments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
-        return { status: 200, data: { payments, paidAmount } };
+        const activePayments = payments.filter(p => p.paymentStatus !== 'voided' && !p.voided);
+        const paidAmount = activePayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+        const totalDue = parseFloat(check.total || check.subtotal || 0);
+        const balanceDue = Math.max(0, totalDue - paidAmount);
+        return { status: 200, data: { payments, paidAmount, balanceDue, totalDue } };
       }
-      return { status: 200, data: { payments: [], paidAmount: 0 } };
+      if (this._connectionMode === 'green') return null;
+      return { status: 200, data: { payments: [], paidAmount: 0, balanceDue: 0, totalDue: 0 } };
     }
 
     if (pathname === '/api/item-availability' || pathname.match(/^\/api\/item-availability/)) {
@@ -494,10 +502,11 @@ class OfflineApiInterceptor {
 
       const modsByGroup = {};
       for (const link of allModLinkages) {
-        if (!modsByGroup[link.modifierGroupId]) modsByGroup[link.modifierGroupId] = [];
+        if (!modsByGroup[link.modifierGroupId]) modsByGroup[link.modifierGroupId] = { seen: new Set(), list: [] };
         const mod = modMap[link.modifierId];
-        if (mod) {
-          modsByGroup[link.modifierGroupId].push({
+        if (mod && !modsByGroup[link.modifierGroupId].seen.has(mod.id)) {
+          modsByGroup[link.modifierGroupId].seen.add(mod.id);
+          modsByGroup[link.modifierGroupId].list.push({
             ...mod,
             isDefault: link.isDefault || false,
             displayOrder: link.displayOrder || 0,
@@ -505,7 +514,7 @@ class OfflineApiInterceptor {
         }
       }
       for (const gid in modsByGroup) {
-        modsByGroup[gid].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+        modsByGroup[gid].list.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
       }
 
       if (pathname === '/api/pos/modifier-map') {
@@ -514,19 +523,23 @@ class OfflineApiInterceptor {
           const miId = link.menuItemId;
           const group = groupMap[link.modifierGroupId];
           if (!group) continue;
-          if (!result[miId]) result[miId] = [];
-          result[miId].push({
+          if (!result[miId]) result[miId] = { seen: new Set(), list: [] };
+          if (result[miId].seen.has(group.id)) continue;
+          result[miId].seen.add(group.id);
+          result[miId].list.push({
             ...group,
-            modifiers: modsByGroup[group.id] || [],
+            modifiers: (modsByGroup[group.id] && modsByGroup[group.id].list) || [],
             displayOrder: link.displayOrder || 0,
           });
         }
+        const finalResult = {};
         for (const miId in result) {
-          result[miId].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+          finalResult[miId] = result[miId].list.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
         }
-        return { status: 200, data: result };
+        return { status: 200, data: finalResult };
       } else {
         const menuItemId = query.menuItemId;
+        const seenGroups = new Set();
         const filteredLinkages = allLinkages
           .filter(l => l.menuItemId === menuItemId)
           .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
@@ -534,10 +547,11 @@ class OfflineApiInterceptor {
         const result = filteredLinkages
           .map(link => {
             const group = groupMap[link.modifierGroupId];
-            if (!group) return null;
+            if (!group || seenGroups.has(group.id)) return null;
+            seenGroups.add(group.id);
             return {
               ...group,
-              modifiers: modsByGroup[group.id] || [],
+              modifiers: (modsByGroup[group.id] && modsByGroup[group.id].list) || [],
             };
           })
           .filter(Boolean);
@@ -831,6 +845,62 @@ class OfflineApiInterceptor {
             refunds: [],
           },
         };
+      }
+    }
+
+    const closedChecksMatch = pathname.match(/^\/api\/rvcs\/([^/]+)\/closed-checks$/);
+    if (closedChecksMatch) {
+      const rvcId = closedChecksMatch[1];
+      const allChecks = this.db.getOfflineChecks(rvcId, null);
+      const closedChecks = allChecks.filter(c => c.status === 'closed');
+      const employees = this.db.getEntityList ? this.db.getEntityList('employees', this.config.enterpriseId) : [];
+      const limitVal = parseInt(query?.limit) || 50;
+      const result = closedChecks
+        .sort((a, b) => new Date(b.closedAt || b.updatedAt || 0) - new Date(a.closedAt || a.updatedAt || 0))
+        .slice(0, limitVal)
+        .map(c => {
+          const emp = employees.find(e => e.id === c.employeeId);
+          return {
+            id: c.id,
+            checkNumber: c.checkNumber,
+            orderType: c.orderType,
+            status: c.status,
+            subtotal: c.subtotal || '0.00',
+            total: c.total || '0.00',
+            taxTotal: c.taxTotal || '0.00',
+            discountTotal: c.discountTotal || '0.00',
+            tableNumber: c.tableNumber || null,
+            guestCount: c.guestCount || null,
+            openedAt: c.openedAt || c.createdAt,
+            closedAt: c.closedAt,
+            employeeId: c.employeeId,
+            employeeName: emp ? `${emp.firstName || ''} ${emp.lastName || ''}`.trim() : null,
+            itemCount: (c.items || []).filter(i => !i.voided).length,
+            paymentCount: (c.payments || []).filter(p => !p.voided && p.paymentStatus !== 'voided').length,
+          };
+        });
+      return { status: 200, data: result };
+    }
+
+    const refundMatch = pathname.match(/^\/api\/refunds\/([^/]+)$/);
+    if (refundMatch) {
+      const refundId = refundMatch[1];
+      try {
+        const refund = this.db.getEntity('offline_refunds', refundId);
+        if (refund) return { status: 200, data: refund };
+      } catch (e) {}
+      if (this._connectionMode === 'green') return null;
+      return { status: 404, data: { message: 'Refund not found (offline)' } };
+    }
+
+    const rvcRefundsMatch = pathname.match(/^\/api\/rvcs\/([^/]+)\/refunds$/);
+    if (rvcRefundsMatch) {
+      try {
+        const allRefunds = this.db.getEntityList('offline_refunds', null) || [];
+        const rvcRefunds = allRefunds.filter(r => r.rvcId === rvcRefundsMatch[1]);
+        return { status: 200, data: rvcRefunds };
+      } catch (e) {
+        return { status: 200, data: [] };
       }
     }
 
@@ -1235,11 +1305,33 @@ class OfflineApiInterceptor {
       return this.priceOverrideOffline(pathname, body);
     }
 
+    if (pathname === '/api/refunds' || pathname === '/api/refunds/') {
+      return this.createRefundOffline(body);
+    }
+
     this.db.queueOperation('offline_post', pathname, 'POST', body, 5);
     return { status: 202, data: { message: 'Queued for sync', offline: true } };
   }
 
   handleUpdate(pathname, body) {
+    const fulfillmentMatch = pathname.match(/^\/api\/checks\/([^/]+)\/fulfillment$/);
+    if (fulfillmentMatch) {
+      const checkId = fulfillmentMatch[1];
+      const check = this.db.getOfflineCheck(checkId);
+      if (check) {
+        const validStatuses = ['received', 'in_progress', 'ready', 'picked_up', 'completed'];
+        if (body.fulfillmentStatus && validStatuses.includes(body.fulfillmentStatus)) {
+          check.fulfillmentStatus = body.fulfillmentStatus;
+          check.updatedAt = new Date().toISOString();
+          this.db.saveOfflineCheck(check);
+        }
+        this.db.queueOperation('fulfillment_update', pathname, 'PATCH', body, 2);
+        return { status: 200, data: { ...check, items: undefined, payments: undefined } };
+      }
+      if (this._connectionMode === 'green') return null;
+      return { status: 404, data: { message: 'Check not found (offline)' } };
+    }
+
     const checkMatch = pathname.match(/^\/api\/checks\/([a-f0-9-]+)$/);
     if (checkMatch) {
       return this.updateOfflineCheck(checkMatch[1], body);
@@ -1846,26 +1938,46 @@ class OfflineApiInterceptor {
       if (approval.status !== 200) return approval;
     }
 
+    let discountRecord = null;
+    if (body.discountId) {
+      try {
+        discountRecord = this.db.getEntity('discounts', body.discountId);
+      } catch (e) {
+        appLogger.warn('Interceptor', `Could not look up discount ${body.discountId}: ${e.message}`);
+      }
+    }
+
     const itemId = itemIdMatch[1];
     const checks = this.db.getAllOfflineChecks ? this.db.getAllOfflineChecks() : [];
     for (const c of checks) {
       if (c.items) {
         const item = c.items.find(i => i.id === itemId);
         if (item) {
+          const discType = discountRecord?.type || body.discountType || body.type || 'amount';
+          const discName = discountRecord?.name || body.discountName || body.name || 'Discount';
           item.discountId = body.discountId || null;
-          item.discountName = body.discountName || body.name || null;
-          item.discountType = body.discountType || body.type || 'amount';
-          const discountValue = parseFloat(body.amount || body.discountAmount || 0);
-          if (item.discountType === 'percentage' || item.discountType === 'percent') {
-            const itemPrice = parseFloat(item.totalPrice || item.unitPrice || 0) * (item.quantity || 1);
+          item.discountName = discName;
+          item.discountType = discType;
+
+          let discountValue;
+          if (discountRecord) {
+            discountValue = parseFloat(discountRecord.amount || discountRecord.value || 0);
+          } else {
+            discountValue = parseFloat(body.amount || body.discountAmount || 0);
+          }
+
+          const modTotal = (item.modifiers || []).reduce((s, m) => s + parseFloat(m.priceDelta || m.price || 0), 0);
+          const itemPrice = (parseFloat(item.unitPrice || 0) + modTotal) * (item.quantity || 1);
+
+          if (discType === 'percentage' || discType === 'percent') {
             item.discountAmount = ((itemPrice * discountValue) / 100).toFixed(2);
           } else {
-            item.discountAmount = discountValue.toFixed(2);
+            item.discountAmount = Math.min(discountValue, itemPrice).toFixed(2);
           }
           item.discount = {
             id: body.discountId || `offline_disc_${crypto.randomUUID()}`,
-            name: item.discountName,
-            type: item.discountType,
+            name: discName,
+            type: discType,
             amount: item.discountAmount,
           };
           this._recalcCheckTotals(c);
@@ -2037,6 +2149,50 @@ class OfflineApiInterceptor {
     };
   }
 
+  createRefundOffline(body) {
+    const refundId = `offline_refund_${crypto.randomUUID()}`;
+    const refund = {
+      id: refundId,
+      rvcId: body.rvcId,
+      originalCheckId: body.originalCheckId,
+      refundType: body.refundType || 'full',
+      reason: body.reason || '',
+      processedByEmployeeId: body.processedByEmployeeId,
+      managerApprovalId: body.managerApprovalId || null,
+      items: body.items || [],
+      businessDate: body.businessDate || new Date().toISOString().split('T')[0],
+      status: 'pending_sync',
+      refundAmount: '0.00',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      isOffline: true,
+    };
+
+    let totalRefund = 0;
+    if (body.items && body.items.length > 0) {
+      for (const item of body.items) {
+        totalRefund += parseFloat(item.refundAmount || item.amount || item.totalPrice || 0);
+      }
+    } else if (body.originalCheckId) {
+      const originalCheck = this.db.getOfflineCheck(body.originalCheckId);
+      if (originalCheck) {
+        totalRefund = parseFloat(originalCheck.total || 0);
+      }
+    }
+    refund.refundAmount = totalRefund.toFixed(2);
+
+    try {
+      this.db.saveEntity('offline_refunds', refund);
+    } catch (e) {
+      appLogger.warn('Interceptor', `Could not save refund to offline_refunds table: ${e.message}`);
+    }
+    this.db.queueOperation('create_refund', '/api/refunds', 'POST', { ...body, offlineRefundId: refundId }, 1);
+    return {
+      status: 201,
+      data: refund,
+    };
+  }
+
   mergeChecksOffline(body) {
     const targetCheckId = body?.targetCheckId;
     const sourceCheckIds = body?.sourceCheckIds || body?.checkIds || [];
@@ -2121,26 +2277,33 @@ class OfflineApiInterceptor {
 
   _recalcCheckTotalsWithServiceCharges(check) {
     let subtotal = 0;
+    let itemDiscountSum = 0;
     const activeItems = (check.items || []).filter(i => !i.voided);
     activeItems.forEach(i => {
       const unitPrice = parseFloat(i.unitPrice || 0);
       const modTotal = (i.modifiers || []).reduce((s, m) => s + parseFloat(m.priceDelta || m.price || 0), 0);
       const itemTotal = parseFloat(i.totalPrice || 0) || ((unitPrice + modTotal) * (i.quantity || 1));
       subtotal += itemTotal;
+      if (i.discountAmount) {
+        itemDiscountSum += parseFloat(i.discountAmount || 0);
+      }
     });
     check.subtotal = subtotal.toFixed(2);
     let taxTotal = 0;
+    const taxableSubtotal = Math.max(0, subtotal - itemDiscountSum);
     try {
       const taxRates = this.db.getEntityList('tax_rates', null);
       if (taxRates && taxRates.length > 0) {
         const defaultRate = taxRates.find(t => t.isDefault) || taxRates[0];
         if (defaultRate && defaultRate.rate) {
-          taxTotal = subtotal * (parseFloat(defaultRate.rate) / 100);
+          taxTotal = taxableSubtotal * (parseFloat(defaultRate.rate) / 100);
         }
       }
     } catch (e) {}
     check.taxTotal = taxTotal.toFixed(2);
-    const discountTotal = parseFloat(check.discountTotal) || 0;
+    const checkLevelDiscount = parseFloat(check.checkLevelDiscountTotal) || 0;
+    const discountTotal = itemDiscountSum + checkLevelDiscount;
+    check.discountTotal = discountTotal.toFixed(2);
     let serviceChargeTotal = 0;
     (check.serviceCharges || []).forEach(sc => {
       if (!sc.voided) serviceChargeTotal += parseFloat(sc.amount || 0);
@@ -2152,26 +2315,33 @@ class OfflineApiInterceptor {
 
   _recalcCheckTotals(check) {
     let subtotal = 0;
+    let itemDiscountSum = 0;
     const activeItems = (check.items || []).filter(i => !i.voided);
     activeItems.forEach(i => {
       const unitPrice = parseFloat(i.unitPrice || 0);
       const modTotal = (i.modifiers || []).reduce((s, m) => s + parseFloat(m.priceDelta || m.price || 0), 0);
       const itemTotal = parseFloat(i.totalPrice || 0) || ((unitPrice + modTotal) * (i.quantity || 1));
       subtotal += itemTotal;
+      if (i.discountAmount) {
+        itemDiscountSum += parseFloat(i.discountAmount || 0);
+      }
     });
     check.subtotal = subtotal.toFixed(2);
     let taxTotal = 0;
+    const taxableSubtotal = Math.max(0, subtotal - itemDiscountSum);
     try {
       const taxRates = this.db.getEntityList('tax_rates', null);
       if (taxRates && taxRates.length > 0) {
         const defaultRate = taxRates.find(t => t.isDefault) || taxRates[0];
         if (defaultRate && defaultRate.rate) {
-          taxTotal = subtotal * (parseFloat(defaultRate.rate) / 100);
+          taxTotal = taxableSubtotal * (parseFloat(defaultRate.rate) / 100);
         }
       }
     } catch (e) {}
     check.taxTotal = taxTotal.toFixed(2);
-    const discountTotal = parseFloat(check.discountTotal) || 0;
+    const checkLevelDiscount = parseFloat(check.checkLevelDiscountTotal) || 0;
+    const discountTotal = itemDiscountSum + checkLevelDiscount;
+    check.discountTotal = discountTotal.toFixed(2);
     check.total = Math.max(0, subtotal - discountTotal + taxTotal).toFixed(2);
     check.updatedAt = new Date().toISOString();
   }

@@ -76,6 +76,7 @@ const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/payments(\/|$)/,
   /^\/api\/kds-tickets(\/|$)/,
   /^\/api\/terminal-sessions(\/|$)/,
+  /^\/api\/refunds(\/|$)/,
 ];
 
 function isLocalFirstWrite(method, pathname) {
@@ -121,6 +122,9 @@ const LOCAL_FIRST_READ_PATTERNS = [
   /^\/api\/checks\/orders/,
   /^\/api\/checks\/[0-9a-f]/,
   /^\/api\/checks\/offline_/,
+  /^\/api\/rvcs\/[^/]+\/closed-checks/,
+  /^\/api\/rvcs\/[^/]+\/refunds/,
+  /^\/api\/refunds\//,
   /^\/api\/sync\//,
   /^\/api\/auth\/offline-employees/,
 ];

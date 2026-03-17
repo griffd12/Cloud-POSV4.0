@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Check, CheckItem, CheckPayment, OrderType } from "@shared/schema";
-import { Trash2, Send, CreditCard, Check as CheckIcon, Clock, DollarSign, CircleDollarSign, User, X, Percent } from "lucide-react";
+import { Trash2, Send, CreditCard, Check as CheckIcon, Clock, DollarSign, CircleDollarSign, User, X, Percent, XCircle } from "lucide-react";
 
 interface CheckPanelProps {
   check: Check | null;
@@ -43,6 +43,8 @@ interface CheckPanelProps {
   onRemoveCheckDiscounts?: () => void;
   serviceChargeTotal?: number;
   onVoidServiceCharge?: () => void;
+  isEditingClosedCheck?: boolean;
+  onCancelEditClosedCheck?: () => void;
 }
 
 const ORDER_TYPE_LABELS: Record<string, string> = {
@@ -344,6 +346,8 @@ export function CheckPanel({
   onRemoveCheckDiscounts,
   serviceChargeTotal = 0,
   onVoidServiceCharge,
+  isEditingClosedCheck = false,
+  onCancelEditClosedCheck,
 }: CheckPanelProps) {
   const formatPrice = (price: string | number | null) => {
     const numPrice = typeof price === "string" ? parseFloat(price) : (price || 0);
@@ -402,6 +406,12 @@ export function CheckPanel({
         )}
       </div>
       
+      {isEditingClosedCheck && (
+        <div className="flex-shrink-0 px-3 py-2 border-b bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 text-sm font-medium text-center" data-testid="banner-editing-closed-check">
+          Editing Closed Check — Void payment to change tender
+        </div>
+      )}
+
       {customerName && (
         <div className="flex-shrink-0 px-4 py-2 border-b bg-blue-50 dark:bg-blue-950/30 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
@@ -446,14 +456,14 @@ export function CheckPanel({
                   item={item}
                   isSelected={isSelected}
                   itemTotal={itemTotal}
-                  canVoid={canVoid}
-                  canPriceOverride={canPriceOverride}
-                  canDiscount={canDiscount}
-                  onSelect={() => onSelectItem?.(isSelected ? null : item)}
+                  canVoid={isEditingClosedCheck ? false : canVoid}
+                  canPriceOverride={isEditingClosedCheck ? false : canPriceOverride}
+                  canDiscount={isEditingClosedCheck ? false : canDiscount}
+                  onSelect={isEditingClosedCheck ? undefined : () => onSelectItem?.(isSelected ? null : item)}
                   onVoid={() => onVoidItem(item)}
-                  onPriceOverride={onPriceOverride ? () => onPriceOverride(item) : undefined}
-                  onDiscount={onDiscountItem ? () => onDiscountItem(item) : undefined}
-                  onEditModifiers={onEditModifiers ? () => onEditModifiers(item) : undefined}
+                  onPriceOverride={isEditingClosedCheck ? undefined : (onPriceOverride ? () => onPriceOverride(item) : undefined)}
+                  onDiscount={isEditingClosedCheck ? undefined : (onDiscountItem ? () => onDiscountItem(item) : undefined)}
+                  onEditModifiers={isEditingClosedCheck ? undefined : (onEditModifiers ? () => onEditModifiers(item) : undefined)}
                   formatPrice={formatPrice}
                 />
               );
@@ -632,17 +642,30 @@ export function CheckPanel({
 
       <div className="flex-shrink-0 p-3 border-t bg-muted/30">
         <div className="grid grid-cols-2 gap-2">
-          <Button
-            variant={unsentItems.length > 0 ? "default" : "secondary"}
-            size="lg"
-            className="aspect-square min-h-20 text-base font-semibold flex flex-col items-center justify-center gap-1"
-            onClick={onSend}
-            disabled={isSending}
-            data-testid="button-send-order"
-          >
-            <Send className="w-6 h-6" />
-            <span>{unsentItems.length > 0 ? `Send (${unsentItems.length})` : balanceDue > 0 ? "Send" : "Exit"}</span>
-          </Button>
+          {isEditingClosedCheck ? (
+            <Button
+              variant="destructive"
+              size="lg"
+              className="aspect-square min-h-20 text-base font-semibold flex flex-col items-center justify-center gap-1"
+              onClick={onCancelEditClosedCheck}
+              data-testid="button-cancel-edit-closed"
+            >
+              <XCircle className="w-6 h-6" />
+              <span>Cancel Edit</span>
+            </Button>
+          ) : (
+            <Button
+              variant={unsentItems.length > 0 ? "default" : "secondary"}
+              size="lg"
+              className="aspect-square min-h-20 text-base font-semibold flex flex-col items-center justify-center gap-1"
+              onClick={onSend}
+              disabled={isSending}
+              data-testid="button-send-order"
+            >
+              <Send className="w-6 h-6" />
+              <span>{unsentItems.length > 0 ? `Send (${unsentItems.length})` : balanceDue > 0 ? "Send" : "Exit"}</span>
+            </Button>
+          )}
           <Button
             size="lg"
             className="aspect-square min-h-20 text-base font-semibold bg-green-600 hover:bg-green-700 text-white flex flex-col items-center justify-center gap-1"
@@ -651,7 +674,7 @@ export function CheckPanel({
             data-testid="button-pay"
           >
             <CreditCard className="w-6 h-6" />
-            <span>{paidAmount > 0 ? `Pay ${formatPrice(balanceDue)}` : `Pay ${formatPrice(total)}`}</span>
+            <span>{isEditingClosedCheck ? `Change Tender ${formatPrice(total)}` : (paidAmount > 0 ? `Pay ${formatPrice(balanceDue)}` : `Pay ${formatPrice(total)}`)}</span>
           </Button>
         </div>
       </div>

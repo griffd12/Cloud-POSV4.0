@@ -1042,6 +1042,30 @@ export default function PosPage() {
     }
   }, [pendingReopenCheckId]);
 
+  const handleCancelEditClosedCheck = useCallback(async () => {
+    if (editingClosedCheckId && originalPaymentState) {
+      try {
+        const res = await apiRequest("PATCH", `/api/check-payments/${originalPaymentState.paymentId}/restore`, {
+          employeeId: currentEmployee?.id,
+        }, wsHeaders());
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.message || "Failed to restore payment");
+        }
+        toast({ title: "Edit Cancelled", description: "Original payment has been restored" });
+      } catch (error: any) {
+        toast({ title: "Error", description: error.message || "Failed to restore payment", variant: "destructive" });
+        return;
+      }
+    }
+    setEditingClosedCheckId(null);
+    setOriginalPaymentState(null);
+    setCurrentCheck(null);
+    setCheckItems([]);
+    queryClient.invalidateQueries({ queryKey: ["/api/rvcs", currentRvc?.id, "closed-checks"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/checks/open"] });
+  }, [editingClosedCheckId, originalPaymentState, currentEmployee?.id, toast, currentRvc?.id]);
+
   // Smart send handler - handles pending reopen checks specially
   const handleSmartSend = useCallback(async () => {
     const unsentItems = (checkItems || []).filter(item => !item.sent && !item.voided);
@@ -2287,6 +2311,8 @@ export default function PosPage() {
             onRemoveCheckDiscounts={currentCheck?.status === "open" ? () => removeCheckDiscountsMutation.mutate() : undefined}
             serviceChargeTotal={serviceChargeTotal}
             onVoidServiceCharge={currentCheck?.status === "open" && serviceChargeTotal > 0 ? () => voidServiceChargeMutation.mutate() : undefined}
+            isEditingClosedCheck={!!editingClosedCheckId}
+            onCancelEditClosedCheck={handleCancelEditClosedCheck}
           />
         </div>
       </div>
