@@ -3043,7 +3043,8 @@ function registerProtocolInterceptor() {
 
     // CAPS-FIRST routing: All live POS/KDS operations go to CAPS first
     // Cloud is NEVER in the blocking write path (Architecture Contract Rule B)
-    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments|refunds|auth\/login|auth\/pin|kds-tickets|time-punches|time-clock)(\/|$)/.test(url.pathname);
+    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments|refunds|kds-tickets|time-punches|time-clock)(\/|$)/.test(url.pathname);
+    const isCapsAuthRoute = isApiRequest && /^\/api\/(auth\/login|auth\/pin)(\/|$)/.test(url.pathname);
     const isWriteMethod = request.method !== 'GET' && request.method !== 'HEAD';
     if (isCapsTransactionRoute) {
       const capsUrl = getCapsServiceHostUrl();
@@ -3102,7 +3103,42 @@ function registerProtocolInterceptor() {
       }
     }
 
-    if (isApiRequest && connectionMode === 'red' && isWriteMethod) {
+    if (isCapsAuthRoute) {
+      const capsUrl = getCapsServiceHostUrl();
+      if (capsUrl) {
+        try {
+          const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
+          const capsReqHeaders = {};
+          for (const [key, value] of request.headers.entries()) {
+            if (key.toLowerCase() !== 'host') capsReqHeaders[key] = value;
+          }
+          const cfgForCaps = loadConfig();
+          if (cfgForCaps.serviceHostToken) capsReqHeaders['x-workstation-token'] = cfgForCaps.serviceHostToken;
+          if (cfgForCaps.deviceId) capsReqHeaders['x-workstation-id'] = cfgForCaps.deviceId;
+          if (cfgForCaps.deviceName) capsReqHeaders['x-device-name'] = cfgForCaps.deviceName;
+          const authBody = isWriteMethod ? await request.clone().arrayBuffer() : undefined;
+          const capsResp = await fetch(capsApiUrl, {
+            method: request.method,
+            headers: capsReqHeaders,
+            body: authBody,
+            signal: AbortSignal.timeout(3000),
+          });
+          if (capsResp.ok) {
+            appLogger.info('Interceptor', `CAPS-AUTH: ${request.method} ${url.pathname} -> CAPS ${capsResp.status} [mode=${connectionMode}]`);
+            return new Response(capsResp.body, {
+              status: capsResp.status,
+              statusText: capsResp.statusText,
+              headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
+            });
+          }
+          appLogger.info('Interceptor', `CAPS-AUTH: CAPS returned ${capsResp.status} for ${url.pathname}, falling through to cloud`);
+        } catch (capsAuthErr) {
+          appLogger.warn('Interceptor', `CAPS-AUTH: CAPS unreachable for ${url.pathname} (${capsAuthErr.message}), falling through to cloud`);
+        }
+      }
+    }
+
+    if (isApiRequest && connectionMode === 'red' && isWriteMethod && !isCapsAuthRoute) {
       appLogger.error('Interceptor', `RED mode HARD FAIL: blocking WRITE ${request.method} ${url.pathname} — CAPS unreachable (Architecture Contract: pilot hard fail)`);
       return new Response(JSON.stringify({ error: 'Store server unreachable — POS operations disabled', mode: 'red', path: url.pathname }), {
         status: 503,
