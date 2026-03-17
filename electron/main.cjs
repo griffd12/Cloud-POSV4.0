@@ -3027,12 +3027,22 @@ function registerProtocolInterceptor() {
     const isApiRequest = url.pathname.startsWith('/api/');
 
     // CAPS-FIRST ROUTING: Transaction operations always go through CAPS when reachable
-    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|payments|refunds)/.test(url.pathname);
-    if (isCapsTransactionRoute && connectionMode === 'green') {
+    // Cloud path /api/checks/* maps to CAPS path /api/caps/checks/*
+    // Cloud path /api/payments/* maps to CAPS path /api/payment/*
+    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments|refunds)(\/|$)/.test(url.pathname);
+    if (isCapsTransactionRoute) {
       const capsUrl = getCapsServiceHostUrl();
       if (capsUrl) {
         try {
-          const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
+          let capsPath = url.pathname;
+          if (capsPath.startsWith('/api/checks')) {
+            capsPath = capsPath.replace('/api/checks', '/api/caps/checks');
+          } else if (capsPath.startsWith('/api/payments')) {
+            capsPath = capsPath.replace('/api/payments', '/api/payment');
+          } else if (capsPath.startsWith('/api/refunds')) {
+            capsPath = capsPath.replace('/api/refunds', '/api/payment');
+          }
+          const capsApiUrl = `${capsUrl}${capsPath}${url.search}`;
           const capsReqHeaders = {};
           for (const [key, value] of request.headers.entries()) {
             if (key.toLowerCase() !== 'host') capsReqHeaders[key] = value;
@@ -3049,14 +3059,14 @@ function registerProtocolInterceptor() {
             signal: AbortSignal.timeout(5000),
           });
           if (capsResp.status !== 401 && capsResp.status !== 404) {
-            appLogger.info('Interceptor', `CAPS-FIRST: ${request.method} ${url.pathname} -> CAPS ${capsResp.status} [mode=green]`);
+            appLogger.info('Interceptor', `CAPS-FIRST: ${request.method} ${url.pathname} -> ${capsPath} CAPS ${capsResp.status} [mode=${connectionMode}]`);
             return new Response(capsResp.body, {
               status: capsResp.status,
               statusText: capsResp.statusText,
-              headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': 'green', 'X-Source': 'caps' },
+              headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
             });
           }
-          appLogger.info('Interceptor', `CAPS-FIRST: CAPS returned ${capsResp.status}, falling through to cloud`);
+          appLogger.info('Interceptor', `CAPS-FIRST: CAPS returned ${capsResp.status} for ${capsPath}, falling through to cloud`);
         } catch (capsFirstErr) {
           appLogger.warn('Interceptor', `CAPS-FIRST: CAPS unreachable (${capsFirstErr.message}), falling through to cloud`);
         }

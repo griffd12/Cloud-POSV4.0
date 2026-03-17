@@ -2033,25 +2033,7 @@ class OfflineApiInterceptor {
             item.totalPrice = (parseFloat(newPrice) * (item.quantity || 1)).toFixed(2);
             item.priceOverride = true;
           }
-          let subtotal = 0;
-          c.items.forEach(i => {
-            subtotal += parseFloat(i.totalPrice || i.unitPrice || 0) * (i.quantity || 1);
-          });
-          c.subtotal = subtotal.toFixed(2);
-          let taxTotal = 0;
-          try {
-            const taxRates = this.db.getEntityList('tax_rates', null);
-            if (taxRates && taxRates.length > 0) {
-              const defaultRate = taxRates.find(t => t.isDefault) || taxRates[0];
-              if (defaultRate && defaultRate.rate) {
-                taxTotal = subtotal * (parseFloat(defaultRate.rate) / 100);
-              }
-            }
-          } catch (e) {}
-          c.taxTotal = taxTotal.toFixed(2);
-          const discountTotal = parseFloat(c.discountTotal) || 0;
-          c.total = Math.max(0, subtotal - discountTotal + taxTotal).toFixed(2);
-          c.updatedAt = new Date().toISOString();
+          this._recalcCheckTotals(c);
           this.db.saveOfflineCheck(c);
           break;
         }
@@ -2299,6 +2281,10 @@ class OfflineApiInterceptor {
   }
 
   _recalcCheckTotalsWithServiceCharges(check) {
+    this._recalcCheckTotals(check);
+  }
+
+  _recalcCheckTotals(check) {
     let subtotal = 0;
     let itemDiscountSum = 0;
     const activeItems = (check.items || []).filter(i => !i.voided);
@@ -2332,40 +2318,15 @@ class OfflineApiInterceptor {
       if (!sc.voided) serviceChargeTotal += parseFloat(sc.amount || 0);
     });
     check.serviceChargeTotal = serviceChargeTotal.toFixed(2);
-    check.total = Math.max(0, subtotal - discountTotal + taxTotal + serviceChargeTotal).toFixed(2);
-    check.updatedAt = new Date().toISOString();
-  }
-
-  _recalcCheckTotals(check) {
-    let subtotal = 0;
-    let itemDiscountSum = 0;
-    const activeItems = (check.items || []).filter(i => !i.voided);
-    activeItems.forEach(i => {
-      const unitPrice = parseFloat(i.unitPrice || 0);
-      const modTotal = (i.modifiers || []).reduce((s, m) => s + parseFloat(m.priceDelta || m.price || 0), 0);
-      const itemTotal = parseFloat(i.totalPrice || 0) || ((unitPrice + modTotal) * (i.quantity || 1));
-      subtotal += itemTotal;
-      if (i.discountAmount) {
-        itemDiscountSum += parseFloat(i.discountAmount || 0);
+    const total = Math.max(0, subtotal - discountTotal + taxTotal + serviceChargeTotal);
+    check.total = total.toFixed(2);
+    let paidAmount = 0;
+    (check.payments || []).forEach(p => {
+      if (!p.voided && p.paymentStatus !== 'voided') {
+        paidAmount += parseFloat(p.amount || 0);
       }
     });
-    check.subtotal = subtotal.toFixed(2);
-    let taxTotal = 0;
-    const taxableSubtotal = Math.max(0, subtotal - itemDiscountSum);
-    try {
-      const taxRates = this.db.getEntityList('tax_rates', null);
-      if (taxRates && taxRates.length > 0) {
-        const defaultRate = taxRates.find(t => t.isDefault) || taxRates[0];
-        if (defaultRate && defaultRate.rate) {
-          taxTotal = taxableSubtotal * (parseFloat(defaultRate.rate) / 100);
-        }
-      }
-    } catch (e) {}
-    check.taxTotal = taxTotal.toFixed(2);
-    const checkLevelDiscount = parseFloat(check.checkLevelDiscountTotal) || 0;
-    const discountTotal = itemDiscountSum + checkLevelDiscount;
-    check.discountTotal = discountTotal.toFixed(2);
-    check.total = Math.max(0, subtotal - discountTotal + taxTotal).toFixed(2);
+    check.amountDue = Math.max(0, total - paidAmount).toFixed(2);
     check.updatedAt = new Date().toISOString();
   }
 
@@ -2392,25 +2353,7 @@ class OfflineApiInterceptor {
       for (const c of checks) {
         if (c.items && c.items.some(i => i.id === itemId)) {
           c.items = c.items.filter(i => i.id !== itemId);
-          let subtotal = 0;
-          c.items.forEach(i => {
-            subtotal += parseFloat(i.totalPrice || i.unitPrice || 0) * (i.quantity || 1);
-          });
-          c.subtotal = subtotal.toFixed(2);
-          let taxTotal = 0;
-          try {
-            const taxRates = this.db.getEntityList('tax_rates', null);
-            if (taxRates && taxRates.length > 0) {
-              const defaultRate = taxRates.find(t => t.isDefault) || taxRates[0];
-              if (defaultRate && defaultRate.rate) {
-                taxTotal = subtotal * (parseFloat(defaultRate.rate) / 100);
-              }
-            }
-          } catch (e) {}
-          c.taxTotal = taxTotal.toFixed(2);
-          const discountTotal = parseFloat(c.discountTotal) || 0;
-          c.total = Math.max(0, subtotal - discountTotal + taxTotal).toFixed(2);
-          c.updatedAt = new Date().toISOString();
+          this._recalcCheckTotals(c);
           this.db.saveOfflineCheck(c);
           break;
         }

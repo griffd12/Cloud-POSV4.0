@@ -41,6 +41,16 @@ The system is designed to operate 100% without the cloud. The cloud is a conveni
 - The CAPS service host tracks which devices are connected to it via WebSocket/heartbeat on the LAN.
 - The cloud DB is updated when CAPS syncs upstream, but the source of truth for device status is CAPS, not the cloud.
 
+#### CAPS-First API Path Mapping (electron/main.cjs interceptor):
+- Cloud `/api/checks/*` → CAPS `/api/caps/checks/*` (checks have `/caps/` prefix on CAPS)
+- Cloud `/api/check-items/*` → CAPS `/api/check-items/*` (same path)
+- Cloud `/api/check-payments/*` → CAPS `/api/check-payments/*` (same path)
+- Cloud `/api/check-discounts/*` → CAPS `/api/check-discounts/*` (same path)
+- Cloud `/api/check-service-charges/*` → CAPS `/api/check-service-charges/*` (same path)
+- Cloud `/api/payments/*` → CAPS `/api/payment/*` (singular on CAPS)
+- Cloud `/api/refunds/*` → CAPS `/api/payment/*` (handled by payment controller on CAPS)
+- Config reads (menu-items, slus, modifiers, etc.) are served by CAPS at same paths
+
 #### When building ANY feature, ask in this order:
 1. **How does it work locally with just SQLite on the WS?** (RED mode)
 2. **How does it work with CAPS on the LAN?** (YELLOW mode)
