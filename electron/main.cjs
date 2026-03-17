@@ -7,7 +7,7 @@ const { EMVTerminalManager } = require('./emv-terminal.cjs');
 const { PrintAgentService } = require('./print-agent-service.cjs');
 const { OfflineDatabase } = require('./offline-database.cjs');
 const { OfflineApiInterceptor } = require('./offline-api-interceptor.cjs');
-const { appLogger, printLogger, updaterLogger, LOG_DIR, checkVersionAndRotate } = require('./logger.cjs');
+const { appLogger, printLogger, updaterLogger, LOG_DIR, checkVersionAndRotate, setDeviceLabel } = require('./logger.cjs');
 const { initAutoUpdater, getUpdateState } = require('./auto-updater.cjs');
 
 const { fork } = require('child_process');
@@ -2010,6 +2010,7 @@ function setupIpcHandlers() {
       config.setupComplete = true;
       config.setupDate = wizardConfig.setupDate;
       saveConfig(config);
+      setDeviceLabel(wizardConfig.deviceName || wizardConfig.mode.toUpperCase());
       appLogger.info('Wizard', 'Setup wizard completed', { enterprise: wizardConfig.enterpriseName, property: wizardConfig.propertyName, mode: wizardConfig.mode, device: wizardConfig.deviceName });
       appMode = wizardConfig.mode;
       configureAutoStartup(wizardConfig.mode);
@@ -3661,6 +3662,12 @@ app.whenReady().then(async () => {
   appLogger.info('App', 'Directories', { config: CONFIG_DIR, data: DATA_DIR, logs: LOG_DIR });
 
   const config = loadConfig();
+
+  if (config.deviceName) {
+    setDeviceLabel(config.deviceName);
+  } else if (config.mode) {
+    setDeviceLabel(config.mode.toUpperCase());
+  }
 
   setupIpcHandlers();
 

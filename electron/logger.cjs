@@ -26,6 +26,7 @@ const SUBSYSTEM_MAP = {
 };
 
 let logDirCreated = false;
+let globalDeviceLabel = null;
 
 function ensureLogDir() {
   if (logDirCreated) return;
@@ -58,16 +59,30 @@ function rotateFile(filePath, maxSize, maxFiles) {
   }
 }
 
+function setDeviceLabel(label) {
+  globalDeviceLabel = label || null;
+}
+
+function getDeviceLabel() {
+  return globalDeviceLabel;
+}
+
 function writeToUnifiedLog(subsystemTag, line) {
   try {
     rotateFile(UNIFIED_LOG_FILE, UNIFIED_MAX_SIZE, MAX_LOG_FILES);
-    const parts = line.match(/^\[([^\]]+)\]\s+\[([^\]]+)\]\s+\[([^\]]+)\]\s+(.*)/s);
+    const parts = line.match(/^\[([^\]]+)\]\s+\[([^\]]+)\]\s+(?:\[([^\]]+)\]\s+)?\[([^\]]+)\]\s+(.*)/s);
     let unifiedLine;
     if (parts) {
-      const [, timestamp, level, category, rest] = parts;
-      unifiedLine = `[${timestamp}] [${level.padEnd(5)}] [${subsystemTag.padEnd(12)}] [${category}] ${rest}`;
+      const [, timestamp, level, deviceOrCategory, categoryOrRest, rest] = parts;
+      if (rest !== undefined) {
+        unifiedLine = `[${timestamp}] [${level.padEnd(5)}] [${deviceOrCategory}] [${subsystemTag.padEnd(12)}] [${categoryOrRest}] ${rest}`;
+      } else {
+        const dTag = globalDeviceLabel ? `[${globalDeviceLabel}] ` : '';
+        unifiedLine = `[${timestamp}] [${level.padEnd(5)}] ${dTag}[${subsystemTag.padEnd(12)}] [${deviceOrCategory}] ${categoryOrRest}`;
+      }
     } else {
-      unifiedLine = `[${new Date().toISOString()}] [INFO ] [${subsystemTag.padEnd(12)}] ${line}`;
+      const dTag = globalDeviceLabel ? `[${globalDeviceLabel}] ` : '';
+      unifiedLine = `[${new Date().toISOString()}] [INFO ] ${dTag}[${subsystemTag.padEnd(12)}] ${line}`;
     }
     fs.appendFileSync(UNIFIED_LOG_FILE, unifiedLine + '\n', 'utf8');
   } catch {
@@ -85,7 +100,8 @@ class Logger {
 
   formatMessage(level, category, message, data) {
     const timestamp = new Date().toISOString();
-    let line = `[${timestamp}] [${level}] [${category}] ${message}`;
+    const deviceTag = globalDeviceLabel ? `[${globalDeviceLabel}] ` : '';
+    let line = `[${timestamp}] [${level}] ${deviceTag}[${category}] ${message}`;
     if (data !== undefined) {
       try {
         const serialized = typeof data === 'string' ? data : JSON.stringify(data, null, 0);
@@ -275,6 +291,8 @@ module.exports = {
   updaterLogger,
   LOG_DIR,
   UNIFIED_LOG_FILE,
+  setDeviceLabel,
+  getDeviceLabel,
   rotateLogsForUpgrade,
   rotateLogsForBusinessDate,
   checkVersionAndRotate,
