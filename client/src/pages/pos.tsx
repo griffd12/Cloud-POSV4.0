@@ -2019,6 +2019,7 @@ export default function PosPage() {
                       variant="secondary"
                       size="lg"
                       className="w-full h-full font-semibold"
+                      disabled={!!editingClosedCheckId || !!pendingReopenCheckId}
                       onClick={() => setShowFunctionsModal(true)}
                       data-testid="button-functions-grid"
                     >
@@ -2031,6 +2032,7 @@ export default function PosPage() {
                       variant="secondary"
                       size="lg"
                       className="w-full h-full font-semibold"
+                      disabled={!!editingClosedCheckId || !!pendingReopenCheckId}
                       onClick={() => setShowCustomerModal(true)}
                       data-testid="button-customer-grid"
                     >
@@ -2160,6 +2162,7 @@ export default function PosPage() {
                       variant="secondary"
                       size="lg"
                       className="w-full h-full font-semibold"
+                      disabled={!!editingClosedCheckId || !!pendingReopenCheckId}
                       onClick={() => setShowFunctionsModal(true)}
                       data-testid="button-functions"
                     >
@@ -2172,6 +2175,7 @@ export default function PosPage() {
                       variant="secondary"
                       size="lg"
                       className="w-full h-full font-semibold"
+                      disabled={!!editingClosedCheckId || !!pendingReopenCheckId}
                       onClick={() => setShowCustomerModal(true)}
                       data-testid="button-customer"
                     >

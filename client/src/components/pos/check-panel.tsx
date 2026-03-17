@@ -61,7 +61,7 @@ interface SwipeableItemProps {
   canVoid: boolean;
   canPriceOverride?: boolean;
   canDiscount?: boolean;
-  onSelect: () => void;
+  onSelect?: () => void;
   onVoid: () => void;
   onPriceOverride?: () => void;
   onDiscount?: () => void;
@@ -144,10 +144,9 @@ function SwipeableItem({
     if (isRevealed) {
       setIsRevealed(false);
     } else {
-      // For unsent items, clicking opens modifier modal if available
       if (!item.sent && onEditModifiers) {
         onEditModifiers();
-      } else {
+      } else if (onSelect) {
         onSelect();
       }
     }
