@@ -171,6 +171,10 @@ export class Database {
       this.migrateToV11();
     }
     
+    if (fromVersion < 12) {
+      this.migrateToV12();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -428,6 +432,77 @@ export class Database {
       }
     }
     console.log('[DB] v11 migration complete');
+  }
+  
+  private migrateToV12(): void {
+    console.log('[DB] Running v12 migration: check_items extra columns, kds_tickets.station_id, check_discounts.voided, operation_queue, time_entries punch columns');
+    
+    const checkItemCols = [
+      { name: 'sent_to_kitchen', def: 'INTEGER DEFAULT 0' },
+      { name: 'sent', def: 'INTEGER DEFAULT 0' },
+      { name: 'modifiers_json', def: 'TEXT' },
+      { name: 'discount_id', def: 'TEXT' },
+      { name: 'discount_name', def: 'TEXT' },
+      { name: 'discount_amount', def: 'INTEGER DEFAULT 0' },
+      { name: 'discount_type', def: 'TEXT' },
+      { name: 'voided', def: 'INTEGER DEFAULT 0' },
+      { name: 'void_reason', def: 'TEXT' },
+      { name: 'void_employee_id', def: 'TEXT' },
+    ];
+    for (const col of checkItemCols) {
+      try {
+        this.run(`ALTER TABLE check_items ADD COLUMN ${col.name} ${col.def}`);
+        console.log(`[DB] Added check_items.${col.name}`);
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column')) console.log(`[DB] check_items.${col.name} skipped: ${e.message}`);
+      }
+    }
+    
+    try {
+      this.run('ALTER TABLE kds_tickets ADD COLUMN station_id TEXT');
+      console.log('[DB] Added kds_tickets.station_id');
+    } catch (e: any) {
+      if (!e.message?.includes('duplicate column')) console.log(`[DB] kds_tickets.station_id skipped: ${e.message}`);
+    }
+    
+    try {
+      this.run('ALTER TABLE check_discounts ADD COLUMN voided INTEGER DEFAULT 0');
+      console.log('[DB] Added check_discounts.voided');
+    } catch (e: any) {
+      if (!e.message?.includes('duplicate column')) console.log(`[DB] check_discounts.voided skipped: ${e.message}`);
+    }
+    
+    const timeEntryCols = [
+      { name: 'punch_type', def: 'TEXT' },
+      { name: 'job_code_id', def: 'TEXT' },
+      { name: 'punch_time', def: 'TEXT' },
+    ];
+    for (const col of timeEntryCols) {
+      try {
+        this.run(`ALTER TABLE time_entries ADD COLUMN ${col.name} ${col.def}`);
+        console.log(`[DB] Added time_entries.${col.name}`);
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column')) console.log(`[DB] time_entries.${col.name} skipped: ${e.message}`);
+      }
+    }
+    
+    this.run(`
+      CREATE TABLE IF NOT EXISTS operation_queue (
+        id TEXT PRIMARY KEY,
+        operation_type TEXT NOT NULL,
+        method TEXT NOT NULL DEFAULT 'POST',
+        path TEXT NOT NULL,
+        body TEXT,
+        headers TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER DEFAULT 0,
+        error_message TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    console.log('[DB] operation_queue table ensured');
+    
+    console.log('[DB] v12 migration complete');
   }
   
   // ==========================================================================

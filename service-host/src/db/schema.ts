@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
@@ -557,14 +557,21 @@ CREATE TABLE IF NOT EXISTS check_items (
   tax_group_id TEXT,
   print_class_id TEXT,
   modifiers TEXT,
+  modifiers_json TEXT,
   seat_number INTEGER,
   course_number INTEGER DEFAULT 1,
   sent_at TEXT,
+  sent_to_kitchen INTEGER DEFAULT 0,
+  sent INTEGER DEFAULT 0,
   kds_status TEXT DEFAULT 'pending',
   bumped_at TEXT,
   voided INTEGER DEFAULT 0,
   void_reason TEXT,
   void_employee_id TEXT,
+  discount_id TEXT,
+  discount_name TEXT,
+  discount_amount INTEGER DEFAULT 0,
+  discount_type TEXT,
   parent_item_id TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
@@ -600,6 +607,7 @@ CREATE TABLE IF NOT EXISTS check_discounts (
   amount INTEGER NOT NULL,
   employee_id TEXT,
   manager_employee_id TEXT,
+  voided INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -622,10 +630,11 @@ CREATE TABLE IF NOT EXISTS check_service_charges (
 CREATE TABLE IF NOT EXISTS kds_tickets (
   id TEXT PRIMARY KEY,
   check_id TEXT NOT NULL REFERENCES checks(id),
-  check_number INTEGER NOT NULL,
-  round_number INTEGER NOT NULL,
+  check_number INTEGER NOT NULL DEFAULT 0,
+  round_number INTEGER NOT NULL DEFAULT 0,
   kds_device_id TEXT REFERENCES kds_devices(id),
   order_device_id TEXT REFERENCES order_devices(id),
+  station_id TEXT,
   order_type TEXT,
   table_number TEXT,
   items TEXT NOT NULL,
@@ -648,6 +657,9 @@ CREATE TABLE IF NOT EXISTS time_entries (
   clock_in TEXT NOT NULL,
   clock_out TEXT,
   job_code TEXT,
+  job_code_id TEXT,
+  punch_type TEXT,
+  punch_time TEXT,
   break_minutes INTEGER DEFAULT 0,
   business_date TEXT,
   tips_declared INTEGER DEFAULT 0,
@@ -1294,6 +1306,19 @@ CREATE TABLE IF NOT EXISTS sync_queue (
   max_attempts INTEGER DEFAULT 10,
   last_attempt_at TEXT,
   next_attempt_at TEXT,
+  error_message TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS operation_queue (
+  id TEXT PRIMARY KEY,
+  operation_type TEXT NOT NULL,
+  method TEXT NOT NULL DEFAULT 'POST',
+  path TEXT NOT NULL,
+  body TEXT,
+  headers TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER DEFAULT 0,
   error_message TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );

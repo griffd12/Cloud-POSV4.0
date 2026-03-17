@@ -1773,9 +1773,9 @@ export function createApiRoutes(
       const id = randomUUID();
       const now = new Date().toISOString();
       caps.db.run(
-        `INSERT OR IGNORE INTO time_entries (id, employee_id, punch_type, job_code_id, punch_time, workstation_id, cloud_synced)
-         VALUES (?, ?, ?, ?, ?, ?, 0)`,
-        [id, employeeId, punchType || 'clock_in', jobCodeId || null, now, workstationId || null]
+        `INSERT OR IGNORE INTO time_entries (id, employee_id, punch_type, job_code_id, punch_time, clock_in, workstation_id, cloud_synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+        [id, employeeId, punchType || 'clock_in', jobCodeId || null, now, now, workstationId || null]
       );
       caps.transactionSync.queueTimeEntry(id, 'create', { id, employeeId, punchType, jobCodeId, punchTime: now, workstationId });
       res.json({ success: true, id, punchTime: now });
@@ -2426,7 +2426,7 @@ export function createApiRoutes(
       }
 
       const id = `op_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      db.run(`INSERT INTO sync_queue (id, operation_type, method, path, body, headers, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`, [
+      db.run(`INSERT INTO operation_queue (id, operation_type, method, path, body, headers, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`, [
         id, opType, method, opPath,
         typeof body === 'string' ? body : JSON.stringify(body || null),
         typeof headers === 'string' ? headers : JSON.stringify(headers || null),
