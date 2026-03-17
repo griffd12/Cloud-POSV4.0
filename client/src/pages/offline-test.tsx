@@ -550,17 +550,10 @@ export default function OfflineTestPage() {
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <Badge
-                            variant={dev.isOnline ? "default" : "secondary"}
-                            className={`text-xs ${dev.isOnline ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
-                            data-testid={`status-device-online-${dev.id}`}
-                          >
-                            {dev.isOnline ? 'Online' : 'Offline'}
-                          </Badge>
                           <div
-                            className={`w-3 h-3 rounded-full ${dev.connectionStatus === 'green' ? 'bg-green-500' : 'bg-red-500'}`}
-                            title={dev.connectionStatus === 'green' ? 'CAPS reachable' : 'CAPS unreachable'}
-                            data-testid={`status-device-caps-${dev.id}`}
+                            className={`w-3 h-3 rounded-full ${dev.isOnline ? 'bg-green-500' : 'bg-red-500'}`}
+                            title={dev.isOnline ? 'Online' : 'Offline'}
+                            data-testid={`status-device-dot-${dev.id}`}
                           />
                         </div>
                       </div>
@@ -570,11 +563,6 @@ export default function OfflineTestPage() {
                         )}
                         {dev.hostname && (
                           <span>{dev.hostname}</span>
-                        )}
-                        {dev.type === 'workstation' && !dev.isCaps && (
-                          <span className={dev.connectionStatus === 'green' ? 'text-green-500' : 'text-red-500'}>
-                            {dev.connectionStatus === 'green' ? '● CAPS OK' : '● No CAPS'}
-                          </span>
                         )}
                       </div>
                       {dev.lastSeenAt && (
