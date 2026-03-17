@@ -257,6 +257,72 @@ export class PaymentController {
     return result;
   }
   
+  async processTerminalSession(sessionId: string, session: any): Promise<PaymentResult> {
+    const amount = parseFloat(session.amount || '0');
+    const tip = parseFloat(session.tipAmount || '0');
+    
+    try {
+      const terminalResult = await this.authorize({
+        checkId: session.checkId,
+        amount: amount + tip,
+        tip: tip,
+        tenderId: session.tenderId || 'card',
+        tenderType: session.transactionType === 'debit' ? 'debit' : 'credit',
+        cardLast4: session.cardLast4,
+        cardBrand: session.cardBrand,
+        terminalId: session.terminalDeviceId,
+      });
+
+      this.db.run(
+        `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+        [
+          terminalResult.success ? 'completed' : 'failed',
+          JSON.stringify({
+            ...session,
+            status: terminalResult.success ? 'completed' : 'failed',
+            transactionId: terminalResult.transactionId,
+            authCode: terminalResult.authCode,
+            cardLast4: terminalResult.cardLast4,
+            cardBrand: terminalResult.cardBrand,
+            processedAt: new Date().toISOString(),
+          }),
+          sessionId,
+        ]
+      );
+
+      return terminalResult;
+    } catch (e: any) {
+      const offlineResult = await this.authorizeOffline({
+        checkId: session.checkId,
+        amount: amount + tip,
+        tip: tip,
+        tenderId: session.tenderId || 'card',
+        tenderType: session.transactionType === 'debit' ? 'debit' : 'credit',
+        cardLast4: session.cardLast4 || '****',
+        cardBrand: session.cardBrand || 'unknown',
+        terminalId: session.terminalDeviceId,
+      });
+
+      this.db.run(
+        `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+        [
+          'completed_offline',
+          JSON.stringify({
+            ...session,
+            status: 'completed_offline',
+            transactionId: offlineResult.transactionId,
+            authCode: offlineResult.authCode,
+            offline: true,
+            processedAt: new Date().toISOString(),
+          }),
+          sessionId,
+        ]
+      );
+
+      return offlineResult;
+    }
+  }
+
   // Helper to generate auth code
   private generateAuthCode(): string {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
