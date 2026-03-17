@@ -593,11 +593,16 @@ async function checkConnectivity(options = {}) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         const currentUrl = mainWindow.webContents.getURL();
         if (currentUrl.startsWith('data:')) {
-          const reloadUrl = `${serverUrl}${appMode === 'kds' ? '/kds' : '/'}`;
-          appLogger.info('Network', `Window stuck on error/loading page after reconnect, auto-navigating to ${reloadUrl}`);
+          const bundledIndex = path.join(getBundledAssetsDir(), 'index.html');
+          appLogger.info('Network', `Window stuck on error/loading page after reconnect, loading bundled index.html`);
           setTimeout(() => {
             if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.loadURL(reloadUrl);
+              if (fs.existsSync(bundledIndex)) {
+                mainWindow.loadFile(bundledIndex);
+              } else {
+                const serverUrl = getServerUrl();
+                mainWindow.loadURL(`${serverUrl}${appMode === 'kds' ? '/kds' : '/'}`);
+              }
             }
           }, 1000);
         }
@@ -852,10 +857,16 @@ function createWindow() {
       appLogger.info('Window', 'Network changed (ERR_NETWORK_CHANGED), auto-retrying in 2s...');
       setTimeout(() => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          const sUrl = getServerUrl();
-          const sPath = appMode === 'kds' ? '/kds' : '/';
-          appLogger.info('Window', `Auto-retrying load after ERR_NETWORK_CHANGED: ${sUrl}${sPath}`);
-          mainWindow.loadURL(`${sUrl}${sPath}`);
+          const bundledIndex = path.join(getBundledAssetsDir(), 'index.html');
+          if (fs.existsSync(bundledIndex)) {
+            appLogger.info('Window', `Auto-retrying load after ERR_NETWORK_CHANGED: loading bundled index.html`);
+            mainWindow.loadFile(bundledIndex);
+          } else {
+            const sUrl = getServerUrl();
+            const sPath = appMode === 'kds' ? '/kds' : '/';
+            appLogger.info('Window', `Auto-retrying load after ERR_NETWORK_CHANGED: ${sUrl}${sPath}`);
+            mainWindow.loadURL(`${sUrl}${sPath}`);
+          }
         }
       }, 2000);
       return;
@@ -2095,8 +2106,14 @@ function setupIpcHandlers() {
         appLogger.info('Window', 'Network changed after wizard (ERR_NETWORK_CHANGED), auto-retrying in 2s...');
         setTimeout(() => {
           if (mainWindow && !mainWindow.isDestroyed()) {
-            appLogger.info('Window', `Auto-retrying post-wizard load: ${serverUrl}${startPath}`);
-            mainWindow.loadURL(`${serverUrl}${startPath}`);
+            const bundledIndex = path.join(getBundledAssetsDir(), 'index.html');
+            if (fs.existsSync(bundledIndex)) {
+              appLogger.info('Window', 'Auto-retrying post-wizard load: loading bundled index.html');
+              mainWindow.loadFile(bundledIndex);
+            } else {
+              appLogger.info('Window', `Auto-retrying post-wizard load: ${serverUrl}${startPath}`);
+              mainWindow.loadURL(`${serverUrl}${startPath}`);
+            }
           }
         }, 2000);
         return;
@@ -2938,10 +2955,6 @@ function registerProtocolInterceptor() {
       return electronNet.fetch(request, { bypassCustomProtocolHandlers: true });
     }
 
-    if (url.pathname === '/__vite_hmr' || url.pathname.startsWith('/@vite/') || url.pathname.startsWith('/@react-refresh')) {
-      return new Response('', { status: 204, headers: { 'Content-Type': 'text/plain' } });
-    }
-
     if (url.pathname === '/health' || url.pathname === '/api/health/db-probe') {
       if (!isOnline) {
         return new Response(JSON.stringify({ status: 'offline', offline: true, timestamp: new Date().toISOString() }), {
@@ -3266,12 +3279,17 @@ function registerProtocolInterceptor() {
         if (mainWindow && !mainWindow.isDestroyed()) {
           const currentUrl = mainWindow.webContents.getURL();
           if (currentUrl.startsWith('data:')) {
-            const sUrl = getServerUrl();
-            const sPath = appMode === 'kds' ? '/kds' : '/';
-            appLogger.info('Network', `Window stuck on error/loading page, auto-navigating to ${sUrl}${sPath}`);
+            const bundledIndex = path.join(getBundledAssetsDir(), 'index.html');
+            appLogger.info('Network', `Window stuck on error/loading page, loading bundled index.html`);
             setTimeout(() => {
               if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.loadURL(`${sUrl}${sPath}`);
+                if (fs.existsSync(bundledIndex)) {
+                  mainWindow.loadFile(bundledIndex);
+                } else {
+                  const sUrl = getServerUrl();
+                  const sPath = appMode === 'kds' ? '/kds' : '/';
+                  mainWindow.loadURL(`${sUrl}${sPath}`);
+                }
               }
             }, 1000);
           }
@@ -3623,20 +3641,34 @@ app.whenReady().then(async () => {
   registerProtocolInterceptor();
 
   if (config.setupComplete) {
-    appLogger.info('App', 'Setup previously completed — launching window first, services in background');
+    appLogger.info('App', 'Setup previously completed — launching window immediately, services in background');
     migrateAutoStartup(config);
 
     await initOfflineDbEarly();
 
-    try {
-      const serverUrl = getServerUrl();
-      const quickCheck = await fetch(`${serverUrl}/api/health`, {
-        signal: AbortSignal.timeout(1500),
-      });
-      if (quickCheck.ok) {
-        isOnline = true;
-        appLogger.info('App', 'Quick connectivity check: ONLINE');
-      } else {
+    createWindow();
+
+    (async () => {
+      try {
+        const serverUrl = getServerUrl();
+        const quickCheck = await fetch(`${serverUrl}/api/health`, {
+          signal: AbortSignal.timeout(1500),
+        });
+        if (quickCheck.ok) {
+          isOnline = true;
+          firstBootConnectivityChecked = true;
+          appLogger.info('App', 'Background connectivity check: ONLINE');
+        } else {
+          isOnline = false;
+          connectionMode = 'red';
+          firstBootConnectivityChecked = true;
+          if (offlineInterceptor) {
+            offlineInterceptor.setOffline(true);
+            offlineInterceptor.setConnectionMode('red');
+          }
+          appLogger.info('App', `Background connectivity check: OFFLINE (status ${quickCheck.status})`);
+        }
+      } catch (e) {
         isOnline = false;
         connectionMode = 'red';
         firstBootConnectivityChecked = true;
@@ -3644,20 +3676,9 @@ app.whenReady().then(async () => {
           offlineInterceptor.setOffline(true);
           offlineInterceptor.setConnectionMode('red');
         }
-        appLogger.info('App', `Quick connectivity check: OFFLINE (status ${quickCheck.status})`);
+        appLogger.info('App', `Background connectivity check: OFFLINE (${e.message})`);
       }
-    } catch (e) {
-      isOnline = false;
-      connectionMode = 'red';
-      firstBootConnectivityChecked = true;
-      if (offlineInterceptor) {
-        offlineInterceptor.setOffline(true);
-        offlineInterceptor.setConnectionMode('red');
-      }
-      appLogger.info('App', `Quick connectivity check: OFFLINE (${e.message})`);
-    }
-
-    createWindow();
+    })();
 
     initAllServices().then(() => {
       appLogger.info('App', 'Background service initialization complete');
