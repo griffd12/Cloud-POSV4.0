@@ -370,6 +370,44 @@ export class CapsService {
     this.recalculateTotals(checkId);
   }
   
+  addDiscount(checkId: string, params: {
+    discountId?: string;
+    checkItemId?: string;
+    name: string;
+    type: string;
+    amount: number;
+    rate?: number;
+    employeeId?: string;
+    managerEmployeeId?: string;
+  }): { id: string; amount: number } {
+    const check = this.getCheck(checkId);
+    if (!check) throw new Error('Check not found');
+
+    const id = `caps_disc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const amountCents = this.db.toCents(params.amount);
+
+    this.db.run(
+      `INSERT INTO check_discounts (id, check_id, check_item_id, discount_id, name, discount_type, amount, employee_id, manager_employee_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        checkId,
+        params.checkItemId || null,
+        params.discountId || null,
+        params.name,
+        params.type,
+        amountCents,
+        params.employeeId || null,
+        params.managerEmployeeId || null,
+      ]
+    );
+
+    this.recalculateTotals(checkId);
+    this.transactionSync.queueCheck(checkId, 'update', this.getCheck(checkId)!);
+
+    return { id, amount: params.amount };
+  }
+
   addPayment(checkId: string, params: AddPaymentParams, workstationId?: string): Payment & { popDrawer?: boolean; printCheck?: boolean } {
     const check = this.getCheck(checkId);
     if (!check) throw new Error('Check not found');

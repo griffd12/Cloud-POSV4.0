@@ -664,6 +664,31 @@ class OfflineDatabase {
         data TEXT NOT NULL,
         updated_at TEXT DEFAULT (datetime('now'))
       );
+
+      -- POS layout RVC assignments cache
+      CREATE TABLE IF NOT EXISTS pos_layout_rvc_assignments (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      -- Menu item SLU assignments cache
+      CREATE TABLE IF NOT EXISTS menu_item_slus (
+        id TEXT PRIMARY KEY,
+        enterprise_id TEXT,
+        data TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      -- Terminal sessions (local management for offline card processing)
+      CREATE TABLE IF NOT EXISTS terminal_sessions (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
     `);
   }
 
@@ -759,6 +784,21 @@ class OfflineDatabase {
         }
       } catch (e) {
         offlineDbLogger.warn('Migration', `Migration skipped for ${tbl}: ${e.message}`);
+      }
+    }
+
+    for (const tbl of ['pos_layout_rvc_assignments', 'menu_item_slus', 'terminal_sessions']) {
+      try {
+        this.db.exec(`CREATE TABLE IF NOT EXISTS ${tbl} (
+          id TEXT PRIMARY KEY,
+          ${tbl === 'terminal_sessions' ? '' : 'enterprise_id TEXT,'}
+          data TEXT NOT NULL,
+          ${tbl === 'terminal_sessions' ? "status TEXT DEFAULT 'pending'," : ''}
+          ${tbl === 'terminal_sessions' ? "created_at TEXT DEFAULT (datetime('now'))," : ''}
+          updated_at TEXT DEFAULT (datetime('now'))
+        )`);
+      } catch (e) {
+        offlineDbLogger.warn('Migration', `${tbl} table migration: ${e.message}`);
       }
     }
 
@@ -925,6 +965,7 @@ class OfflineDatabase {
       { table: 'employee_assignments', url: `/api/sync/employee-assignments` },
       { table: 'workstation_order_devices', url: `/api/sync/workstation-order-devices` },
       { table: 'workstation_service_bindings', url: `/api/sync/workstation-service-bindings` },
+      { table: 'menu_item_slus', url: `/api/sync/menu-item-slus?enterpriseId=${enterpriseId}` },
     ];
 
     if (propertyId) {
@@ -937,6 +978,7 @@ class OfflineDatabase {
         { table: 'order_devices', url: `/api/order-devices?propertyId=${propertyId}` },
         { table: 'order_device_printers', url: `/api/sync/order-device-printers` },
         { table: 'order_device_kds', url: `/api/sync/order-device-kds` },
+        { table: 'pos_layout_rvc_assignments', url: `/api/sync/pos-layout-rvc-assignments?propertyId=${propertyId}` },
         { table: 'payment_terminals', url: `/api/terminal-devices?propertyId=${propertyId}` },
         { table: 'payment_processors', url: `/api/payment-processors?propertyId=${propertyId}` },
         { table: 'registered_devices', url: `/api/registered-devices?propertyId=${propertyId}` },
@@ -1053,7 +1095,9 @@ class OfflineDatabase {
       offlineDbLogger.warn('Sync', `Role privilege sync error: ${e.message}`);
     }
 
-    this.setSyncMetadata('lastFullSync', new Date().toISOString());
+    const syncTimestamp = new Date().toISOString();
+    this.setSyncMetadata('lastFullSync', syncTimestamp);
+    this.setSyncMetadata('lastSyncTimestamp', syncTimestamp);
     this.setSyncMetadata('enterpriseId', enterpriseId);
     this.setSyncMetadata('propertyId', propertyId || '');
     this.setSyncMetadata('rvcId', rvcId || '');

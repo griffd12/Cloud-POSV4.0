@@ -123,6 +123,10 @@ class OfflineApiInterceptor {
         /^\/api\/terminal-devices/,
         /^\/api\/payment-processors/,
         /^\/api\/sync-notifications/,
+        /^\/api\/pos-layout-rvc-assignments/,
+        /^\/api\/menu-item-slus/,
+        /^\/api\/terminal-sessions/,
+        /^\/api\/pos\/reports/,
       ];
       return readEndpoints.some(re => re.test(pathname));
     }
@@ -150,6 +154,8 @@ class OfflineApiInterceptor {
         /^\/api\/pos\//,
         /^\/api\/kds-tickets/,
         /^\/api\/item-availability/,
+        /^\/api\/terminal-sessions/,
+        /^\/api\/checks\/merge/,
       ];
       return writeEndpoints.some(re => re.test(pathname));
     }
@@ -287,6 +293,36 @@ class OfflineApiInterceptor {
       return { status: 200, data: { count: 0 } };
     }
 
+    if (pathname === '/api/pos-layout-rvc-assignments' || pathname.match(/^\/api\/pos-layout-rvc-assignments/)) {
+      const assignments = this.db.getEntityList('pos_layout_rvc_assignments', null);
+      const rvcId = query?.rvcId;
+      const filtered = rvcId ? assignments.filter(a => a.rvcId === rvcId || a.rvc_id === rvcId) : assignments;
+      return { status: 200, data: filtered };
+    }
+
+    if (pathname === '/api/menu-item-slus' || pathname.match(/^\/api\/menu-item-slus/)) {
+      const slus = this.db.getEntityList('menu_item_slus', null);
+      const sluId = query?.sluId;
+      const menuItemId = query?.menuItemId;
+      let filtered = slus;
+      if (sluId) filtered = filtered.filter(s => s.sluId === sluId || s.slu_id === sluId);
+      if (menuItemId) filtered = filtered.filter(s => s.menuItemId === menuItemId || s.menu_item_id === menuItemId);
+      return { status: 200, data: filtered };
+    }
+
+    const termSessionIdMatch = pathname.match(/^\/api\/terminal-sessions\/([^/]+)$/);
+    if (termSessionIdMatch) {
+      const sessionId = termSessionIdMatch[1];
+      const session = this.db.getEntity('terminal_sessions', sessionId);
+      if (session) return { status: 200, data: session };
+      return { status: 404, data: { message: 'Terminal session not found (offline)' } };
+    }
+
+    if (pathname === '/api/terminal-sessions' || pathname === '/api/terminal-sessions/') {
+      const sessions = this.db.getEntityList('terminal_sessions', null);
+      return { status: 200, data: sessions };
+    }
+
     const entityMap = {
       '/api/menu-items': 'menu_items',
       '/api/modifier-groups': 'modifier_groups',
@@ -320,6 +356,8 @@ class OfflineApiInterceptor {
       '/api/sync/order-device-printers': 'order_device_printers',
       '/api/sync/order-device-kds': 'order_device_kds',
       '/api/sync/menu-item-recipe-ingredients': 'menu_item_recipe_ingredients',
+      '/api/sync/pos-layout-rvc-assignments': 'pos_layout_rvc_assignments',
+      '/api/sync/menu-item-slus': 'menu_item_slus',
     };
 
     const wsContextMatch = pathname.match(/^\/api\/workstations\/([^/]+)\/context$/);
@@ -548,6 +586,117 @@ class OfflineApiInterceptor {
 
     if (pathname === '/api/client-ip') {
       return { status: 200, data: { ip: '127.0.0.1', offline: true } };
+    }
+
+    if (pathname === '/api/pos/reports/rvc-sales-summary' || pathname === '/api/pos/reports/sales-summary') {
+      const businessDate = query?.date || new Date().toISOString().split('T')[0];
+      const rvcId = query?.rvcId || this.config.rvcId;
+      const checks = this.db.getOfflineChecks(rvcId, null);
+      const todayChecks = checks.filter(c => {
+        const checkDate = (c.createdAt || c.openedAt || '').split('T')[0];
+        return checkDate === businessDate;
+      });
+      const totalSales = todayChecks.reduce((sum, c) => sum + parseFloat(c.total || 0), 0);
+      const totalChecks = todayChecks.length;
+      const closedChecks = todayChecks.filter(c => c.status === 'closed').length;
+      const openChecks = todayChecks.filter(c => c.status === 'open').length;
+      const voidedChecks = todayChecks.filter(c => c.status === 'voided').length;
+      return {
+        status: 200,
+        data: {
+          businessDate,
+          rvcId,
+          totalSales: totalSales.toFixed(2),
+          totalChecks,
+          closedChecks,
+          openChecks,
+          voidedChecks,
+          averageCheck: totalChecks > 0 ? (totalSales / totalChecks).toFixed(2) : '0.00',
+          offline: true,
+        },
+      };
+    }
+
+    if (pathname === '/api/pos/reports/employee-sales-summary') {
+      const businessDate = query?.date || new Date().toISOString().split('T')[0];
+      const rvcId = query?.rvcId || this.config.rvcId;
+      const checks = this.db.getOfflineChecks(rvcId, null);
+      const todayChecks = checks.filter(c => {
+        const checkDate = (c.createdAt || c.openedAt || '').split('T')[0];
+        return checkDate === businessDate;
+      });
+      const employees = this.db.getEntityList('employees', this.config.enterpriseId);
+      const empMap = {};
+      for (const emp of employees) { empMap[emp.id] = emp; }
+      const salesByEmployee = {};
+      for (const c of todayChecks) {
+        const empId = c.employeeId;
+        if (!salesByEmployee[empId]) {
+          const emp = empMap[empId];
+          salesByEmployee[empId] = {
+            employeeId: empId,
+            employeeName: emp ? `${emp.firstName || ''} ${emp.lastName || ''}`.trim() : 'Unknown',
+            totalSales: 0,
+            checkCount: 0,
+          };
+        }
+        salesByEmployee[empId].totalSales += parseFloat(c.total || 0);
+        salesByEmployee[empId].checkCount++;
+      }
+      const result = Object.values(salesByEmployee).map(s => ({
+        ...s,
+        totalSales: s.totalSales.toFixed(2),
+        averageCheck: s.checkCount > 0 ? (s.totalSales / s.checkCount).toFixed(2) : '0.00',
+      }));
+      return { status: 200, data: { businessDate, rvcId, employees: result, offline: true } };
+    }
+
+    if (pathname === '/api/pos/reports/tender-totals') {
+      const businessDate = query?.date || new Date().toISOString().split('T')[0];
+      const rvcId = query?.rvcId || this.config.rvcId;
+      const checks = this.db.getOfflineChecks(rvcId, null);
+      const todayChecks = checks.filter(c => {
+        const checkDate = (c.createdAt || c.openedAt || '').split('T')[0];
+        return checkDate === businessDate;
+      });
+      const tenderTotals = {};
+      for (const c of todayChecks) {
+        for (const p of (c.payments || [])) {
+          if (p.voided) continue;
+          const tenderName = p.tenderName || p.tenderType || 'Unknown';
+          if (!tenderTotals[tenderName]) {
+            tenderTotals[tenderName] = { tenderName, total: 0, count: 0 };
+          }
+          tenderTotals[tenderName].total += parseFloat(p.amount || 0);
+          tenderTotals[tenderName].count++;
+        }
+      }
+      const result = Object.values(tenderTotals).map(t => ({
+        ...t,
+        total: t.total.toFixed(2),
+      }));
+      return { status: 200, data: { businessDate, rvcId, tenders: result, offline: true } };
+    }
+
+    if (pathname === '/api/pos/reports/open-checks') {
+      const rvcId = query?.rvcId || this.config.rvcId;
+      const checks = this.db.getOfflineChecks(rvcId, 'open');
+      const employees = this.db.getEntityList('employees', this.config.enterpriseId);
+      const empMap = {};
+      for (const emp of employees) { empMap[emp.id] = emp; }
+      const result = checks.map(c => {
+        const emp = empMap[c.employeeId];
+        return {
+          id: c.id,
+          checkNumber: c.checkNumber,
+          employeeName: emp ? `${emp.firstName || ''} ${emp.lastName || ''}`.trim() : 'Unknown',
+          total: c.total || '0.00',
+          itemCount: (c.items || []).filter(i => !i.voided).length,
+          openedAt: c.openedAt || c.createdAt,
+          orderType: c.orderType || 'dine-in',
+        };
+      });
+      return { status: 200, data: { rvcId, checks: result, offline: true } };
     }
 
     if (pathname === '/api/kds-tickets' || pathname === '/api/kds-tickets/') {
@@ -883,13 +1032,59 @@ class OfflineApiInterceptor {
       return { status: 202, data: { success: true, offline: true, message: 'External payment recorded (offline)' } };
     }
 
+    if (pathname.match(/^\/api\/checks\/[^/]+\/service-charges/) && !pathname.match(/void/)) {
+      const scMatch = pathname.match(/^\/api\/checks\/([^/]+)\/service-charges/);
+      if (scMatch) {
+        const checkId = scMatch[1];
+        const check = this.db.getOfflineCheck(checkId);
+        if (check) {
+          if (!check.serviceCharges) check.serviceCharges = [];
+          const scId = `offline_sc_${crypto.randomUUID()}`;
+          const serviceCharges = this.db.getEntityList('service_charges', this.config.enterpriseId);
+          const scDef = body.serviceChargeId ? serviceCharges.find(s => s.id === body.serviceChargeId) : null;
+          let scAmount = 0;
+          const scType = body.type || (scDef ? scDef.type : 'fixed');
+          if (scType === 'percentage' || scType === 'percent') {
+            const subtotal = parseFloat(check.subtotal) || 0;
+            const rate = parseFloat(body.rate || body.amount || (scDef ? scDef.rate || scDef.amount : 0));
+            scAmount = (subtotal * rate) / 100;
+          } else {
+            scAmount = parseFloat(body.amount || (scDef ? scDef.amount : 0));
+          }
+          const sc = {
+            id: scId,
+            checkId,
+            serviceChargeId: body.serviceChargeId || null,
+            name: body.name || (scDef ? scDef.name : 'Service Charge'),
+            type: scType,
+            rate: body.rate || (scDef ? scDef.rate : null),
+            amount: scAmount.toFixed(2),
+            voided: false,
+            createdAt: new Date().toISOString(),
+            isOffline: true,
+          };
+          check.serviceCharges.push(sc);
+          this._recalcCheckTotalsWithServiceCharges(check);
+          this.db.saveOfflineCheck(check);
+          this.db.queueOperation('add_service_charge', `/api/checks/${checkId}/service-charges`, 'POST', body, 2);
+          return { status: 201, data: sc };
+        }
+        return { status: 404, data: { message: 'Check not found (offline)' } };
+      }
+    }
+
+    if (pathname === '/api/terminal-sessions' || pathname === '/api/terminal-sessions/') {
+      return this.createTerminalSessionOffline(body);
+    }
+
     if (pathname.match(/^\/api\/pos\/process-card-payment/) || pathname.match(/^\/api\/stripe/)) {
-      return { status: 503, data: { error: 'Card payment processing requires a cloud connection', offline: true } };
+      if (this._connectionMode === 'green') return null;
+      return { status: 503, data: { error: 'Card payment processing requires a cloud connection — use the on-site terminal', offline: true } };
     }
 
     if (pathname.match(/^\/api\/checks\/merge/)) {
       if (this._connectionMode === 'green') return null;
-      return { status: 503, data: { error: 'Check merge requires a cloud connection', offline: true } };
+      return this.mergeChecksOffline(body);
     }
 
     if (pathname.match(/^\/api\/checks\/[^/]+\/transfer/)) {
@@ -1148,6 +1343,34 @@ class OfflineApiInterceptor {
       }
       this.db.queueOperation('void_service_charge', pathname, 'PATCH', body, 2);
       return { status: 200, data: { success: true, offline: true, message: 'Service charge voided (offline)' } };
+    }
+
+    const termSessionPatchMatch = pathname.match(/^\/api\/terminal-sessions\/([^/]+)$/);
+    if (termSessionPatchMatch) {
+      const sessionId = termSessionPatchMatch[1];
+      try {
+        const existing = this.db.getEntity('terminal_sessions', sessionId);
+        if (existing) {
+          const updated = { ...existing, ...body, updatedAt: new Date().toISOString() };
+          if (this.db.usingSqlite) {
+            this.db.db.prepare(`
+              UPDATE terminal_sessions SET data = ?, status = ?, updated_at = datetime('now')
+              WHERE id = ?
+            `).run(JSON.stringify(updated), updated.status || existing.status || 'pending', sessionId);
+          }
+          return { status: 200, data: updated };
+        }
+        const newSession = { id: sessionId, ...body, updatedAt: new Date().toISOString() };
+        if (this.db.usingSqlite) {
+          this.db.db.prepare(`
+            INSERT OR REPLACE INTO terminal_sessions (id, data, status, created_at, updated_at)
+            VALUES (?, ?, ?, datetime('now'), datetime('now'))
+          `).run(sessionId, JSON.stringify(newSession), newSession.status || 'pending');
+        }
+        return { status: 200, data: newSession };
+      } catch (e) {
+        return { status: 200, data: { id: sessionId, ...body, offline: true } };
+      }
     }
 
     this.db.queueOperation('offline_update', pathname, 'PATCH', body, 5);
@@ -1805,6 +2028,119 @@ class OfflineApiInterceptor {
         message: 'Check split (offline)',
       },
     };
+  }
+
+  mergeChecksOffline(body) {
+    const targetCheckId = body?.targetCheckId;
+    const sourceCheckIds = body?.sourceCheckIds || body?.checkIds || [];
+    if (!targetCheckId || sourceCheckIds.length === 0) {
+      return { status: 400, data: { message: 'targetCheckId and sourceCheckIds are required' } };
+    }
+
+    const targetCheck = this.db.getOfflineCheck(targetCheckId);
+    if (!targetCheck) {
+      return { status: 404, data: { message: 'Target check not found (offline)' } };
+    }
+
+    const mergedSourceIds = [];
+    for (const sourceId of sourceCheckIds) {
+      if (sourceId === targetCheckId) continue;
+      const sourceCheck = this.db.getOfflineCheck(sourceId);
+      if (!sourceCheck) continue;
+
+      for (const item of (sourceCheck.items || [])) {
+        item.checkId = targetCheckId;
+        if (!targetCheck.items) targetCheck.items = [];
+        targetCheck.items.push(item);
+      }
+
+      sourceCheck.items = [];
+      sourceCheck.status = 'closed';
+      sourceCheck.closedAt = new Date().toISOString();
+      sourceCheck.mergedInto = targetCheckId;
+      sourceCheck.updatedAt = new Date().toISOString();
+      this.db.saveOfflineCheck(sourceCheck);
+      mergedSourceIds.push(sourceId);
+    }
+
+    this._recalcCheckTotals(targetCheck);
+    targetCheck.updatedAt = new Date().toISOString();
+    this.db.saveOfflineCheck(targetCheck);
+    this.db.queueOperation('merge_checks', '/api/checks/merge', 'POST', body, 1);
+
+    return {
+      status: 200,
+      data: {
+        success: true,
+        targetCheck,
+        mergedSourceIds,
+        offline: true,
+        message: `Merged ${mergedSourceIds.length} check(s) into ${targetCheckId}`,
+      },
+    };
+  }
+
+  createTerminalSessionOffline(body) {
+    const sessionId = `offline_ts_${crypto.randomUUID()}`;
+    const session = {
+      id: sessionId,
+      terminalDeviceId: body.terminalDeviceId,
+      checkId: body.checkId,
+      amount: body.amount,
+      tipAmount: body.tipAmount || '0.00',
+      status: 'pending',
+      transactionType: body.transactionType || 'sale',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      isOffline: true,
+    };
+
+    try {
+      if (this.db.usingSqlite) {
+        this.db.db.prepare(`
+          INSERT OR REPLACE INTO terminal_sessions (id, data, status, created_at, updated_at)
+          VALUES (?, ?, ?, datetime('now'), datetime('now'))
+        `).run(sessionId, JSON.stringify(session), 'pending');
+      }
+    } catch (e) {
+      appLogger.warn('Interceptor', `Failed to save terminal session locally: ${e.message}`);
+    }
+
+    return {
+      status: 201,
+      data: session,
+    };
+  }
+
+  _recalcCheckTotalsWithServiceCharges(check) {
+    let subtotal = 0;
+    const activeItems = (check.items || []).filter(i => !i.voided);
+    activeItems.forEach(i => {
+      const unitPrice = parseFloat(i.unitPrice || 0);
+      const modTotal = (i.modifiers || []).reduce((s, m) => s + parseFloat(m.priceDelta || m.price || 0), 0);
+      const itemTotal = parseFloat(i.totalPrice || 0) || ((unitPrice + modTotal) * (i.quantity || 1));
+      subtotal += itemTotal;
+    });
+    check.subtotal = subtotal.toFixed(2);
+    let taxTotal = 0;
+    try {
+      const taxRates = this.db.getEntityList('tax_rates', null);
+      if (taxRates && taxRates.length > 0) {
+        const defaultRate = taxRates.find(t => t.isDefault) || taxRates[0];
+        if (defaultRate && defaultRate.rate) {
+          taxTotal = subtotal * (parseFloat(defaultRate.rate) / 100);
+        }
+      }
+    } catch (e) {}
+    check.taxTotal = taxTotal.toFixed(2);
+    const discountTotal = parseFloat(check.discountTotal) || 0;
+    let serviceChargeTotal = 0;
+    (check.serviceCharges || []).forEach(sc => {
+      if (!sc.voided) serviceChargeTotal += parseFloat(sc.amount || 0);
+    });
+    check.serviceChargeTotal = serviceChargeTotal.toFixed(2);
+    check.total = Math.max(0, subtotal - discountTotal + taxTotal + serviceChargeTotal).toFixed(2);
+    check.updatedAt = new Date().toISOString();
   }
 
   _recalcCheckTotals(check) {

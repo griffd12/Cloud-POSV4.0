@@ -257,7 +257,132 @@ export class PaymentController {
     return result;
   }
   
-  // Helper to generate auth code
+  async processTerminalSession(sessionId: string, session: any): Promise<PaymentResult> {
+    const amount = parseFloat(session.amount || '0');
+    const tip = parseFloat(session.tipAmount || '0');
+    
+    try {
+      const terminalResult = await this.authorize({
+        checkId: session.checkId,
+        amount: amount + tip,
+        tip: tip,
+        tenderId: session.tenderId || 'card',
+        tenderType: session.transactionType === 'debit' ? 'debit' : 'credit',
+        cardLast4: session.cardLast4,
+        cardBrand: session.cardBrand,
+        terminalId: session.terminalDeviceId,
+      });
+
+      this.db.run(
+        `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+        [
+          terminalResult.success ? 'completed' : 'failed',
+          JSON.stringify({
+            ...session,
+            status: terminalResult.success ? 'completed' : 'failed',
+            transactionId: terminalResult.transactionId,
+            authCode: terminalResult.authCode,
+            cardLast4: terminalResult.cardLast4,
+            cardBrand: terminalResult.cardBrand,
+            processedAt: new Date().toISOString(),
+          }),
+          sessionId,
+        ]
+      );
+
+      return terminalResult;
+    } catch (e: any) {
+      const offlineResult = await this.authorizeOffline({
+        checkId: session.checkId,
+        amount: amount + tip,
+        tip: tip,
+        tenderId: session.tenderId || 'card',
+        tenderType: session.transactionType === 'debit' ? 'debit' : 'credit',
+        cardLast4: session.cardLast4 || '****',
+        cardBrand: session.cardBrand || 'unknown',
+        terminalId: session.terminalDeviceId,
+      });
+
+      this.db.run(
+        `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+        [
+          'completed_offline',
+          JSON.stringify({
+            ...session,
+            status: 'completed_offline',
+            transactionId: offlineResult.transactionId,
+            authCode: offlineResult.authCode,
+            offline: true,
+            processedAt: new Date().toISOString(),
+          }),
+          sessionId,
+        ]
+      );
+
+      return offlineResult;
+    }
+  }
+
+  async processPendingSessions(): Promise<{ processed: number; failed: number }> {
+    let processed = 0;
+    let failed = 0;
+    try {
+      const pending = this.db.all(
+        `SELECT id, data FROM terminal_sessions WHERE status = 'pending' ORDER BY created_at ASC LIMIT 10`
+      ) as any[];
+      for (const row of pending) {
+        const claimed = this.db.run(
+          `UPDATE terminal_sessions SET status = 'processing', updated_at = datetime('now') WHERE id = ? AND status = 'pending'`,
+          [row.id]
+        );
+        if (!claimed || (claimed as any).changes === 0) continue;
+
+        const session = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+        try {
+          await this.processTerminalSession(row.id, session);
+          processed++;
+        } catch (e: any) {
+          this.db.run(
+            `UPDATE terminal_sessions SET status = 'error', updated_at = datetime('now') WHERE id = ?`,
+            [row.id]
+          );
+          failed++;
+        }
+      }
+    } catch (e: any) {
+      console.error(`[PaymentController] Poll pending sessions error: ${e.message}`);
+    }
+    return { processed, failed };
+  }
+
+  startPolling(intervalMs: number = 5000): void {
+    if (this._pollInterval) return;
+    let polling = false;
+    this._pollInterval = setInterval(async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const result = await this.processPendingSessions();
+        if (result.processed > 0 || result.failed > 0) {
+          console.log(`[PaymentController] Poll: ${result.processed} processed, ${result.failed} failed`);
+        }
+      } catch (e: any) {
+        console.error(`[PaymentController] Poll error: ${e.message}`);
+      } finally {
+        polling = false;
+      }
+    }, intervalMs);
+  }
+
+  stopPolling(): void {
+    if (this._pollInterval) {
+      clearInterval(this._pollInterval);
+      this._pollInterval = null;
+    }
+  }
+
+  private _pollInterval: ReturnType<typeof setInterval> | null = null;
+
   private generateAuthCode(): string {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
   }

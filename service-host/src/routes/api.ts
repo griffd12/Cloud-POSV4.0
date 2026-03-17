@@ -1297,9 +1297,55 @@ export function createApiRoutes(
     try {
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
-      if (!check.discounts) check.discounts = [];
-      check.discounts.push(req.body);
-      res.json({ success: true });
+
+      const { discountId, checkItemId, name, type, amount, rate, managerPin, requiredPrivilege, employeeId } = req.body;
+
+      if (requiredPrivilege && !managerPin) {
+        return res.status(401).json({ error: 'Manager approval required for this discount' });
+      }
+
+      let managerEmployeeId: string | undefined;
+      if (managerPin) {
+        const employees = config.getEmployees();
+        const manager = employees.find((emp: any) =>
+          emp.pin === managerPin || emp.posPin === managerPin
+        );
+        if (!manager) return res.status(401).json({ error: 'Invalid manager PIN' });
+        if (requiredPrivilege) {
+          const hasPrivilege = manager.privileges && (
+            Array.isArray(manager.privileges)
+              ? manager.privileges.includes(requiredPrivilege)
+              : manager.privileges[requiredPrivilege]
+          );
+          if (!hasPrivilege && manager.role !== 'admin' && manager.role !== 'manager') {
+            return res.status(403).json({ error: `Employee does not have required privilege: ${requiredPrivilege}` });
+          }
+        }
+        managerEmployeeId = manager.id;
+      }
+
+      let discountAmount = 0;
+      const discountType = type || 'fixed';
+      if (discountType === 'percentage' || discountType === 'percent') {
+        const subtotal = parseFloat(check.subtotal || '0');
+        discountAmount = (subtotal * parseFloat(rate || amount || '0')) / 100;
+      } else {
+        discountAmount = parseFloat(amount || '0');
+      }
+
+      const result = caps.addDiscount(req.params.id, {
+        discountId,
+        checkItemId,
+        name: name || 'Discount',
+        type: discountType,
+        amount: discountAmount,
+        rate: rate ? parseFloat(rate) : undefined,
+        employeeId,
+        managerEmployeeId,
+      });
+
+      const updated = caps.getCheck(req.params.id);
+      res.json({ success: true, discount: result, check: updated });
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
@@ -1797,19 +1843,96 @@ export function createApiRoutes(
     }
   });
 
+  try {
+    caps.db.run(`
+      CREATE TABLE IF NOT EXISTS terminal_sessions (
+        id TEXT PRIMARY KEY,
+        terminal_device_id TEXT,
+        check_id TEXT,
+        amount TEXT,
+        tip_amount TEXT DEFAULT '0.00',
+        status TEXT DEFAULT 'pending',
+        transaction_type TEXT DEFAULT 'sale',
+        data TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    console.log('[CAPS] terminal_sessions table ensured in CAPS database');
+  } catch (e) {
+    console.error('[CAPS] Failed to create terminal_sessions table:', (e as Error).message);
+  }
+
   router.post('/terminal-sessions', async (req, res) => {
     try {
-      res.status(503).json({ error: 'Credit card processing requires cloud connection in service-host mode.' });
+      const sessionId = `caps_ts_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+      const session = {
+        id: sessionId,
+        terminalDeviceId: req.body.terminalDeviceId,
+        checkId: req.body.checkId,
+        amount: req.body.amount,
+        tipAmount: req.body.tipAmount || '0.00',
+        status: 'pending',
+        transactionType: req.body.transactionType || 'sale',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        localCaps: true,
+      };
+      caps.db.run(
+        `INSERT INTO terminal_sessions (id, terminal_device_id, check_id, amount, tip_amount, status, transaction_type, data, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [session.id, session.terminalDeviceId, session.checkId, session.amount,
+         session.tipAmount, session.status, session.transactionType,
+         JSON.stringify(session), session.createdAt, session.updatedAt]
+      );
+      console.log(`[CAPS] Terminal session created (SQLite): ${sessionId} — queued for poll-based processing`);
+      res.json(session);
     } catch (e) {
-      res.status(503).json({ error: (e as Error).message });
+      res.status(500).json({ error: (e as Error).message });
     }
   });
 
   router.get('/terminal-sessions', async (_req, res) => {
     try {
-      res.status(503).json({ error: 'Credit card processing requires cloud connection in service-host mode.' });
+      const rows = caps.db.all<any>('SELECT data FROM terminal_sessions ORDER BY created_at DESC');
+      const sessions = rows.map((r: any) => {
+        try { return JSON.parse(r.data); } catch { return r; }
+      });
+      res.json(sessions);
     } catch (e) {
-      res.status(503).json({ error: (e as Error).message });
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/terminal-sessions/:id', async (req, res) => {
+    try {
+      const row = caps.db.get<any>('SELECT data FROM terminal_sessions WHERE id = ?', [req.params.id]);
+      if (row) {
+        try { return res.json(JSON.parse(row.data)); } catch { return res.json(row); }
+      }
+      res.status(404).json({ error: 'Terminal session not found' });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.patch('/terminal-sessions/:id', async (req, res) => {
+    try {
+      const row = caps.db.get<any>('SELECT data FROM terminal_sessions WHERE id = ?', [req.params.id]);
+      if (row) {
+        let session: any;
+        try { session = JSON.parse(row.data); } catch { session = { id: req.params.id }; }
+        Object.assign(session, req.body, { updatedAt: new Date().toISOString() });
+        caps.db.run(
+          `UPDATE terminal_sessions SET data = ?, status = ?, updated_at = ? WHERE id = ?`,
+          [JSON.stringify(session), session.status || 'pending', session.updatedAt, req.params.id]
+        );
+        console.log(`[CAPS] Terminal session updated (SQLite): ${req.params.id} -> ${session.status}`);
+        return res.json(session);
+      }
+      res.status(404).json({ error: 'Terminal session not found' });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
     }
   });
 
@@ -2317,6 +2440,9 @@ export function createApiRoutes(
       res.status(500).json({ error: (e as Error).message });
     }
   });
+
+  payment.startPolling(5000);
+  console.log('[CAPS] Payment controller polling started (5s interval)');
 
   return router;
 }

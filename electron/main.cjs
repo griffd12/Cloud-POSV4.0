@@ -38,8 +38,9 @@ let lastSyncError = null;
 let backgroundSyncTimer = null;
 let protocolInterceptorStartTime = 0;
 let protocolConsecutiveFailCount = 0;
-const PROTOCOL_STARTUP_GRACE_MS = 15000;
+const PROTOCOL_STARTUP_GRACE_MS = 2000;
 const PROTOCOL_FAIL_THRESHOLD = 3;
+let firstBootConnectivityChecked = false;
 
 const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/auth\/login(\/|$)/,
@@ -74,6 +75,7 @@ const LOCAL_FIRST_WRITE_PATTERNS = [
   /^\/api\/check-service-charges(\/|$)/,
   /^\/api\/payments(\/|$)/,
   /^\/api\/kds-tickets(\/|$)/,
+  /^\/api\/terminal-sessions(\/|$)/,
 ];
 
 function isLocalFirstWrite(method, pathname) {
@@ -82,6 +84,43 @@ function isLocalFirstWrite(method, pathname) {
 }
 
 const LOCAL_FIRST_READ_PATTERNS = [
+  /^\/api\/menu-items/,
+  /^\/api\/modifier-groups/,
+  /^\/api\/modifiers/,
+  /^\/api\/employees/,
+  /^\/api\/tax-rates/,
+  /^\/api\/tax-groups/,
+  /^\/api\/discounts/,
+  /^\/api\/tender-types/,
+  /^\/api\/tenders/,
+  /^\/api\/order-types/,
+  /^\/api\/service-charges/,
+  /^\/api\/revenue-centers/,
+  /^\/api\/rvcs/,
+  /^\/api\/slus/,
+  /^\/api\/properties/,
+  /^\/api\/printers/,
+  /^\/api\/workstations/,
+  /^\/api\/pos-layouts/,
+  /^\/api\/pos-layout-rvc-assignments/,
+  /^\/api\/menu-item-slus/,
+  /^\/api\/terminal-devices/,
+  /^\/api\/terminal-sessions/,
+  /^\/api\/payment-processors/,
+  /^\/api\/ingredient-prefixes/,
+  /^\/api\/pos\/modifier-map/,
+  /^\/api\/option-flags/,
+  /^\/api\/kds-devices/,
+  /^\/api\/order-devices/,
+  /^\/api\/print-classes/,
+  /^\/api\/print-class-routings/,
+  /^\/api\/pos\/reports/,
+  /^\/api\/break-rules/,
+  /^\/api\/checks\/open/,
+  /^\/api\/checks\/locks/,
+  /^\/api\/checks\/orders/,
+  /^\/api\/sync\//,
+  /^\/api\/auth\/offline-employees/,
 ];
 
 function isLocalFirstRead(method, pathname, search) {
@@ -529,6 +568,7 @@ async function checkConnectivity(options = {}) {
     }
 
     if (isOnline) {
+      firstBootConnectivityChecked = true;
       connectivityFailCount = 0;
       connectivitySuccessCount++;
       if (connectionMode !== 'green') {
@@ -567,9 +607,13 @@ async function checkConnectivity(options = {}) {
     connectivitySuccessCount = 0;
     connectivityFailCount++;
     
-    if (!forceImmediate && connectionMode === 'green' && connectivityFailCount < HYSTERESIS_THRESHOLD) {
+    if (!forceImmediate && firstBootConnectivityChecked && connectionMode === 'green' && connectivityFailCount < HYSTERESIS_THRESHOLD) {
       appLogger.info('Network', `Cloud unreachable (${connectivityFailCount}/${HYSTERESIS_THRESHOLD} failures) — waiting before switching mode`);
       return;
+    }
+    if (!firstBootConnectivityChecked) {
+      firstBootConnectivityChecked = true;
+      appLogger.info('Network', 'First boot connectivity check failed — immediately switching to offline mode');
     }
 
     const wasOnline = isOnline;
@@ -663,19 +707,24 @@ function createWindow() {
     const targetUrl = `${serverUrl}${startPath}`;
     appLogger.info('Window', `Loading URL: ${targetUrl}`);
 
-    const loadingHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS</title>
+    if (!isOnline) {
+      appLogger.info('Window', 'Offline boot — loading via protocol interceptor (bundled assets)');
+      mainWindow.loadURL(targetUrl);
+    } else {
+      const loadingHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS</title>
 <style>body{font-family:system-ui,sans-serif;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
 .c{max-width:480px;padding:40px}.spinner{width:40px;height:40px;border:3px solid #2a3a52;border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 20px}
 @keyframes spin{to{transform:rotate(360deg)}}h2{margin:0 0 8px;font-weight:500}p{opacity:0.6;font-size:14px;margin:0}</style></head>
 <body><div class="c"><div class="spinner"></div><h2>Cloud POS</h2><p>Connecting to server...</p></div></body></html>`;
 
-    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml)}`).then(() => {
-      appLogger.info('Window', 'Loading screen shown, navigating to server...');
-      mainWindow.loadURL(targetUrl);
-    }).catch((err) => {
-      appLogger.error('Window', `Failed to show loading screen: ${err.message}`);
-      mainWindow.loadURL(targetUrl);
-    });
+      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml)}`).then(() => {
+        appLogger.info('Window', 'Loading screen shown, navigating to server...');
+        mainWindow.loadURL(targetUrl);
+      }).catch((err) => {
+        appLogger.error('Window', `Failed to show loading screen: ${err.message}`);
+        mainWindow.loadURL(targetUrl);
+      });
+    }
   }
 
   if (process.env.NODE_ENV !== 'production' && !isKiosk) {
@@ -2295,7 +2344,46 @@ async function initPrintAgent() {
   }
 }
 
+async function initOfflineDbEarly() {
+  try {
+    if (enhancedOfflineDb) return;
+    enhancedOfflineDb = new OfflineDatabase({ dataDir: DATA_DIR });
+    await enhancedOfflineDb.initialize();
+    const config = loadConfig();
+    enhancedOfflineDb.config = {
+      deviceId: config.deviceId || null,
+      deviceName: config.deviceName || null,
+      enterpriseId: config.enterpriseId || null,
+      propertyId: config.propertyId || null,
+    };
+    offlineInterceptor = new OfflineApiInterceptor(enhancedOfflineDb);
+    offlineInterceptor.setConfig({
+      enterpriseId: config.enterpriseId || null,
+      propertyId: config.propertyId || null,
+      rvcId: config.rvcId || null,
+    });
+    if (config.serviceHostUrl) {
+      capsConfig = {
+        serviceHostUrl: config.serviceHostUrl,
+        capsWorkstationId: config.capsWorkstationId || null,
+        capsWorkstationName: config.capsWorkstationName || null,
+        isCapsWorkstation: config.isCapsWorkstation || false,
+        propertyId: config.propertyId,
+        serviceHostId: null,
+      };
+    }
+    initOfflineDatabase();
+    appLogger.info('OfflineDB', 'Early offline DB + interceptor initialized for instant boot');
+  } catch (e) {
+    appLogger.warn('OfflineDB', `Early init failed (will retry in full init): ${e.message}`);
+  }
+}
+
 async function initEnhancedOfflineDb() {
+  if (enhancedOfflineDb && offlineInterceptor) {
+    appLogger.info('OfflineDB', 'Enhanced offline DB already initialized (from early init), skipping');
+    return;
+  }
   enhancedOfflineDb = new OfflineDatabase({
     dataDir: DATA_DIR,
   });
@@ -2819,12 +2907,44 @@ function serveBundledAsset(pathname) {
   }
 }
 
+let bundledAssetsAvailable = false;
+function checkBundledAssetsIntegrity() {
+  try {
+    const assetsDir = getBundledAssetsDir();
+    const indexPath = path.join(assetsDir, 'index.html');
+    if (!fs.existsSync(indexPath)) {
+      appLogger.warn('BundledAssets', `Integrity check FAILED: index.html not found at ${indexPath}`);
+      bundledAssetsAvailable = false;
+      return false;
+    }
+    const indexSize = fs.statSync(indexPath).size;
+    if (indexSize < 100) {
+      appLogger.warn('BundledAssets', `Integrity check FAILED: index.html too small (${indexSize} bytes)`);
+      bundledAssetsAvailable = false;
+      return false;
+    }
+    const assetsSubdir = path.join(assetsDir, 'assets');
+    const hasAssets = fs.existsSync(assetsSubdir) && fs.readdirSync(assetsSubdir).length > 0;
+    if (!hasAssets) {
+      appLogger.warn('BundledAssets', 'Integrity check WARNING: assets/ directory empty or missing');
+    }
+    appLogger.info('BundledAssets', `Integrity check passed: index.html=${indexSize}b, assets=${hasAssets}`);
+    bundledAssetsAvailable = true;
+    return true;
+  } catch (e) {
+    appLogger.warn('BundledAssets', `Integrity check error: ${e.message}`);
+    bundledAssetsAvailable = false;
+    return false;
+  }
+}
+
 function registerProtocolInterceptor() {
   if (protocolInterceptorRegistered) return;
   protocolInterceptorRegistered = true;
   protocolInterceptorStartTime = Date.now();
   protocolConsecutiveFailCount = 0;
   ensurePageCacheDir();
+  checkBundledAssetsIntegrity();
 
   protocol.handle('https', async (request) => {
     const url = new URL(request.url);
@@ -2884,22 +3004,122 @@ function registerProtocolInterceptor() {
                   appLogger.warn('Interceptor', `CAPS send: pre-sync failed (will still attempt send): ${syncErr.message}`);
                 }
                 const capsSendUrl = `${capsUrl}/api/caps/checks/${capsCheckId}/send`;
-                try {
-                  const r = await fetch(capsSendUrl, {
-                    method: 'POST',
-                    headers: fwdHeaders,
-                    body: JSON.stringify(body || {}),
-                    signal: AbortSignal.timeout(8000),
-                  });
-                  appLogger.info('Interceptor', `CAPS send-to-kitchen forwarded: ${capsCheckId} -> ${r.status}`);
-                  if (r.status >= 400) {
-                    const errBody = await r.text().catch(() => '');
-                    appLogger.warn('Interceptor', `CAPS send-to-kitchen error body: ${errBody}`);
+                const maxRetries = 3;
+                let lastError = null;
+                for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                  try {
+                    const r = await fetch(capsSendUrl, {
+                      method: 'POST',
+                      headers: fwdHeaders,
+                      body: JSON.stringify(body || {}),
+                      signal: AbortSignal.timeout(8000),
+                    });
+                    appLogger.info('Interceptor', `CAPS send-to-kitchen forwarded: ${capsCheckId} -> ${r.status} (attempt ${attempt})`);
+                    if (r.status >= 500 || r.status === 429) {
+                      const errBody = await r.text().catch(() => '');
+                      appLogger.warn('Interceptor', `CAPS send-to-kitchen server error (retryable): ${errBody}`);
+                      lastError = new Error(`Server error ${r.status}`);
+                      if (attempt < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                        continue;
+                      }
+                      break;
+                    }
+                    if (r.status >= 400) {
+                      const errBody = await r.text().catch(() => '');
+                      appLogger.warn('Interceptor', `CAPS send-to-kitchen client error (not retryable): ${errBody}`);
+                    }
+                    lastError = null;
+                    break;
+                  } catch (e) {
+                    lastError = e;
+                    appLogger.warn('Interceptor', `CAPS send-to-kitchen attempt ${attempt}/${maxRetries} failed: ${e.message}`);
+                    if (attempt < maxRetries) {
+                      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                    }
                   }
-                } catch (e) {
-                  appLogger.warn('Interceptor', `CAPS send-to-kitchen forward failed: ${e.message}`);
+                }
+                if (lastError) {
+                  appLogger.error('Interceptor', `CAPS send-to-kitchen all ${maxRetries} attempts failed for check ${capsCheckId}, queuing for retry`);
+                  if (enhancedOfflineDb && enhancedOfflineDb.queueOperation) {
+                    enhancedOfflineDb.queueOperation('kds_send_retry', `/api/caps/checks/${capsCheckId}/send`, 'POST', body || {}, 1);
+                  }
                 }
               })();
+            }
+          }
+          const termSessionCreateMatch = url.pathname.match(/^\/api\/terminal-sessions\/?$/);
+          if (termSessionCreateMatch && request.method === 'POST') {
+            const capsUrl = getCapsServiceHostUrl();
+            if (capsUrl) {
+              const tsConfig = loadConfig();
+              const tsHeaders = { 'Content-Type': 'application/json' };
+              if (tsConfig.deviceId) tsHeaders['x-workstation-id'] = tsConfig.deviceId;
+              if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
+              let capsForwardSuccess = false;
+              for (let tsAttempt = 1; tsAttempt <= 2; tsAttempt++) {
+                try {
+                  const capsResp = await fetch(`${capsUrl}/api/terminal-sessions`, {
+                    method: 'POST',
+                    headers: tsHeaders,
+                    body: JSON.stringify(body || {}),
+                    signal: AbortSignal.timeout(5000),
+                  });
+                  if (!capsResp.ok) {
+                    const errBody = await capsResp.text().catch(() => '');
+                    appLogger.warn('Interceptor', `CAPS terminal-session create returned ${capsResp.status}: ${errBody} (attempt ${tsAttempt})`);
+                    if (tsAttempt < 2) await new Promise(r => setTimeout(r, 500));
+                    continue;
+                  }
+                  const capsData = await capsResp.json().catch(() => ({}));
+                  appLogger.info('Interceptor', `CAPS terminal-session created: ${capsResp.status} -> id=${capsData.id || 'unknown'} (attempt ${tsAttempt})`);
+                  if (capsData.id && result.data && result.data.id) {
+                    if (offlineInterceptor) {
+                      offlineInterceptor._capsTerminalSessionMap = offlineInterceptor._capsTerminalSessionMap || {};
+                      offlineInterceptor._capsTerminalSessionMap[result.data.id] = capsData.id;
+                    }
+                    result.data.capsSessionId = capsData.id;
+                  }
+                  capsForwardSuccess = true;
+                  break;
+                } catch (e) {
+                  appLogger.warn('Interceptor', `CAPS terminal-session create attempt ${tsAttempt}/2 failed: ${e.message}`);
+                  if (tsAttempt < 2) await new Promise(r => setTimeout(r, 500));
+                }
+              }
+              if (!capsForwardSuccess) {
+                appLogger.error('Interceptor', 'CAPS terminal-session create failed after 2 attempts, queuing for retry');
+                if (enhancedOfflineDb && enhancedOfflineDb.queueOperation) {
+                  enhancedOfflineDb.queueOperation('terminal_session_create', '/api/terminal-sessions', 'POST', body || {}, 1);
+                }
+                result.data.capsForwardPending = true;
+              }
+            }
+          }
+          const termSessionPatchMatch = url.pathname.match(/^\/api\/terminal-sessions\/([^/]+)$/);
+          if (termSessionPatchMatch && (request.method === 'PATCH' || request.method === 'PUT')) {
+            const capsUrl = getCapsServiceHostUrl();
+            if (capsUrl) {
+              const tsId = termSessionPatchMatch[1];
+              const mappedId = (offlineInterceptor && offlineInterceptor._capsTerminalSessionMap && offlineInterceptor._capsTerminalSessionMap[tsId]) || tsId;
+              const tsConfig = loadConfig();
+              const tsHeaders = { 'Content-Type': 'application/json' };
+              if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
+              for (let patchAttempt = 1; patchAttempt <= 2; patchAttempt++) {
+                try {
+                  const patchResp = await fetch(`${capsUrl}/api/terminal-sessions/${mappedId}`, {
+                    method: 'PATCH',
+                    headers: tsHeaders,
+                    body: JSON.stringify(body || {}),
+                    signal: AbortSignal.timeout(3000),
+                  });
+                  appLogger.info('Interceptor', `CAPS terminal-session patch: ${mappedId} -> ${patchResp.status} (attempt ${patchAttempt})`);
+                  break;
+                } catch (e) {
+                  appLogger.warn('Interceptor', `CAPS terminal-session patch attempt ${patchAttempt}/2 failed: ${e.message}`);
+                  if (patchAttempt < 2) await new Promise(r => setTimeout(r, 500));
+                }
+              }
             }
           }
           return new Response(JSON.stringify(result.data), {
@@ -2926,6 +3146,45 @@ function registerProtocolInterceptor() {
     }
 
     if (isApiRequest && offlineInterceptor && isLocalFirstRead(request.method, url.pathname, url.search)) {
+      const isTerminalSessionPoll = url.pathname.match(/^\/api\/terminal-sessions\/[^/]+$/);
+      if (isTerminalSessionPoll) {
+        const capsUrl = getCapsServiceHostUrl();
+        if (capsUrl) {
+          try {
+            const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
+            const tsConfig = loadConfig();
+            const tsHeaders = { 'Content-Type': 'application/json' };
+            if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
+            const sessionId = url.pathname.match(/^\/api\/terminal-sessions\/([^/]+)$/)[1];
+            const mappedId = (offlineInterceptor._capsTerminalSessionMap && offlineInterceptor._capsTerminalSessionMap[sessionId]) || sessionId;
+            const capsResp = await fetch(`${capsUrl}/api/terminal-sessions/${mappedId}`, {
+              method: 'GET',
+              headers: tsHeaders,
+              signal: AbortSignal.timeout(2000),
+            });
+            if (capsResp.ok) {
+              const capsData = await capsResp.json();
+              if (capsData.status && capsData.status !== 'pending') {
+                const existing = offlineInterceptor.db.getEntity('terminal_sessions', sessionId);
+                if (existing && existing.status !== capsData.status) {
+                  const updated = { ...existing, status: capsData.status, updatedAt: new Date().toISOString() };
+                  if (offlineInterceptor.db.usingSqlite) {
+                    offlineInterceptor.db.db.prepare(`
+                      UPDATE terminal_sessions SET data = ?, status = ?, updated_at = datetime('now') WHERE id = ?
+                    `).run(JSON.stringify(updated), capsData.status, sessionId);
+                  }
+                }
+              }
+              return new Response(JSON.stringify(capsData), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json', 'X-Local-First': 'true', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
+              });
+            }
+          } catch (capsErr) {
+            appLogger.debug('Interceptor', `Terminal session CAPS poll failed, using local: ${capsErr.message}`);
+          }
+        }
+      }
       const queryParams = Object.fromEntries(url.searchParams);
       const result = offlineInterceptor.handleRequest('GET', url.pathname, queryParams, null);
       if (result) {
@@ -2999,15 +3258,15 @@ function registerProtocolInterceptor() {
     try {
       let fetchSignal;
       if (typeof AbortSignal.timeout === 'function') {
-        fetchSignal = AbortSignal.timeout(4000);
+        fetchSignal = AbortSignal.timeout(2000);
       } else {
         const ac = new AbortController();
-        setTimeout(() => ac.abort(), 4000);
+        setTimeout(() => ac.abort(), 2000);
         fetchSignal = ac.signal;
       }
       const response = await Promise.race([
         electronNet.fetch(request, { bypassCustomProtocolHandlers: true, signal: fetchSignal }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Protocol fetch timeout (4s)')), 4500)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Protocol fetch timeout (2s)')), 2500)),
       ]);
 
       if (response.status === 502 || response.status === 503 || response.status === 504) {
@@ -3218,7 +3477,21 @@ button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:13px;opacity:0.5
         });
       }
 
-      return new Response('', { status: 503 });
+      appLogger.warn('BundledAssets', `No fallback available for asset: ${url.pathname}, serving minimal offline response`);
+      const offlineFallbackHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS - Restart Required</title>
+<style>body{font-family:system-ui;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
+.c{max-width:480px;padding:40px}h1{margin-bottom:12px;color:#f59e0b}p{opacity:0.8;line-height:1.6;margin-bottom:20px}
+button{padding:12px 32px;font-size:16px;border:1px solid #4a4a6a;border-radius:8px;background:#2a2a4a;color:#fff;cursor:pointer}
+button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:13px;opacity:0.5}</style></head>
+<body><div class="c"><h1>Restart Required</h1>
+<p>The application needs to be restarted. Bundled assets are missing or unavailable.</p>
+<p>Please close and reopen the application, or connect to the internet to download the latest version.</p>
+<button onclick="location.reload()">Retry</button>
+<p class="info">If this persists, reinstall the application.</p></div></body></html>`;
+      return new Response(offlineFallbackHtml, {
+        status: 503,
+        headers: { 'Content-Type': 'text/html' },
+      });
     }
   });
 
@@ -3376,17 +3649,54 @@ app.whenReady().then(async () => {
 
   setupIpcHandlers();
 
-  if (config.setupComplete) {
-    appLogger.info('App', 'Setup previously completed, initializing all services');
-    migrateAutoStartup(config);
-    await initAllServices();
-  } else {
-    appLogger.info('App', 'Setup not yet completed, launching Setup Wizard only (no services initialized)');
-  }
-
   registerProtocolInterceptor();
 
-  createWindow();
+  if (config.setupComplete) {
+    appLogger.info('App', 'Setup previously completed — launching window first, services in background');
+    migrateAutoStartup(config);
+
+    await initOfflineDbEarly();
+
+    try {
+      const serverUrl = getServerUrl();
+      const quickCheck = await fetch(`${serverUrl}/api/health`, {
+        signal: AbortSignal.timeout(1500),
+      });
+      if (quickCheck.ok) {
+        isOnline = true;
+        appLogger.info('App', 'Quick connectivity check: ONLINE');
+      } else {
+        isOnline = false;
+        connectionMode = 'red';
+        firstBootConnectivityChecked = true;
+        if (offlineInterceptor) {
+          offlineInterceptor.setOffline(true);
+          offlineInterceptor.setConnectionMode('red');
+        }
+        appLogger.info('App', `Quick connectivity check: OFFLINE (status ${quickCheck.status})`);
+      }
+    } catch (e) {
+      isOnline = false;
+      connectionMode = 'red';
+      firstBootConnectivityChecked = true;
+      if (offlineInterceptor) {
+        offlineInterceptor.setOffline(true);
+        offlineInterceptor.setConnectionMode('red');
+      }
+      appLogger.info('App', `Quick connectivity check: OFFLINE (${e.message})`);
+    }
+
+    createWindow();
+
+    initAllServices().then(() => {
+      appLogger.info('App', 'Background service initialization complete');
+    }).catch(err => {
+      appLogger.error('App', `Background service init failed: ${err.message}`);
+    });
+  } else {
+    appLogger.info('App', 'Setup not yet completed, launching Setup Wizard only (no services initialized)');
+    createWindow();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
