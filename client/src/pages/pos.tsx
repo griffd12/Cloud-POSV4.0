@@ -2007,7 +2007,7 @@ export default function PosPage() {
                           cancelTransactionMutation.mutate();
                         }
                       }}
-                      disabled={!currentCheck || cancelTransactionMutation.isPending}
+                      disabled={!currentCheck || cancelTransactionMutation.isPending || !!editingClosedCheckId || !!pendingReopenCheckId}
                       data-testid="button-cancel-transaction-grid"
                     >
                       <X className="w-4 h-4 mr-2" />
@@ -2045,6 +2045,7 @@ export default function PosPage() {
                       variant="secondary"
                       size="lg"
                       className="w-full h-full font-semibold"
+                      disabled={!!editingClosedCheckId || !!pendingReopenCheckId}
                       onClick={() => setShowGiftCardModal(true)}
                       data-testid="button-gift-card-grid"
                     >
@@ -2150,7 +2151,7 @@ export default function PosPage() {
                           cancelTransactionMutation.mutate();
                         }
                       }}
-                      disabled={!currentCheck || cancelTransactionMutation.isPending}
+                      disabled={!currentCheck || cancelTransactionMutation.isPending || !!editingClosedCheckId || !!pendingReopenCheckId}
                       data-testid="button-cancel-transaction"
                     >
                       <X className="w-4 h-4 mr-2" />
@@ -2188,6 +2189,7 @@ export default function PosPage() {
                       variant="secondary"
                       size="lg"
                       className="w-full h-full font-semibold"
+                      disabled={!!editingClosedCheckId || !!pendingReopenCheckId}
                       onClick={() => setShowGiftCardModal(true)}
                       data-testid="button-gift-card"
                     >
