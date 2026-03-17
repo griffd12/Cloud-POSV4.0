@@ -705,26 +705,8 @@ function createWindow() {
     const serverUrl = getServerUrl();
     const startPath = appMode === 'kds' ? '/kds' : '/';
     const targetUrl = `${serverUrl}${startPath}`;
-    appLogger.info('Window', `Loading URL: ${targetUrl}`);
-
-    if (!isOnline) {
-      appLogger.info('Window', 'Offline boot — loading via protocol interceptor (bundled assets)');
-      mainWindow.loadURL(targetUrl);
-    } else {
-      const loadingHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS</title>
-<style>body{font-family:system-ui,sans-serif;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
-.c{max-width:480px;padding:40px}.spinner{width:40px;height:40px;border:3px solid #2a3a52;border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 20px}
-@keyframes spin{to{transform:rotate(360deg)}}h2{margin:0 0 8px;font-weight:500}p{opacity:0.6;font-size:14px;margin:0}</style></head>
-<body><div class="c"><div class="spinner"></div><h2>Cloud POS</h2><p>Connecting to server...</p></div></body></html>`;
-
-      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml)}`).then(() => {
-        appLogger.info('Window', 'Loading screen shown, navigating to server...');
-        mainWindow.loadURL(targetUrl);
-      }).catch((err) => {
-        appLogger.error('Window', `Failed to show loading screen: ${err.message}`);
-        mainWindow.loadURL(targetUrl);
-      });
-    }
+    appLogger.info('Window', `Loading URL: ${targetUrl} (always-local frontend via protocol interceptor)`);
+    mainWindow.loadURL(targetUrl);
   }
 
   if (process.env.NODE_ENV !== 'production' && !isKiosk) {
@@ -2888,7 +2870,7 @@ function serveBundledAsset(pathname) {
       });
     }
 
-    if (!pathname.includes('.') || pathname === '/pos' || pathname === '/kds' || pathname === '/pos/' || pathname === '/kds/') {
+    if (!pathname.includes('.') || pathname === '/pos' || pathname === '/kds' || pathname === '/pos/' || pathname === '/kds/' || pathname === '/login' || pathname === '/setup' || pathname === '/server-setup' || pathname === '/device-type' || pathname === '/admin' || pathname.startsWith('/admin/') || pathname.startsWith('/emc') || pathname.startsWith('/pos/')) {
       const indexPath = path.join(assetsDir, 'index.html');
       if (fs.existsSync(indexPath)) {
         const buffer = fs.readFileSync(indexPath);
@@ -2956,7 +2938,7 @@ function registerProtocolInterceptor() {
       return electronNet.fetch(request, { bypassCustomProtocolHandlers: true });
     }
 
-    if (!isOnline && (url.pathname === '/__vite_hmr' || url.pathname.startsWith('/@vite/') || url.pathname.startsWith('/@react-refresh'))) {
+    if (url.pathname === '/__vite_hmr' || url.pathname.startsWith('/@vite/') || url.pathname.startsWith('/@react-refresh')) {
       return new Response('', { status: 204, headers: { 'Content-Type': 'text/plain' } });
     }
 
@@ -3240,15 +3222,9 @@ function registerProtocolInterceptor() {
       }
     }
 
-    if (!isOnline && !isApiRequest) {
-      const cached = getCachedResponseFromDisk(url.pathname);
-      if (cached) {
-        appLogger.debug('PageCache', `Serving cached (offline): ${url.pathname}`);
-        return cached;
-      }
+    if (!isApiRequest) {
       const bundled = serveBundledAsset(url.pathname);
       if (bundled) {
-        appLogger.info('BundledAssets', `Serving bundled asset (offline): ${url.pathname}`);
         return bundled;
       }
     }
@@ -3274,11 +3250,6 @@ function registerProtocolInterceptor() {
         response.body?.cancel().catch(() => {});
         checkConnectivity().catch(() => {});
         throw new Error(`Cloud gateway error (HTTP ${response.status})`);
-      }
-
-      if (response.ok && request.method === 'GET' && !isApiRequest) {
-        const cloned = response.clone();
-        cacheResponseToDisk(url.pathname, cloned).catch(() => {});
       }
 
       if (response.ok && isApiRequest) {
