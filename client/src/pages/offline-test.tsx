@@ -65,7 +65,7 @@ const TEST_ENDPOINTS = [
 
 export default function OfflineTestPage() {
   const [, setLocation] = useLocation();
-  const { deviceType } = useDeviceContext();
+  const { deviceType, propertyId: ctxPropertyId } = useDeviceContext();
   const backPath = deviceType === "kds" ? "/kds" : "/";
   const [isOffline, setIsOffline] = useState(getIsOfflineMode());
   const [simulatedOffline, setSimulatedOffline] = useState(false);
@@ -92,6 +92,8 @@ export default function OfflineTestPage() {
   const [networkTesting, setNetworkTesting] = useState(false);
   const [capsStatus, setCapsStatus] = useState<any>(null);
   const [capsLoading, setCapsLoading] = useState(false);
+  const [deviceStatus, setDeviceStatus] = useState<any>(null);
+  const [deviceStatusLoading, setDeviceStatusLoading] = useState(false);
   const logIdRef = useRef(0);
   const originalFetchRef = useRef<typeof window.fetch | null>(null);
 
@@ -137,9 +139,34 @@ export default function OfflineTestPage() {
     setCapsLoading(false);
   }, []);
 
+  const loadDeviceStatus = useCallback(async () => {
+    let pid = ctxPropertyId || localStorage.getItem('device_property_id');
+    if (!pid) {
+      try {
+        const propRes = await fetch('/api/properties');
+        if (propRes.ok) {
+          const props = await propRes.json();
+          if (props.length > 0) pid = props[0].id;
+        }
+      } catch {}
+    }
+    if (!pid) return;
+    setDeviceStatusLoading(true);
+    try {
+      const res = await fetch(`/api/properties/${pid}/device-status`);
+      if (res.ok) {
+        const data = await res.json();
+        setDeviceStatus(data);
+      }
+    } catch {
+    }
+    setDeviceStatusLoading(false);
+  }, [ctxPropertyId]);
+
   useEffect(() => {
     loadCapsStatus();
-  }, [loadCapsStatus]);
+    loadDeviceStatus();
+  }, [loadCapsStatus, loadDeviceStatus]);
 
   useEffect(() => {
     if (!isElectron()) return;
@@ -564,6 +591,116 @@ export default function OfflineTestPage() {
               data-testid="button-refresh-caps"
             >
               <RefreshCw className={`w-3 h-3 mr-1 ${capsLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-connected-devices">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium">Connected Devices</CardTitle>
+            <Monitor className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {deviceStatusLoading && !deviceStatus ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <RefreshCw className="w-3 h-3 animate-spin" /> Loading...
+              </div>
+            ) : !deviceStatus ? (
+              <div className="text-sm text-muted-foreground">No property context available</div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Property</span>
+                  <span className="text-sm font-medium" data-testid="text-device-property">{deviceStatus.propertyName}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">CAPS Workstation</span>
+                  {deviceStatus.capsWorkstationName ? (
+                    <Badge
+                      variant={deviceStatus.capsOnline ? "default" : "destructive"}
+                      className={`text-xs ${deviceStatus.capsOnline ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                      data-testid="status-caps-ws"
+                    >
+                      {deviceStatus.capsWorkstationName} — {deviceStatus.capsOnline ? 'Online' : 'Offline'}
+                    </Badge>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Not configured</span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Devices Online</span>
+                  <Badge
+                    variant={deviceStatus.summary.onlineDevices > 0 ? "default" : "destructive"}
+                    className="text-xs"
+                    data-testid="status-devices-online"
+                  >
+                    {deviceStatus.summary.onlineDevices} / {deviceStatus.summary.totalDevices}
+                  </Badge>
+                </div>
+                <div className="border-t pt-2 space-y-2">
+                  {deviceStatus.devices?.map((dev: any) => (
+                    <div key={dev.id} className="space-y-1" data-testid={`device-row-${dev.id}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          {dev.type === 'kds' ? (
+                            <Activity className="w-3 h-3" />
+                          ) : (
+                            <Monitor className="w-3 h-3" />
+                          )}
+                          <span className="text-sm font-medium">
+                            {dev.name}
+                            {dev.isCaps && (
+                              <span className="ml-1 text-xs text-blue-400">(CAPS)</span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Badge
+                            variant={dev.isOnline ? "default" : "secondary"}
+                            className={`text-xs ${dev.isOnline ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
+                            data-testid={`status-device-online-${dev.id}`}
+                          >
+                            {dev.isOnline ? 'Online' : 'Offline'}
+                          </Badge>
+                          <div
+                            className={`w-3 h-3 rounded-full ${dev.connectionStatus === 'green' ? 'bg-green-500' : 'bg-red-500'}`}
+                            title={dev.connectionStatus === 'green' ? 'CAPS reachable' : 'CAPS unreachable'}
+                            data-testid={`status-device-caps-${dev.id}`}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground pl-4 flex-wrap">
+                        {dev.ipAddress && (
+                          <span>{dev.ipAddress}</span>
+                        )}
+                        {dev.hostname && (
+                          <span>{dev.hostname}</span>
+                        )}
+                        {dev.type === 'workstation' && (
+                          <span className={dev.connectionStatus === 'green' ? 'text-green-500' : 'text-red-500'}>
+                            {dev.connectionStatus === 'green' ? '● CAPS OK' : '● No CAPS'}
+                          </span>
+                        )}
+                      </div>
+                      {dev.lastSeenAt && (
+                        <div className="text-xs text-muted-foreground pl-4">
+                          Last seen: {new Date(dev.lastSeenAt).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadDeviceStatus}
+              disabled={deviceStatusLoading}
+              data-testid="button-refresh-devices"
+            >
+              <RefreshCw className={`w-3 h-3 mr-1 ${deviceStatusLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
           </CardContent>

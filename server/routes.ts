@@ -24376,6 +24376,104 @@ connect();
     }
   });
 
+  // GET /api/properties/:propertyId/device-status - All devices for property with CAPS reachability
+  app.get("/api/properties/:propertyId/device-status", async (req, res) => {
+    try {
+      const { propertyId } = req.params;
+      const property = await storage.getProperty(propertyId);
+      if (!property) return res.status(404).json({ error: "Property not found" });
+
+      const allWorkstations = await storage.getWorkstations(propertyId);
+      const activeWs = allWorkstations.filter((w: any) => w.active !== false);
+      const registeredDevices = await storage.getRegisteredDevices(propertyId);
+      const kdsDevices = await storage.getKdsDevices(propertyId);
+      const serviceHosts = await storage.getServiceHosts();
+      const propertyServiceHosts = serviceHosts.filter((sh: any) => sh.propertyId === propertyId);
+
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+      const capsWsId = property.capsWorkstationId;
+      const capsWs = capsWsId ? activeWs.find((w: any) => w.id === capsWsId) : null;
+      
+      let capsOnline = false;
+      if (capsWs) {
+        const capsServiceHost = propertyServiceHosts.find((sh: any) => 
+          sh.lastHeartbeatAt && new Date(sh.lastHeartbeatAt) > fiveMinutesAgo
+        );
+        if (capsServiceHost) {
+          capsOnline = true;
+        } else if (capsWs.lastSeenAt && new Date(capsWs.lastSeenAt) > fiveMinutesAgo) {
+          capsOnline = true;
+        }
+      }
+
+      const devices = activeWs.map((ws: any) => {
+        const regDevice = registeredDevices.find((rd: any) => rd.workstationId === ws.id && rd.status === 'enrolled');
+        const isOnline = ws.lastSeenAt && new Date(ws.lastSeenAt) > fiveMinutesAgo;
+        const isCapsWs = ws.id === capsWsId;
+
+        return {
+          id: ws.id,
+          name: ws.name,
+          type: 'workstation',
+          isCaps: isCapsWs,
+          isOnline,
+          lastSeenAt: ws.lastSeenAt,
+          ipAddress: ws.ipAddress || regDevice?.ipAddress || null,
+          hostname: ws.hostname || regDevice?.osInfo || null,
+          registeredDeviceName: regDevice?.name || null,
+          registeredDeviceId: regDevice?.id || null,
+          serviceHostUrl: ws.serviceHostUrl || null,
+          capsReachable: isCapsWs ? isOnline : capsOnline,
+          connectionStatus: isCapsWs 
+            ? (isOnline ? 'green' : 'red')
+            : (capsOnline ? 'green' : 'red'),
+          allowOffline: ws.allowOfflineOperation || false,
+        };
+      });
+
+      const kdsResults = kdsDevices.filter((k: any) => k.active !== false).map((kds: any) => {
+        const regDevice = registeredDevices.find((rd: any) => rd.kdsDeviceId === kds.id && rd.status === 'enrolled');
+        const isOnline = regDevice?.lastAccessAt && new Date(regDevice.lastAccessAt) > fiveMinutesAgo;
+
+        return {
+          id: kds.id,
+          name: kds.name,
+          type: 'kds',
+          isCaps: false,
+          isOnline: !!isOnline,
+          lastSeenAt: regDevice?.lastAccessAt || null,
+          ipAddress: kds.ipAddress || regDevice?.ipAddress || null,
+          hostname: regDevice?.osInfo || null,
+          registeredDeviceName: regDevice?.name || null,
+          registeredDeviceId: regDevice?.id || null,
+          serviceHostUrl: null,
+          capsReachable: capsOnline,
+          connectionStatus: capsOnline ? 'green' : 'red',
+          allowOffline: false,
+        };
+      });
+
+      res.json({
+        propertyId,
+        propertyName: property.name,
+        capsWorkstationId: capsWsId,
+        capsWorkstationName: capsWs?.name || null,
+        capsOnline,
+        devices: [...devices, ...kdsResults],
+        summary: {
+          totalDevices: devices.length + kdsResults.length,
+          onlineDevices: [...devices, ...kdsResults].filter(d => d.isOnline).length,
+          workstations: devices.length,
+          kdsDisplays: kdsResults.length,
+        },
+      });
+    } catch (error: any) {
+      console.error("Get device status error:", error);
+      res.status(500).json({ error: "Failed to get device status" });
+    }
+  });
+
   // GET /api/service-hosts/status-summary - Simple status list for connectivity dashboard
   app.get("/api/service-hosts/status-summary", async (req, res) => {
     try {
