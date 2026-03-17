@@ -3918,9 +3918,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           capsWorkstationId: property.capsWorkstationId || null,
           capsWorkstationName: capsWorkstation?.name || null,
           syncEnabled: workstation.allowOfflineOperation,
-          serviceHostToken: (workstation.id === property.capsWorkstationId && primaryServiceHost)
-            ? primaryServiceHost.registrationToken
-            : null,
+          serviceHostToken: primaryServiceHost?.registrationToken || null,
         },
       });
     } catch (error) {
