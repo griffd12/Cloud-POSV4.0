@@ -3656,6 +3656,27 @@ app.whenReady().then(async () => {
 
     await initOfflineDbEarly();
 
+    try {
+      const serverUrl = getServerUrl();
+      const quickCheck = await fetch(`${serverUrl}/api/health`, {
+        signal: AbortSignal.timeout(1500),
+      });
+      if (quickCheck.ok) {
+        isOnline = true;
+        appLogger.info('App', 'Quick connectivity check: ONLINE');
+      } else {
+        isOnline = false;
+        firstBootConnectivityChecked = true;
+        if (offlineInterceptor) offlineInterceptor.setOffline(true);
+        appLogger.info('App', `Quick connectivity check: OFFLINE (status ${quickCheck.status})`);
+      }
+    } catch (e) {
+      isOnline = false;
+      firstBootConnectivityChecked = true;
+      if (offlineInterceptor) offlineInterceptor.setOffline(true);
+      appLogger.info('App', `Quick connectivity check: OFFLINE (${e.message})`);
+    }
+
     createWindow();
 
     initAllServices().then(() => {
