@@ -718,6 +718,10 @@ function createWindow() {
     const targetUrl = `${serverUrl}${startPath}`;
     appLogger.info('Window', `Loading URL: ${targetUrl} (always-local frontend via protocol interceptor)`);
     
+    mainWindow.webContents.session.clearCache().then(() => {
+      appLogger.info('Cache', 'Chromium HTTP cache cleared on startup');
+    }).catch(() => {});
+
     mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
       details.requestHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate';
       details.requestHeaders['Pragma'] = 'no-cache';
