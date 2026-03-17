@@ -24417,25 +24417,24 @@ connect();
 
       const devices = activeWs.map((ws: any) => {
         const regDevice = registeredDevices.find((rd: any) => rd.workstationId === ws.id && rd.status === 'enrolled');
-        const isOnline = ws.lastSeenAt && new Date(ws.lastSeenAt) > fiveMinutesAgo;
+        const wsLastSeen = ws.lastSeenAt && new Date(ws.lastSeenAt) > fiveMinutesAgo;
         const isCapsWs = ws.id === capsWsId;
+        const deviceOnline = isCapsWs ? capsOnline : wsLastSeen;
 
         return {
           id: ws.id,
           name: ws.name,
           type: 'workstation',
           isCaps: isCapsWs,
-          isOnline,
+          isOnline: !!deviceOnline,
           lastSeenAt: ws.lastSeenAt,
           ipAddress: ws.ipAddress || regDevice?.ipAddress || null,
           hostname: ws.hostname || regDevice?.osInfo || null,
           registeredDeviceName: regDevice?.name || null,
           registeredDeviceId: regDevice?.id || null,
           serviceHostUrl: ws.serviceHostUrl || null,
-          capsReachable: isCapsWs ? isOnline : capsOnline,
-          connectionStatus: isCapsWs 
-            ? (isOnline ? 'green' : 'red')
-            : (capsOnline ? 'green' : 'red'),
+          capsReachable: capsOnline,
+          connectionStatus: capsOnline ? 'green' : 'red',
           allowOffline: ws.allowOfflineOperation || false,
         };
       });
