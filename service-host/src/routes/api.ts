@@ -1301,6 +1301,10 @@ export function createApiRoutes(
 
       const { discountId, name, type, amount, rate, managerPin, requiredPrivilege } = req.body;
 
+      if (requiredPrivilege && !managerPin) {
+        return res.status(401).json({ error: 'Manager approval required for this discount' });
+      }
+
       if (managerPin) {
         const employees = config.getEmployees();
         const manager = employees.find((emp: any) =>

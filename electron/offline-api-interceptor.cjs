@@ -303,10 +303,10 @@ class OfflineApiInterceptor {
     if (pathname === '/api/menu-item-slus' || pathname.match(/^\/api\/menu-item-slus/)) {
       const slus = this.db.getEntityList('menu_item_slus', null);
       const sluId = query?.sluId;
-      const rvcId = query?.rvcId;
+      const menuItemId = query?.menuItemId;
       let filtered = slus;
       if (sluId) filtered = filtered.filter(s => s.sluId === sluId || s.slu_id === sluId);
-      if (rvcId) filtered = filtered.filter(s => s.rvcId === rvcId || s.rvc_id === rvcId);
+      if (menuItemId) filtered = filtered.filter(s => s.menuItemId === menuItemId || s.menu_item_id === menuItemId);
       return { status: 200, data: filtered };
     }
 
