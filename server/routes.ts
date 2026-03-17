@@ -25027,9 +25027,16 @@ connect();
             const serviceChargeTotal = (d.serviceChargeTotal ?? d.service_charge_total ?? "0").toString();
             const total = (d.total ?? "0").toString();
 
-            const existingCheck = await db.select().from(checks)
-              .where(and(eq(checks.rvcId, rvcId), eq(checks.checkNumber, checkNumber)))
-              .limit(1);
+            const wsCheckId = d.id || d.checkId || d.check_id || null;
+
+            let existingCheck = wsCheckId
+              ? await db.select().from(checks).where(eq(checks.id, wsCheckId)).limit(1)
+              : [];
+            if (existingCheck.length === 0) {
+              existingCheck = await db.select().from(checks)
+                .where(and(eq(checks.rvcId, rvcId), eq(checks.checkNumber, checkNumber)))
+                .limit(1);
+            }
 
             let cloudCheck;
             if (existingCheck.length > 0) {
@@ -25050,7 +25057,7 @@ connect();
                 customerId: d.customerId || d.customer_id || null,
               });
             } else {
-              cloudCheck = await storage.createCheck({
+              const checkInsertData: any = {
                 checkNumber,
                 employeeId,
                 rvcId,
@@ -25067,7 +25074,13 @@ connect();
                 closedAt: d.closedAt || d.closed_at ? new Date(d.closedAt || d.closed_at) : undefined,
                 customerName: d.customerName || d.customer_name || null,
                 customerId: d.customerId || d.customer_id || null,
-              });
+              };
+              if (wsCheckId) {
+                const [result] = await db.insert(checks).values({ ...checkInsertData, id: wsCheckId }).returning();
+                cloudCheck = result;
+              } else {
+                cloudCheck = await storage.createCheck(checkInsertData);
+              }
             }
 
             if (cloudCheck && d.items && Array.isArray(d.items)) {

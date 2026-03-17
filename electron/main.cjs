@@ -119,6 +119,8 @@ const LOCAL_FIRST_READ_PATTERNS = [
   /^\/api\/checks\/open/,
   /^\/api\/checks\/locks/,
   /^\/api\/checks\/orders/,
+  /^\/api\/checks\/[0-9a-f]/,
+  /^\/api\/checks\/offline_/,
   /^\/api\/sync\//,
   /^\/api\/auth\/offline-employees/,
 ];
