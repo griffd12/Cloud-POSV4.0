@@ -1119,6 +1119,8 @@ function setupIpcHandlers() {
       deviceId: config.deviceId || null,
       deviceName: config.deviceName || null,
       deviceType: config.deviceType || null,
+      offlineCheckNumberStart: config.offlineCheckNumberStart || null,
+      offlineCheckNumberEnd: config.offlineCheckNumberEnd || null,
       setupComplete: config.setupComplete || false,
       updateStatus: getUpdateState(),
     };
@@ -2007,6 +2009,8 @@ function setupIpcHandlers() {
       config.deviceId = wizardConfig.deviceId;
       config.deviceName = wizardConfig.deviceName;
       config.deviceType = wizardConfig.deviceType;
+      config.offlineCheckNumberStart = wizardConfig.offlineCheckNumberStart || null;
+      config.offlineCheckNumberEnd = wizardConfig.offlineCheckNumberEnd || null;
       config.setupComplete = true;
       config.setupDate = wizardConfig.setupDate;
       saveConfig(config);
@@ -2361,6 +2365,8 @@ async function initOfflineDbEarly() {
       deviceName: config.deviceName || null,
       enterpriseId: config.enterpriseId || null,
       propertyId: config.propertyId || null,
+      offlineCheckNumberStart: config.offlineCheckNumberStart || null,
+      offlineCheckNumberEnd: config.offlineCheckNumberEnd || null,
     };
     offlineInterceptor = new OfflineApiInterceptor(enhancedOfflineDb);
     offlineInterceptor.setConfig({
@@ -2400,6 +2406,8 @@ async function initEnhancedOfflineDb() {
     deviceName: config.deviceName || null,
     enterpriseId: config.enterpriseId || null,
     propertyId: config.propertyId || null,
+    offlineCheckNumberStart: config.offlineCheckNumberStart || null,
+    offlineCheckNumberEnd: config.offlineCheckNumberEnd || null,
   };
 
   offlineInterceptor = new OfflineApiInterceptor(enhancedOfflineDb);

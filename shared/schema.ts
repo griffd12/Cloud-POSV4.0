@@ -246,6 +246,8 @@ export const workstations = pgTable("workstations", {
   allowPickupCheck: boolean("allow_pickup_check").default(true),
   allowReopenClosedChecks: boolean("allow_reopen_closed_checks").default(false),
   allowOfflineOperation: boolean("allow_offline_operation").default(false),
+  offlineCheckNumberStart: integer("offline_check_number_start"),
+  offlineCheckNumberEnd: integer("offline_check_number_end"),
   // Employee Interaction
   allowedRoleIds: text("allowed_role_ids").array(),
   managerApprovalDevice: boolean("manager_approval_device").default(false),

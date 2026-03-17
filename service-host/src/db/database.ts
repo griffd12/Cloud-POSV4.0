@@ -163,6 +163,10 @@ export class Database {
       this.migrateToV10();
     }
     
+    if (fromVersion < 11) {
+      this.migrateToV11();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -404,6 +408,22 @@ export class Database {
       // Column may already exist
     }
     console.log('[DB] v10 migration complete');
+  }
+  
+  private migrateToV11(): void {
+    console.log('[DB] Running v11 migration: workstation offline check number range');
+    const cols = [
+      { name: 'offline_check_number_start', def: 'INTEGER' },
+      { name: 'offline_check_number_end', def: 'INTEGER' },
+    ];
+    for (const col of cols) {
+      try {
+        this.run(`ALTER TABLE workstations ADD COLUMN ${col.name} ${col.def}`);
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column')) throw e;
+      }
+    }
+    console.log('[DB] v11 migration complete');
   }
   
   // ==========================================================================
@@ -1148,7 +1168,9 @@ export class Database {
       `INSERT OR REPLACE INTO workstations (
         id, property_id, rvc_id, name, device_type, default_order_type,
         fast_transaction_enabled, require_begin_check, allow_pickup_check,
-        allow_reopen_closed_checks, allow_offline_operation, allowed_role_ids,
+        allow_reopen_closed_checks, allow_offline_operation,
+        offline_check_number_start, offline_check_number_end,
+        allowed_role_ids,
         manager_approval_device, clock_in_allowed,
         default_receipt_printer_id, backup_receipt_printer_id,
         report_printer_id, backup_report_printer_id,
@@ -1156,13 +1178,14 @@ export class Database {
         default_order_device_id, default_kds_expo_id,
         ip_address, hostname, is_online, last_seen_at,
         auto_logout_minutes, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         ws.id, ws.propertyId, ws.rvcId, ws.name,
         ws.deviceType || 'pos_terminal', ws.defaultOrderType || 'dine_in',
         ws.fastTransactionEnabled ? 1 : 0, ws.requireBeginCheck !== false ? 1 : 0,
         ws.allowPickupCheck !== false ? 1 : 0, ws.allowReopenClosedChecks ? 1 : 0,
         ws.allowOfflineOperation ? 1 : 0,
+        ws.offlineCheckNumberStart || null, ws.offlineCheckNumberEnd || null,
         ws.allowedRoleIds ? JSON.stringify(ws.allowedRoleIds) : null,
         ws.managerApprovalDevice ? 1 : 0, ws.clockInAllowed !== false ? 1 : 0,
         ws.defaultReceiptPrinterId, ws.backupReceiptPrinterId,
@@ -1173,6 +1196,9 @@ export class Database {
         ws.autoLogoutMinutes, ws.active !== false ? 1 : 0,
       ]
     );
+    if (ws.offlineCheckNumberStart && ws.offlineCheckNumberEnd) {
+      this.setWorkstationConfig(ws.id, ws.offlineCheckNumberStart, ws.offlineCheckNumberEnd);
+    }
   }
   
   getWorkstation(id: string): any | null {

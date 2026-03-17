@@ -1485,6 +1485,10 @@ class OfflineDatabase {
       try {
         if (this.usingSqlite) {
           return this.db.transaction(() => {
+            const rangeStart = this.config?.offlineCheckNumberStart || null;
+            const rangeEnd = this.config?.offlineCheckNumberEnd || null;
+            const hasRange = rangeStart !== null && rangeEnd !== null && rangeStart > 0 && rangeEnd > 0;
+
             const maxRow = this.db.prepare(
               'SELECT MAX(check_number) as maxNum FROM offline_checks WHERE rvc_id = ?'
             ).get(rvcId);
@@ -1495,14 +1499,35 @@ class OfflineDatabase {
             ).get(rvcId);
 
             let checkNumber;
+            if (hasRange) {
+              if (existing && existing.next_check_number >= rangeStart && existing.next_check_number <= rangeEnd) {
+                checkNumber = existing.next_check_number;
+              } else {
+                const rangeMax = this.db.prepare(
+                  'SELECT MAX(check_number) as maxNum FROM offline_checks WHERE rvc_id = ? AND check_number >= ? AND check_number <= ?'
+                ).get(rvcId, rangeStart, rangeEnd);
+                checkNumber = (rangeMax?.maxNum && rangeMax.maxNum >= rangeStart) ? rangeMax.maxNum + 1 : rangeStart;
+              }
+
+              if (checkNumber > rangeEnd) {
+                offlineDbLogger.error('Check', `Offline check number range exhausted (${rangeStart}-${rangeEnd}). Cannot create new check.`);
+                return null;
+              }
+              offlineDbLogger.info('Check', `Using configured range ${rangeStart}-${rangeEnd}, assigning check #${checkNumber}`);
+            } else {
+              if (existing) {
+                checkNumber = Math.max(existing.next_check_number, tableMax + 1);
+              } else {
+                const cloudMax = this.getCachedConfig(`last_check_number_${rvcId}`) || 0;
+                checkNumber = Math.max(cloudMax, tableMax) + 1;
+              }
+            }
+
             if (existing) {
-              checkNumber = Math.max(existing.next_check_number, tableMax + 1);
               this.db.prepare(
                 'UPDATE rvc_counters SET next_check_number = ?, updated_at = datetime(\'now\') WHERE rvc_id = ?'
               ).run(checkNumber + 1, rvcId);
             } else {
-              const cloudMax = this.getCachedConfig(`last_check_number_${rvcId}`) || 0;
-              checkNumber = Math.max(cloudMax, tableMax) + 1;
               this.db.prepare(
                 'INSERT INTO rvc_counters (rvc_id, next_check_number, updated_at) VALUES (?, ?, datetime(\'now\'))'
               ).run(rvcId, checkNumber + 1);

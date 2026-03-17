@@ -202,6 +202,8 @@ export function WorkstationForm({
           allowPickupCheck: editingItem.allowPickupCheck ?? true,
           allowReopenClosedChecks: editingItem.allowReopenClosedChecks ?? false,
           allowOfflineOperation: editingItem.allowOfflineOperation ?? false,
+          offlineCheckNumberStart: editingItem.offlineCheckNumberStart ?? null,
+          offlineCheckNumberEnd: editingItem.offlineCheckNumberEnd ?? null,
           managerApprovalDevice: editingItem.managerApprovalDevice ?? false,
           clockInAllowed: editingItem.clockInAllowed ?? true,
           defaultReceiptPrinterId: editingItem.defaultReceiptPrinterId || null,
@@ -239,6 +241,8 @@ export function WorkstationForm({
           allowPickupCheck: true,
           allowReopenClosedChecks: false,
           allowOfflineOperation: false,
+          offlineCheckNumberStart: null,
+          offlineCheckNumberEnd: null,
           managerApprovalDevice: false,
           clockInAllowed: true,
           defaultReceiptPrinterId: null,
@@ -541,6 +545,63 @@ export function WorkstationForm({
                       </FormItem>
                     )}
                   />
+                </div>
+                {form.watch("allowOfflineOperation") && (
+                  <div className="border border-dashed rounded-md p-3 mt-2 space-y-2">
+                    <h5 className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Offline Check Number Range</h5>
+                    <p className="text-xs text-muted-foreground">Assign a unique check number range for this workstation to prevent duplicates when operating offline.</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="offlineCheckNumberStart"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm">Range Start</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                min={1}
+                                placeholder="e.g. 1"
+                                value={field.value ?? ""}
+                                onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : null)}
+                                data-testid="input-offlineCheckNumberStart"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="offlineCheckNumberEnd"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm">Range End</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                min={1}
+                                placeholder="e.g. 999"
+                                value={field.value ?? ""}
+                                onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : null)}
+                                data-testid="input-offlineCheckNumberEnd"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    {form.watch("offlineCheckNumberStart") && form.watch("offlineCheckNumberEnd") && (
+                      form.watch("offlineCheckNumberStart")! > form.watch("offlineCheckNumberEnd")! ? (
+                        <p className="text-xs text-red-500 font-medium">Range Start must be less than or equal to Range End</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Capacity: {(form.watch("offlineCheckNumberEnd")! - form.watch("offlineCheckNumberStart")! + 1).toLocaleString()} checks
+                        </p>
+                      )
+                    )}
+                  </div>
+                )}
+                <div className="grid grid-cols-4 gap-3">
                   <FormField
                     control={form.control}
                     name="managerApprovalDevice"

@@ -3933,6 +3933,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.put("/api/workstations/:id", async (req, res) => {
+    const { offlineCheckNumberStart, offlineCheckNumberEnd } = req.body;
+    if (offlineCheckNumberStart != null && offlineCheckNumberEnd != null && offlineCheckNumberStart > offlineCheckNumberEnd) {
+      return res.status(422).json({ message: "Offline check number range start must be less than or equal to end" });
+    }
     const data = await storage.updateWorkstation(req.params.id, req.body);
     if (!data) return res.status(404).json({ message: "Not found" });
     broadcastConfigUpdate("workstations", "update", req.params.id, data.enterpriseId);
@@ -20370,6 +20374,17 @@ connect();
       
       console.log(`[CAL Setup] Device claimed successfully: ${device.name}, hash preserved: ${device.deviceTokenHash?.substring(0, 16)}...`);
       
+      // Look up workstation to include offline check range config
+      let offlineCheckNumberStart = null;
+      let offlineCheckNumberEnd = null;
+      if (device.workstationId) {
+        const ws = await storage.getWorkstation(device.workstationId);
+        if (ws) {
+          offlineCheckNumberStart = ws.offlineCheckNumberStart || null;
+          offlineCheckNumberEnd = ws.offlineCheckNumberEnd || null;
+        }
+      }
+
       // Return the credentials to store in browser localStorage
       res.json({
         success: true,
@@ -20379,6 +20394,8 @@ connect();
         deviceName: device.name,
         deviceType: device.deviceType,
         propertyId: device.propertyId,
+        offlineCheckNumberStart,
+        offlineCheckNumberEnd,
       });
     } catch (error) {
       console.error("CAL Setup claim error:", error);
@@ -20426,6 +20443,8 @@ connect();
           name: device.name,
           type: deviceType,
           number: device.number,
+          offlineCheckNumberStart: device.offlineCheckNumberStart || null,
+          offlineCheckNumberEnd: device.offlineCheckNumberEnd || null,
         },
         property: property ? {
           id: property.id,

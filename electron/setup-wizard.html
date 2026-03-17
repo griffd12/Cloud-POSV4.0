@@ -799,6 +799,8 @@
           deviceId: state.selectedDevice.id,
           deviceName: state.selectedDevice.name,
           deviceType: state.mode === 'pos' ? 'workstation' : 'kds',
+          offlineCheckNumberStart: state.selectedDevice.offlineCheckNumberStart || null,
+          offlineCheckNumberEnd: state.selectedDevice.offlineCheckNumberEnd || null,
           setupComplete: true,
           setupDate: new Date().toISOString(),
           configuredBy: state.emcUser?.displayName || state.emcUser?.email || 'unknown',

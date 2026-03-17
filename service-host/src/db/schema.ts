@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
@@ -212,6 +212,8 @@ CREATE TABLE IF NOT EXISTS workstations (
   allow_pickup_check INTEGER DEFAULT 1,
   allow_reopen_closed_checks INTEGER DEFAULT 0,
   allow_offline_operation INTEGER DEFAULT 0,
+  offline_check_number_start INTEGER,
+  offline_check_number_end INTEGER,
   allowed_role_ids TEXT,
   manager_approval_device INTEGER DEFAULT 0,
   clock_in_allowed INTEGER DEFAULT 1,
