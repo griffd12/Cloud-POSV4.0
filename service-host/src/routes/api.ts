@@ -1885,22 +1885,8 @@ export function createApiRoutes(
          session.tipAmount, session.status, session.transactionType,
          JSON.stringify(session), session.createdAt, session.updatedAt]
       );
-      console.log(`[CAPS] Terminal session created (SQLite): ${sessionId}`);
+      console.log(`[CAPS] Terminal session created (SQLite): ${sessionId} — queued for poll-based processing`);
       res.json(session);
-
-      setImmediate(async () => {
-        try {
-          console.log(`[CAPS] Processing terminal session ${sessionId} via payment controller`);
-          const payResult = await payment.processTerminalSession(sessionId, session);
-          console.log(`[CAPS] Terminal session ${sessionId} processed: success=${payResult.success}, txn=${payResult.transactionId}`);
-        } catch (e) {
-          console.error(`[CAPS] Terminal session ${sessionId} processing failed:`, (e as Error).message);
-          caps.db.run(
-            `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
-            [JSON.stringify({ ...session, status: 'error', error: (e as Error).message }), sessionId]
-          );
-        }
-      });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }

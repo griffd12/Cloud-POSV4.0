@@ -328,18 +328,24 @@ export class PaymentController {
     let failed = 0;
     try {
       const pending = this.db.all(
-        `SELECT id, data FROM terminal_sessions WHERE status = 'pending' OR status = 'processing' ORDER BY created_at ASC LIMIT 10`
-      );
-      for (const row of pending as any[]) {
+        `SELECT id, data FROM terminal_sessions WHERE status = 'pending' ORDER BY created_at ASC LIMIT 10`
+      ) as any[];
+      for (const row of pending) {
+        const claimed = this.db.run(
+          `UPDATE terminal_sessions SET status = 'processing', updated_at = datetime('now') WHERE id = ? AND status = 'pending'`,
+          [row.id]
+        );
+        if (!claimed || (claimed as any).changes === 0) continue;
+
         const session = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
         try {
-          this.db.run(
-            `UPDATE terminal_sessions SET status = 'processing', updated_at = datetime('now') WHERE id = ?`,
-            [row.id]
-          );
           await this.processTerminalSession(row.id, session);
           processed++;
         } catch (e: any) {
+          this.db.run(
+            `UPDATE terminal_sessions SET status = 'error', updated_at = datetime('now') WHERE id = ?`,
+            [row.id]
+          );
           failed++;
         }
       }
@@ -351,7 +357,10 @@ export class PaymentController {
 
   startPolling(intervalMs: number = 5000): void {
     if (this._pollInterval) return;
+    let polling = false;
     this._pollInterval = setInterval(async () => {
+      if (polling) return;
+      polling = true;
       try {
         const result = await this.processPendingSessions();
         if (result.processed > 0 || result.failed > 0) {
@@ -359,6 +368,8 @@ export class PaymentController {
         }
       } catch (e: any) {
         console.error(`[PaymentController] Poll error: ${e.message}`);
+      } finally {
+        polling = false;
       }
     }, intervalMs);
   }
