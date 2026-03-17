@@ -19,10 +19,31 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 
 ## System Architecture
 
-### Core Design Principles — ON-PREM / LOCAL-FIRST
+### ARCHITECTURE CONTRACT (NON-NEGOTIABLE)
 
-**CRITICAL: THINK LOCAL/ON-PREM FIRST, THEN CLOUD.**
-The system is designed to operate 100% without the cloud. The cloud is a convenience layer for remote management and data aggregation — it is NEVER required for store operations.
+**HYBRID POS with three layers: CLOUD → CAPS → WORKSTATION**
+
+#### Layer Definitions:
+1. **CLOUD** — Central master for configuration, reporting, and sync ingestion. Cloud is NOT the live runtime engine for ringing a sale.
+2. **CAPS / SERVICE-HOST** — The LOCAL STORE CONTROLLER and STORE AUTHORITY. Owns the local SQLite operational database. Exposes local APIs for POS and KDS. Processes all live store operations locally. Journals all events locally. Syncs up to cloud when available. Syncs config down from cloud when available.
+3. **WORKSTATIONS (WS)** — CLIENTS of CAPS. Talk to CAPS first, never directly to cloud for live FOH/KDS operations. Render UI only and send commands to CAPS. Do not own the store truth if CAPS is alive.
+
+#### Non-Negotiable Rules:
+
+**A) LOCAL-FIRST COMMIT** — All live POS and KDS actions must commit to CAPS local SQLite FIRST. Only after local commit succeeds can background sync happen. This includes: sign in, open check, add item, modifiers, discounts, send to kitchen, pickup check, transfer check, reopen closed check, payments, close check, KDS create/bump/recall/priority. If local commit fails, the UI must FAIL the action and show an error. Do not fake success. Do not require cloud to complete a sale.
+
+**B) CLOUD NEVER IN BLOCKING WRITE PATH** — Correct: WS → CAPS → local SQLite commit → success returned to UI → background sync to cloud. NEVER: WS → cloud → maybe local later.
+
+**C) MODE DEFINITIONS** — Based on REAL operational health, not just a ping:
+- **GREEN**: CAPS reachable + local SQLite healthy + cloud sync probe succeeds
+- **YELLOW**: CAPS reachable + local SQLite healthy + cloud sync unavailable/degraded. Store still fully operates locally.
+- **RED**: CAPS unreachable OR local SQLite unhealthy. Workstation cannot trust store authority.
+- Do NOT show GREEN just because /health returns 200. Mode detection must verify real read/write capability.
+
+**D) PILOT FEATURE MATRIX** — When cloud is unavailable but CAPS is alive, these MUST still work: sign in, menu ordering, modifiers, check functions, payments, KDS, offline daily reporting. Gift/loyalty can remain online-only for pilot.
+
+#### CRITICAL PILOT DESIGN DECISION:
+**For pilot, CAPS is the store authority. If a workstation cannot reach CAPS, the workstation should HARD FAIL and not continue normal operation.** Do NOT build true standalone-per-workstation databases right now unless explicitly asked. We are not doing split-brain WS databases for pilot.
 
 #### Data Flow (ALWAYS follow this order):
 1. **WS → CAPS (local network)**: ALL transaction data goes to CAPS first via LAN. CAPS is the on-prem authority.
@@ -32,7 +53,7 @@ The system is designed to operate 100% without the cloud. The cloud is a conveni
 #### Connectivity Status (what the colors mean):
 - **GREEN**: WS can reach CAPS AND CAPS can reach Cloud. Full connectivity.
 - **YELLOW**: WS can reach CAPS but CAPS cannot reach Cloud. Store operates normally — cloud sync is deferred.
-- **RED**: WS cannot reach CAPS. Fully offline. WS operates from its own local SQLite.
+- **RED**: WS cannot reach CAPS. HARD FAIL — workstation cannot operate (pilot).
 
 #### Device Online/Offline Status:
 - A device (WS or KDS) is **ONLINE** if it can communicate with CAPS on the local network.
@@ -52,10 +73,11 @@ The system is designed to operate 100% without the cloud. The cloud is a conveni
 - Config reads (menu-items, slus, modifiers, etc.) are served by CAPS at same paths
 
 #### When building ANY feature, ask in this order:
-1. **How does it work locally with just SQLite on the WS?** (RED mode)
-2. **How does it work with CAPS on the LAN?** (YELLOW mode)
-3. **How does it work when cloud is also available?** (GREEN mode)
-4. NEVER build cloud-first and retrofit offline. ALWAYS build offline-first and add cloud sync.
+1. **Does CAPS handle this operation?** (CAPS is the authority)
+2. **How does it work with CAPS on the LAN?** (YELLOW mode — store still operates)
+3. **How does it work when cloud is also available?** (GREEN mode — adds sync)
+4. **What happens if CAPS is unreachable?** (RED mode — HARD FAIL for pilot)
+5. NEVER build cloud-first and retrofit offline. ALWAYS build CAPS-first.
 
 - **Multi-Property Hierarchy**: Enterprise → Property → Revenue Center management.
 - **Simphony-Class Configuration**: Configuration inheritance with override capabilities.
