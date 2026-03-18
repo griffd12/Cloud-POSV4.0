@@ -1,0 +1,128 @@
+ARCHITECTURE CONTRACT — ELECTRON / CAPS / CLOUD
+
+Clarifying terminology first:
+
+- Electron app = client shell running on POS terminals and KDS devices
+- CAPS / service-host = local store authority and runtime engine
+- Cloud = central sync, configuration, and enterprise reporting
+
+For pilot, this is the required operating model:
+
+1) ELECTRON APP (CLIENT SHELL)
+The Electron app is the UI used by operators (POS + KDS).
+
+It must:
+- send all live POS and KDS operations to CAPS
+- render responses from CAPS
+- not depend on cloud for live check or KDS data
+
+Even though Electron currently contains routing/mode logic, it must behave as a client of CAPS for all store operations.
+
+---
+
+2) CAPS / SERVICE-HOST (STORE AUTHORITY)
+CAPS is the single source of truth for the location.
+
+CAPS must own ALL runtime store data and behavior:
+- employees and privileges
+- menu, modifiers, pricing
+- checks and check items
+- discounts and service charges
+- tenders and payments
+- open checks list and check locks
+- pickup, transfer, reopen, split, merge
+- KDS ticket creation and status
+- local reporting
+- transaction journal and sync queue
+
+If a check is created, updated, or paid:
+→ it must exist in CAPS first
+→ all Electron clients must see the same result from CAPS
+
+---
+
+3) CLOUD (UPSTREAM ONLY)
+Cloud is NOT part of the live POS execution path.
+
+Cloud is only responsible for:
+- receiving synced transactions from CAPS
+- distributing configuration to CAPS
+- enterprise/back-office reporting
+
+Cloud must NOT be used as fallback for live POS/KDS operations.
+
+---
+
+NON-NEGOTIABLE RULES
+
+- Electron → CAPS → local SQLite commit → success to UI → background sync to cloud
+- Electron must NOT fall through to cloud for any live POS/KDS route
+- If CAPS returns 404 or fails for a live POS route, that is a BUG — do not fall back to cloud
+- All workstations and KDS devices must read the same data from CAPS
+
+---
+
+CRITICAL CURRENT ISSUE
+
+Right now:
+- /api/caps/checks/orders and /api/caps/checks/locks are returning 404 from CAPS
+- Electron is falling back to cloud for reads
+- This creates split-brain behavior:
+  - checks not visible across terminals
+  - KDS not showing tickets
+  - open check SLU incorrect
+  - payments/discounts failing
+  - privileges inconsistent
+
+This is NOT acceptable behavior.
+
+---
+
+YOUR TASK
+
+1) Build a complete route matrix for ALL live POS/KDS routes:
+
+ROUTE | SHOULD BE OWNED BY | CURRENT BEHAVIOR | BUG | FIX FILE
+
+2) Identify every route that:
+- is returning 404 from CAPS
+- is falling back to cloud incorrectly
+- is not implemented in CAPS
+
+3) For ALL live POS/KDS routes:
+- remove cloud fallback completely
+- either:
+  a) make CAPS return correct data, OR
+  b) fail loudly with a local error
+
+4) Validate the following flows entirely through CAPS (no cloud dependency):
+- sign in (PIN / privileges)
+- create check
+- add item with modifiers
+- delete item
+- apply/remove discount
+- send to kitchen
+- open checks / SLU
+- pickup check
+- transfer check
+- reopen closed check
+- payment (cash + card stub)
+- KDS ticket create / read / bump / recall
+- privilege enforcement for all check functions
+
+5) Fix the CAPS route prefix issue properly:
+- /api/caps/* must correctly resolve to CAPS handlers
+- do not rely on partial middleware hacks that still return 404
+- ensure Express routing actually matches after prefix handling
+
+---
+
+DO NOT respond with only middleware theory.
+
+First prove:
+- every required route exists in CAPS
+- every route returns correct data
+- no live POS route depends on cloud
+
+The system must behave like a real POS:
+one store authority (CAPS), not split across CAPS and cloud.

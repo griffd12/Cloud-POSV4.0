@@ -2352,13 +2352,27 @@ export function createApiRoutes(
     if (employee.rolePrivileges && Array.isArray(employee.rolePrivileges) && employee.rolePrivileges.length > 0) {
       return employee.rolePrivileges;
     }
-    const roleId = employee.roleId || employee.role_id;
-    if (roleId && db) {
-      const rolePrivs = db.getRolePrivileges(roleId);
-      if (rolePrivs && rolePrivs.length > 0) {
-        return rolePrivs;
+    if (db) {
+      const roleId = employee.roleId || employee.role_id;
+      if (roleId) {
+        const rolePrivs = db.getRolePrivileges(roleId);
+        if (rolePrivs && rolePrivs.length > 0) {
+          return rolePrivs;
+        }
+      }
+      const assignments = db.getEmployeeAssignments(employee.id);
+      if (assignments && assignments.length > 0) {
+        const primary = assignments.find((a: any) => a.is_primary === 1 || a.isPrimary) || assignments[0];
+        const assignRoleId = primary.role_id || primary.roleId;
+        if (assignRoleId) {
+          const assignPrivs = db.getRolePrivileges(assignRoleId);
+          if (assignPrivs && assignPrivs.length > 0) {
+            return assignPrivs;
+          }
+        }
       }
     }
+    console.warn(`[Auth] Falling back to default privileges for employee ${employee.id} — no role/assignment privileges found`);
     return DEFAULT_PRIVILEGES;
   }
 
