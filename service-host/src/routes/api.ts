@@ -1364,6 +1364,7 @@ export function createApiRoutes(
       const configStatus = config.getStatus();
       const txnStats = caps.transactionSync.getStats();
       res.json({
+        ...configStatus,
         config: configStatus,
         transactions: txnStats,
       });
@@ -3651,14 +3652,14 @@ export function createApiRoutes(
         journal: stats,
         syncQueue: {
           pending: queueItems.length,
-          items: queueItems.slice(0, 20).map((i: any) => ({
+          items: queueItems.slice(0, 20).map((i) => ({
             id: i.id,
             entityType: i.entity_type,
             entityId: i.entity_id,
             action: i.action,
             attempts: i.attempts,
-            lastAttempt: i.last_attempt,
-            error: i.error,
+            lastAttempt: i.last_attempt_at,
+            error: i.error_message,
           })),
         },
       });
