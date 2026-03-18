@@ -57,7 +57,7 @@ export function createApiRoutes(
     const method = req.method;
     const url = req.originalUrl || req.url;
 
-    if (url === '/api/caps/gateway-log' || req.method === 'OPTIONS') {
+    if (url.startsWith('/api/caps/gateway-log') || req.method === 'OPTIONS') {
       return next();
     }
 
@@ -82,7 +82,20 @@ export function createApiRoutes(
         if (body.error || body.message) {
           errorMsg = body.error || body.message;
         }
-        const bodyStr = JSON.stringify(body);
+        const sanitizedResp = typeof body === 'object' && body !== null ? { ...body } : body;
+        if (typeof sanitizedResp === 'object' && sanitizedResp !== null) {
+          for (const field of REDACTED_FIELDS) {
+            if (field in sanitizedResp) sanitizedResp[field] = '[REDACTED]';
+          }
+          if (sanitizedResp.employee && typeof sanitizedResp.employee === 'object') {
+            const empCopy = { ...sanitizedResp.employee };
+            for (const field of REDACTED_FIELDS) {
+              if (field in empCopy) empCopy[field] = '[REDACTED]';
+            }
+            sanitizedResp.employee = empCopy;
+          }
+        }
+        const bodyStr = JSON.stringify(sanitizedResp);
         responseSummary = bodyStr.length > 200 ? bodyStr.substring(0, 200) + '...' : bodyStr;
       }
 
