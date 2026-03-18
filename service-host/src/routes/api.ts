@@ -131,7 +131,24 @@ export function createApiRoutes(
   // Add payment
   const payHandler = (req: any, res: any) => {
     try {
-      const { workstationId, ...paymentParams } = req.body;
+      const { workstationId, tipAmount, ...paymentParams } = req.body;
+      if (!paymentParams.tenderType && paymentParams.tenderId && db) {
+        const tender = db.get<{ name: string; tender_type: string; type: string }>('SELECT name, tender_type, type FROM tenders WHERE id = ?', [paymentParams.tenderId]);
+        if (tender) {
+          paymentParams.tenderType = tender.tender_type || tender.type || 'cash';
+        } else {
+          paymentParams.tenderType = 'cash';
+        }
+      }
+      if (!paymentParams.tenderType) {
+        paymentParams.tenderType = 'cash';
+      }
+      if (tipAmount !== undefined && paymentParams.tip === undefined) {
+        paymentParams.tip = parseFloat(tipAmount) || 0;
+      }
+      if (typeof paymentParams.amount === 'string') {
+        paymentParams.amount = parseFloat(paymentParams.amount) || 0;
+      }
       const payment = caps.addPayment(req.params.id, paymentParams, workstationId);
       res.json(payment);
     } catch (e) {
@@ -308,17 +325,18 @@ export function createApiRoutes(
       let discountAmount = 0;
       
       if (discountId && db) {
-        const discount = db.get<{ name: string; discount_type: string; value: number; rate: number }>(
-          'SELECT name, discount_type, value, rate FROM discounts WHERE id = ?', [discountId]
+        const discount = db.get<{ name: string; discount_type: string; amount: string }>(
+          'SELECT name, discount_type, amount FROM discounts WHERE id = ?', [discountId]
         );
         if (discount) {
           discountName = discount.name;
           discountType = discount.discount_type;
           const itemTotal = itemRow.unit_price * itemRow.quantity;
+          const discountVal = parseFloat(discount.amount || '0');
           if (discount.discount_type === 'percent') {
-            discountAmount = itemTotal * (discount.rate / 100);
+            discountAmount = itemTotal * (discountVal / 100);
           } else {
-            discountAmount = discount.value;
+            discountAmount = discountVal;
           }
           discountAmount = Math.min(discountAmount, itemTotal);
         }
@@ -428,6 +446,24 @@ export function createApiRoutes(
     }
   });
   
+  // ============================================================================
+  // CAPS PREFIX NORMALIZATION MIDDLEWARE
+  // The Electron interceptor rewrites /api/checks → /api/caps/checks, etc.
+  // Original CAPS handlers above (with /caps/ prefix) match first for routes
+  // they handle. For all other /caps/ prefixed requests, strip the prefix so
+  // they fall through to the Cloud-Compatible Route Aliases below.
+  // Exclude /caps/sync/, /caps/reports/, /caps/workstation/ which have dedicated handlers.
+  // ============================================================================
+  router.use((req: any, _res: any, next: any) => {
+    if (req.url.startsWith('/caps/') &&
+        !req.url.startsWith('/caps/sync/') &&
+        !req.url.startsWith('/caps/reports/') &&
+        !req.url.startsWith('/caps/workstation/')) {
+      req.url = req.url.replace(/^\/caps\//, '/');
+    }
+    next();
+  });
+
   // ============================================================================
   // Print Controller
   // ============================================================================
@@ -1384,7 +1420,22 @@ export function createApiRoutes(
 
   router.post('/checks/:id/payments', (req, res) => {
     try {
-      const { workstationId, ...paymentParams } = req.body;
+      const { workstationId, tipAmount, ...paymentParams } = req.body;
+      if (!paymentParams.tenderType && paymentParams.tenderId) {
+        const tender = caps.db.get<any>('SELECT name, tender_type, type FROM tenders WHERE id = ?', [paymentParams.tenderId]);
+        if (tender) {
+          paymentParams.tenderType = tender.tender_type || tender.type || 'cash';
+        } else {
+          paymentParams.tenderType = 'cash';
+        }
+      }
+      if (!paymentParams.tenderType) paymentParams.tenderType = 'cash';
+      if (tipAmount !== undefined && paymentParams.tip === undefined) {
+        paymentParams.tip = parseFloat(tipAmount) || 0;
+      }
+      if (typeof paymentParams.amount === 'string') {
+        paymentParams.amount = parseFloat(paymentParams.amount) || 0;
+      }
       const payment = caps.addPayment(req.params.id, paymentParams, workstationId);
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found after payment' });
