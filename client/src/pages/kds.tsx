@@ -325,7 +325,9 @@ export default function KdsPage() {
         setWsConnected(true);
         refetch();
         const subscribeMsg: Record<string, any> = { type: "subscribe", channel: "kds" };
-        if (!isDedicatedKds && currentRvc?.id) {
+        if (isDedicatedKds && linkedDeviceId) {
+          subscribeMsg.deviceId = linkedDeviceId;
+        } else if (currentRvc?.id) {
           subscribeMsg.rvcId = currentRvc.id;
         }
         socket!.send(JSON.stringify(subscribeMsg));

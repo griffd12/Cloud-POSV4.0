@@ -280,18 +280,51 @@ export function createApiRoutes(
         if (check) {
           const unsentItems = check.items.filter(i => !i.voided);
           if (unsentItems.length > 0) {
-            kds.createTicket({
-              checkId: check.id,
-              checkNumber: check.checkNumber || 0,
-              roundNumber: result.roundNumber || 0,
-              orderType: check.orderType,
-              items: unsentItems.map(i => ({
-                name: i.name,
-                quantity: i.quantity,
-                modifiers: i.modifiers?.map(m => m.name || m),
-                seatNumber: i.seatNumber,
-              })),
-            });
+            const stationItemsMap = new Map<string, typeof unsentItems>();
+
+            for (const item of unsentItems) {
+              let targetStations: string[] = [];
+              const printClassId = (item as any).printClassId || (item as any).print_class_id;
+              if (printClassId && db) {
+                const orderDevices = db.getOrderDevicesForPrintClass(printClassId, undefined, check.rvcId);
+                for (const od of orderDevices) {
+                  if (od.kds_device_id) {
+                    targetStations.push(od.kds_device_id);
+                  }
+                  const kdsLinks = db.getOrderDeviceKds(od.id);
+                  for (const link of kdsLinks) {
+                    if (link.kds_device_id && !targetStations.includes(link.kds_device_id)) {
+                      targetStations.push(link.kds_device_id);
+                    }
+                  }
+                }
+              }
+              if (targetStations.length === 0) {
+                targetStations = ['default'];
+              }
+              for (const stationId of targetStations) {
+                if (!stationItemsMap.has(stationId)) {
+                  stationItemsMap.set(stationId, []);
+                }
+                stationItemsMap.get(stationId)!.push(item);
+              }
+            }
+
+            for (const [stationId, items] of stationItemsMap) {
+              kds.createTicket({
+                checkId: check.id,
+                checkNumber: check.checkNumber || 0,
+                roundNumber: result.roundNumber || 0,
+                orderType: check.orderType,
+                stationId: stationId === 'default' ? undefined : stationId,
+                items: items.map(i => ({
+                  name: i.name,
+                  quantity: i.quantity,
+                  modifiers: i.modifiers?.map(m => m.name || m),
+                  seatNumber: i.seatNumber,
+                })),
+              });
+            }
           }
         }
       } catch (kdsErr) {
