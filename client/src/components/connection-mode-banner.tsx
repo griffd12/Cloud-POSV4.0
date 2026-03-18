@@ -68,6 +68,11 @@ export function ConnectionModeBanner({ className = "" }: ConnectionModeBannerPro
 
   useEffect(() => {
     const w = window as any;
+    if (w.electronAPI?.getCapsBootStatus) {
+      w.electronAPI.getCapsBootStatus().then((bootStatus: { stage: string }) => {
+        if (bootStatus?.stage) setCapsBootStage(bootStatus.stage as CapsBootStage);
+      }).catch(() => {});
+    }
     if (w.electronAPI?.onCapsBootStatus) {
       const unsub = w.electronAPI.onCapsBootStatus((bootStatus: { stage: string }) => {
         setCapsBootStage((bootStatus?.stage as CapsBootStage) || null);

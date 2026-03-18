@@ -129,9 +129,17 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
   useEffect(() => {
     const w = window as any;
     if (!isRunningInElectron()) return;
+
+    if (w.electronAPI?.getCapsBootStatus) {
+      w.electronAPI.getCapsBootStatus().then((bootStatus: { stage: string }) => {
+        const stage = (bootStatus?.stage as CapsBootStage) || null;
+        setStatus(prev => ({ ...prev, capsBootStage: stage }));
+      }).catch(() => {});
+    }
+
     if (w.electronAPI?.onCapsBootStatus) {
       const unsub = w.electronAPI.onCapsBootStatus((bootStatus: { stage: string }) => {
-        const stage = bootStatus?.stage as CapsBootStage || null;
+        const stage = (bootStatus?.stage as CapsBootStage) || null;
         setStatus(prev => ({ ...prev, capsBootStage: stage }));
       });
       return unsub;

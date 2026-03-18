@@ -41,6 +41,7 @@ let protocolConsecutiveFailCount = 0;
 const PROTOCOL_STARTUP_GRACE_MS = 2000;
 const PROTOCOL_FAIL_THRESHOLD = 3;
 let firstBootConnectivityChecked = false;
+let capsBootStage = null;
 let bootstrapWatchdogTimer = null;
 let bootstrapWatchdogCleared = false;
 let bootstrapReloadCount = 0;
@@ -1247,6 +1248,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('get-online-status', () => isOnline);
   ipcMain.handle('get-connection-mode', () => connectionMode);
+  ipcMain.handle('get-caps-boot-status', () => ({ stage: capsBootStage }));
 
   ipcMain.handle('clear-offline-sales-data', () => {
     appLogger.info('App', 'Clearing offline sales data (sales_data_cleared event received)');
@@ -2790,9 +2792,10 @@ async function startServiceHost() {
         if (hc.ok) {
           const readyData = await hc.json().catch(() => ({}));
           lastStatus = readyData.status || 'unknown';
+          capsBootStage = lastStatus === 'ready' ? 'ready' : 'loading-config';
           if (mainWindow) {
             mainWindow.webContents.send('caps-boot-status', {
-              stage: lastStatus === 'ready' ? 'ready' : 'loading-config',
+              stage: capsBootStage,
               ...readyData,
             });
           }
@@ -3456,85 +3459,69 @@ app.whenReady().then(async () => {
       appLogger.warn('App', `Offline DB early init failed: ${err.message}`);
     });
 
+    capsBootStage = 'connecting';
     (async () => {
-      try {
-        const startupServiceHostUrl = config.serviceHostUrl;
-        if (startupServiceHostUrl) {
-          if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: 'connecting' });
-
-          let capsReady = false;
-          const maxRetries = config.isCapsWorkstation ? 30 : 10;
-          for (let attempt = 0; attempt < maxRetries; attempt++) {
-            try {
-              const capsReadyCheck = await fetch(`${startupServiceHostUrl}/health/ready`, {
-                signal: AbortSignal.timeout(3000),
-              });
-              if (capsReadyCheck.ok) {
-                const readyData = await capsReadyCheck.json().catch(() => ({}));
-                if (mainWindow) {
-                  mainWindow.webContents.send('caps-boot-status', {
-                    stage: readyData.status === 'ready' ? 'ready' : 'loading-config',
-                    ...readyData,
-                  });
-                }
-                if (readyData.status === 'ready') {
-                  capsReady = true;
-                  break;
-                }
-                appLogger.info('App', `Startup CAPS readiness: ${readyData.status} (attempt ${attempt + 1}/${maxRetries})`);
-              }
-            } catch {}
-            await new Promise(r => setTimeout(r, 1000));
-          }
-
-          if (!capsReady) {
-            try {
-              const capsHealthFallback = await fetch(`${startupServiceHostUrl}/api/health`, {
-                signal: AbortSignal.timeout(3000),
-              });
-              if (capsHealthFallback.ok) {
-                const capsData = await capsHealthFallback.json().catch(() => ({}));
-                if (capsData.dbHealthy === true) {
-                  capsReady = true;
-                  appLogger.info('App', 'Startup CAPS check: healthy via /api/health fallback');
-                }
-              }
-            } catch {}
-          }
-
-          if (capsReady) {
-            isOnline = true;
-            firstBootConnectivityChecked = true;
-            setConnectionMode('green');
-            if (offlineInterceptor) offlineInterceptor.setOffline(false);
-            if (mainWindow) mainWindow.webContents.send('online-status', true);
-            if (mainWindow) mainWindow.webContents.send('connection-mode', 'green');
-            if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: 'ready' });
-            appLogger.info('App', 'Startup CAPS check: ONLINE (CAPS ready)');
-          } else {
-            throw new Error('CAPS not ready after polling');
-          }
-        } else {
-          isOnline = false;
-          connectionMode = 'red';
-          firstBootConnectivityChecked = true;
-          if (mainWindow) mainWindow.webContents.send('connection-mode', 'red');
-          if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: 'no-caps-url' });
-          appLogger.warn('App', 'Startup: No CAPS URL configured — RED mode');
-        }
-      } catch (e) {
+      const startupServiceHostUrl = config.serviceHostUrl;
+      if (!startupServiceHostUrl) {
+        capsBootStage = 'no-caps-url';
         isOnline = false;
         connectionMode = 'red';
         firstBootConnectivityChecked = true;
-        if (offlineInterceptor) {
-          offlineInterceptor.setOffline(true);
-          offlineInterceptor.setConnectionMode('red');
-        }
-        if (mainWindow) mainWindow.webContents.send('online-status', false);
         if (mainWindow) mainWindow.webContents.send('connection-mode', 'red');
-        if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: 'unreachable' });
-        appLogger.warn('App', `Startup CAPS check: RED (${e.message})`);
+        if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+        appLogger.warn('App', 'Startup: No CAPS URL configured — RED mode');
+        return;
       }
+
+      if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+
+      const pollCapsReady = async () => {
+        let attempt = 0;
+        while (true) {
+          attempt++;
+          try {
+            const capsReadyCheck = await fetch(`${startupServiceHostUrl}/health/ready`, {
+              signal: AbortSignal.timeout(3000),
+            });
+            if (capsReadyCheck.ok) {
+              const readyData = await capsReadyCheck.json().catch(() => ({}));
+              const stage = readyData.status === 'ready' ? 'ready' : 'loading-config';
+              capsBootStage = stage;
+              if (mainWindow) {
+                mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage, ...readyData });
+              }
+              if (readyData.status === 'ready') {
+                return true;
+              }
+              if (attempt % 5 === 0) {
+                appLogger.info('App', `Startup CAPS readiness: ${readyData.status} (attempt ${attempt})`);
+              }
+            } else {
+              capsBootStage = 'connecting';
+              if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+            }
+          } catch {
+            capsBootStage = 'connecting';
+            if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+          }
+          const delay = attempt <= 10 ? 1000 : (attempt <= 30 ? 2000 : 5000);
+          await new Promise(r => setTimeout(r, delay));
+        }
+      };
+
+      pollCapsReady().then(() => {
+        capsBootStage = 'ready';
+        isOnline = true;
+        firstBootConnectivityChecked = true;
+        setConnectionMode('green');
+        if (offlineInterceptor) offlineInterceptor.setOffline(false);
+        if (mainWindow) mainWindow.webContents.send('online-status', true);
+        if (mainWindow) mainWindow.webContents.send('connection-mode', 'green');
+        if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+        appLogger.info('App', 'Startup CAPS check: ONLINE (CAPS ready)');
+      }).catch((e) => {
+        appLogger.error('App', `Startup CAPS readiness poll unexpected error: ${e.message}`);
+      });
     })();
 
     initAllServices().then(() => {
