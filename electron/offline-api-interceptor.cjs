@@ -160,6 +160,7 @@ class OfflineApiInterceptor {
         /^\/api\/terminal-sessions/,
         /^\/api\/checks\/merge/,
         /^\/api\/refunds/,
+        /^\/api\/sync-notifications/,
       ];
       return writeEndpoints.some(re => re.test(pathname));
     }
@@ -171,6 +172,7 @@ class OfflineApiInterceptor {
         /^\/api\/pos\/checks\/[^/]+\/customer$/,
         /^\/api\/check-items\/[^/]+\/discount$/,
         /^\/api\/check-discounts\/[^/]+$/,
+        /^\/api\/sync-notifications/,
       ];
       return deleteEndpoints.some(re => re.test(pathname));
     }

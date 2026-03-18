@@ -1361,8 +1361,12 @@ export function createApiRoutes(
   // Get sync status
   router.get('/sync/status', (req, res) => {
     try {
-      const status = config.getStatus();
-      res.json(status);
+      const configStatus = config.getStatus();
+      const txnStats = caps.transactionSync.getStats();
+      res.json({
+        config: configStatus,
+        transactions: txnStats,
+      });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
@@ -3599,6 +3603,66 @@ export function createApiRoutes(
       res.json({ success: true, operationId: id });
     } catch (e) {
       console.error('[CAPS Sync] queue-operation error:', (e as Error).message);
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  // ============================================================================
+  // SYNC-NOTIFICATION STUBS — prevent 404 spam from client polling in offline mode
+  // These routes exist on cloud but not on CAPS; stub them to return empty data.
+  // ============================================================================
+
+  router.get('/sync-notifications', (_req, res) => {
+    res.json([]);
+  });
+
+  router.get('/sync-notifications/unread-count', (_req, res) => {
+    res.json({ count: 0 });
+  });
+
+  router.post('/sync-notifications/:id/read', (_req, res) => {
+    res.json({ success: true });
+  });
+
+  router.post('/sync-notifications/mark-all-read', (_req, res) => {
+    res.json({ success: true });
+  });
+
+  router.delete('/sync-notifications/:id', (_req, res) => {
+    res.json({ success: true });
+  });
+
+  router.delete('/sync-notifications', (_req, res) => {
+    res.json({ success: true });
+  });
+
+  // ============================================================================
+  // SYNC STATUS — comprehensive reporting for UI
+  // ============================================================================
+
+  router.get('/sync/journal-stats', (_req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: 'Database not available' });
+      const businessDate = new Date().toISOString().split('T')[0];
+      const stats = db.getJournalStats(businessDate);
+      const queueItems = db.getPendingSyncItems(1000);
+      res.json({
+        businessDate,
+        journal: stats,
+        syncQueue: {
+          pending: queueItems.length,
+          items: queueItems.slice(0, 20).map((i: any) => ({
+            id: i.id,
+            entityType: i.entity_type,
+            entityId: i.entity_id,
+            action: i.action,
+            attempts: i.attempts,
+            lastAttempt: i.last_attempt,
+            error: i.error,
+          })),
+        },
+      });
+    } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
   });
