@@ -541,8 +541,8 @@ export function createApiRoutes(
     try {
       const itemId = req.params.id;
       const { reason, workstationId, employeeId, managerPin } = req.body;
-      
-      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+      const itemScope = resolveItemScope(itemId);
+      if (!checkOptionBit('allow_voids', itemScope.rvcId, itemScope.propertyId)) {
         return res.status(403).json({ error: 'Void operations are disabled by configuration' });
       }
       const itemRow = db?.get<any>('SELECT check_id, sent FROM check_items WHERE id = ?', [itemId]);
@@ -572,8 +572,8 @@ export function createApiRoutes(
     try {
       const itemId = req.params.id;
       const { discountId, employeeId, managerPin, workstationId } = req.body;
-
-      if (!checkOptionBit('allow_discounts', undefined, undefined)) {
+      const discItemScope = resolveItemScope(itemId);
+      if (!checkOptionBit('allow_discounts', discItemScope.rvcId, discItemScope.propertyId)) {
         return res.status(403).json({ error: 'Discount operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
@@ -868,7 +868,8 @@ export function createApiRoutes(
   router.post('/payment/:id/refund', async (req, res) => {
     try {
       const { employeeId, managerPin, amount } = req.body;
-      if (!checkOptionBit('allow_refunds', undefined, undefined)) {
+      const refundScope = resolvePaymentScope(req.params.id);
+      if (!checkOptionBit('allow_refunds', refundScope.rvcId, refundScope.propertyId)) {
         return res.status(403).json({ error: 'Refund operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'process_refunds', managerPin);
@@ -1781,7 +1782,8 @@ export function createApiRoutes(
   router.post('/checks/:id/void', (req, res) => {
     try {
       const { reason, workstationId, employeeId, managerPin } = req.body;
-      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+      const vScope = resolveCheckScope(req.params.id);
+      if (!checkOptionBit('allow_voids', vScope.rvcId, vScope.propertyId)) {
         return res.status(403).json({ error: 'Void operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'void_sent', managerPin);
@@ -1800,7 +1802,8 @@ export function createApiRoutes(
   router.post('/checks/:id/cancel-transaction', (req, res) => {
     try {
       const { reason, workstationId, employeeId, managerPin } = req.body;
-      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+      const ctScope = resolveCheckScope(req.params.id);
+      if (!checkOptionBit('allow_voids', ctScope.rvcId, ctScope.propertyId)) {
         return res.status(403).json({ error: 'Void operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'void_unsent', managerPin);
@@ -1821,7 +1824,8 @@ export function createApiRoutes(
   const reopenCheckHandler: RequestHandler = (req, res) => {
     try {
       const { employeeId, managerPin } = req.body;
-      if (!checkOptionBit('allow_reopen', undefined, undefined)) {
+      const roScope = resolveCheckScope(req.params.id);
+      if (!checkOptionBit('allow_reopen', roScope.rvcId, roScope.propertyId)) {
         return res.status(403).json({ error: 'Reopen operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'reopen_check', managerPin);
@@ -1845,8 +1849,8 @@ export function createApiRoutes(
       if (!check) return res.status(404).json({ error: 'Check not found' });
 
       const { discountId, checkItemId, name, type, amount, rate, managerPin, requiredPrivilege, employeeId } = req.body;
-
-      if (!checkOptionBit('allow_discounts', undefined, undefined)) {
+      const cdScope = resolveCheckScope(req.params.id);
+      if (!checkOptionBit('allow_discounts', cdScope.rvcId, cdScope.propertyId)) {
         return res.status(403).json({ error: 'Discount operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
@@ -1920,7 +1924,8 @@ export function createApiRoutes(
   const transferCheckHandler: RequestHandler = (req, res) => {
     try {
       const { employeeId, workstationId, managerPin } = req.body;
-      if (!checkOptionBit('allow_transfer', undefined, undefined)) {
+      const trScope = resolveCheckScope(req.params.id);
+      if (!checkOptionBit('allow_transfer', trScope.rvcId, trScope.propertyId)) {
         return res.status(403).json({ error: 'Transfer operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'transfer_check', managerPin);
@@ -1945,7 +1950,8 @@ export function createApiRoutes(
   const splitCheckHandler: RequestHandler = (req, res) => {
     try {
       const { itemIds, workstationId, employeeId, managerPin } = req.body;
-      if (!checkOptionBit('allow_split', undefined, undefined)) {
+      const spScope = resolveCheckScope(req.params.id);
+      if (!checkOptionBit('allow_split', spScope.rvcId, spScope.propertyId)) {
         return res.status(403).json({ error: 'Split check operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'split_check', managerPin);
@@ -1985,7 +1991,8 @@ export function createApiRoutes(
   const mergeChecksHandler: RequestHandler = (req, res) => {
     try {
       const { targetCheckId, sourceCheckIds, employeeId, managerPin } = req.body;
-      if (!checkOptionBit('allow_merge', undefined, undefined)) {
+      const mgScope = resolveCheckScope(targetCheckId);
+      if (!checkOptionBit('allow_merge', mgScope.rvcId, mgScope.propertyId)) {
         return res.status(403).json({ error: 'Merge check operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'merge_checks', managerPin);
@@ -2048,7 +2055,8 @@ export function createApiRoutes(
     try {
       const paymentId = req.params.id;
       const { reason, employeeId, managerPin } = req.body;
-      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+      const vpScope = resolvePaymentScope(paymentId);
+      if (!checkOptionBit('allow_voids', vpScope.rvcId, vpScope.propertyId)) {
         return res.status(403).json({ error: 'Void operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'void_sent', managerPin);
@@ -2197,7 +2205,8 @@ export function createApiRoutes(
   router.post('/check-items/:id/void', (req, res) => {
     try {
       const { reason, workstationId, employeeId, managerPin } = req.body;
-      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+      const ivScope = resolveItemScope(req.params.id);
+      if (!checkOptionBit('allow_voids', ivScope.rvcId, ivScope.propertyId)) {
         return res.status(403).json({ error: 'Void operations are disabled by configuration' });
       }
       const itemRow = db?.get<any>('SELECT sent FROM check_items WHERE id = ?', [req.params.id]);
@@ -2255,7 +2264,8 @@ export function createApiRoutes(
     try {
       const itemId = req.params.id;
       const { discountId, employeeId, managerPin } = req.body;
-      if (!checkOptionBit('allow_discounts', undefined, undefined)) {
+      const idScope = resolveItemScope(itemId);
+      if (!checkOptionBit('allow_discounts', idScope.rvcId, idScope.propertyId)) {
         return res.status(403).json({ error: 'Discount operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
@@ -2320,7 +2330,8 @@ export function createApiRoutes(
     try {
       const itemId = req.params.id;
       const { newPrice, reason, employeeId, managerPin } = req.body;
-      if (!checkOptionBit('allow_price_override', undefined, undefined)) {
+      const poScope = resolveItemScope(itemId);
+      if (!checkOptionBit('allow_price_override', poScope.rvcId, poScope.propertyId)) {
         return res.status(403).json({ error: 'Price override is disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'modify_price', managerPin);
