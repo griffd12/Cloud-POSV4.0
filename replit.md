@@ -62,24 +62,21 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - The CAPS service host tracks which devices are connected to it via WebSocket/heartbeat on the LAN.
 - The cloud DB is updated when CAPS syncs upstream, but the source of truth for device status is CAPS, not the cloud.
 
-#### CAPS-First API Path Mapping (electron/main.cjs interceptor):
-- Cloud `/api/checks/*` → CAPS `/api/caps/checks/*` (checks have `/caps/` prefix on CAPS)
-- Cloud `/api/check-items/*` → CAPS `/api/check-items/*` (same path)
-- Cloud `/api/check-payments/*` → CAPS `/api/check-payments/*` (same path)
-- Cloud `/api/check-discounts/*` → CAPS `/api/check-discounts/*` (same path)
-- Cloud `/api/check-service-charges/*` → CAPS `/api/check-service-charges/*` (same path)
-- Cloud `/api/payments/*` → CAPS `/api/payment/*` (singular on CAPS)
-- Cloud `/api/refunds/*` → CAPS `/api/payment/*` (handled by payment controller on CAPS)
-- Cloud `/api/auth/login`, `/api/auth/pin` → CAPS (same paths)
-- Cloud `/api/kds-tickets/*` → CAPS `/api/kds-tickets/*` (same path)
-- Cloud `/api/time-punches/*`, `/api/time-clock/*` → CAPS (same paths)
-- Config reads (menu-items, slus, modifiers, etc.) are served by CAPS at same paths
-
-#### CAPS-First Write Protection (v3.1.70+):
-- All WRITE operations (POST/PUT/PATCH/DELETE) to CAPS-first routes that fail at CAPS return 503 to the UI — they NEVER fall through to cloud
-- Only READ operations (GET/HEAD) may fall through to cloud as a fallback
-- In RED mode, ALL writes across the entire API return 503 with hard-fail error
-- YELLOW mode health probe uses `/api/health` and checks `dbHealthy` field — not just a ping
+#### CAPS-Only API Routing (v3.1.82+ — electron/main.cjs interceptor):
+- **ALL** `/api/` requests route exclusively to CAPS. No cloud fallback for any API call.
+- Electron is a terminal UI only — it does not make routing decisions or fall back to cloud.
+- Path mapping for CAPS:
+  - `/api/checks/*` → `/api/caps/checks/*`
+  - `/api/check-items/*` → `/api/caps/check-items/*`
+  - `/api/check-payments/*` → `/api/caps/check-payments/*`
+  - `/api/check-discounts/*` → `/api/caps/check-discounts/*`
+  - `/api/check-service-charges/*` → `/api/caps/check-service-charges/*`
+  - `/api/payments/*` → `/api/caps/payments/*`
+  - `/api/refunds/*` → `/api/caps/refunds/*`
+  - All other `/api/*` routes pass through to CAPS at the same path
+- CAPS unreachable = 503 returned to UI, no silent fallback
+- Print agent connects to CAPS WebSocket (not cloud) for print jobs
+- Non-API assets (HTML/JS/CSS) served from bundled files or cloud (UI resources only)
 
 #### When building ANY feature, ask in this order:
 1. **Does CAPS handle this operation?** (CAPS is the authority)
@@ -134,6 +131,7 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - **CAPS-Required GREEN Mode (v3.1.77)**: `checkConnectivity()` and startup probe now verify CAPS health alongside cloud — GREEN requires CAPS reachable + healthy when configured. Cloud UP + CAPS DOWN = RED.
 - **Auth Write Blocking (v3.1.77)**: Auth POSTs (login, PIN, manager-approval) always return CAPS response, never fall through to cloud. Auth excluded from RED mode exception — ALL writes blocked in RED.
 - **Manager Approval CAPS-First (v3.1.77)**: `/api/auth/manager-approval` added to `isCapsAuthRoute` for direct CAPS routing.
+- **CAPS-Only Authority (v3.1.82)**: Complete architecture rewrite — ALL API routes go to CAPS exclusively. Removed: cloud fallback routing, warm-sync, split-brain offline interceptor, GREEN→cloud paths, YELLOW→CAPS failover cascades. Non-blocking startup (window opens immediately, CAPS check async). Print agent connects to CAPS WebSocket (not cloud). API client simplified — uses relative URLs, no cloud URL routing.
 
 ## External Dependencies
 

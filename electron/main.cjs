@@ -2455,9 +2455,15 @@ async function initPrintAgent() {
     }
   }
 
+  const capsUrlForPrint = getCapsServiceHostUrl();
+  if (!capsUrlForPrint) {
+    printLogger.warn('Init', 'CAPS URL not configured — print agent will not start (CAPS is required for print routing)');
+    return;
+  }
+
   printAgent = new PrintAgentService({
-    capsUrl: getCapsServiceHostUrl() || getServerUrl(),
-    serverUrl: getCapsServiceHostUrl() || getServerUrl(),
+    capsUrl: capsUrlForPrint,
+    serverUrl: capsUrlForPrint,
     agentId: config.printAgentId || null,
     agentToken: config.printAgentToken || null,
     configDir: CONFIG_DIR,
