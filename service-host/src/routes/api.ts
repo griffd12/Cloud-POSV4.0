@@ -273,58 +273,59 @@ export function createApiRoutes(
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
       }
+      const preSendCheck = caps.getCheck(req.params.id);
+      const preSendUnsent = preSendCheck
+        ? preSendCheck.items.filter(i => !i.voided && !i.sentToKitchen)
+        : [];
+
       const result = caps.sendToKitchen(req.params.id, workstationId);
       
       try {
-        const check = caps.getCheck(req.params.id);
-        if (check) {
-          const unsentItems = check.items.filter(i => !i.voided);
-          if (unsentItems.length > 0) {
-            const stationItemsMap = new Map<string, typeof unsentItems>();
+        if (preSendUnsent.length > 0 && preSendCheck) {
+          const stationItemsMap = new Map<string, typeof preSendUnsent>();
 
-            for (const item of unsentItems) {
-              let targetStations: string[] = [];
-              const printClassId = (item as any).printClassId || (item as any).print_class_id;
-              if (printClassId && db) {
-                const orderDevices = db.getOrderDevicesForPrintClass(printClassId, undefined, check.rvcId);
-                for (const od of orderDevices) {
-                  if (od.kds_device_id) {
-                    targetStations.push(od.kds_device_id);
-                  }
-                  const kdsLinks = db.getOrderDeviceKds(od.id);
-                  for (const link of kdsLinks) {
-                    if (link.kds_device_id && !targetStations.includes(link.kds_device_id)) {
-                      targetStations.push(link.kds_device_id);
-                    }
+          for (const item of preSendUnsent) {
+            let targetStations: string[] = [];
+            const printClassId = (item as any).printClassId || (item as any).print_class_id;
+            if (printClassId && db) {
+              const orderDevices = db.getOrderDevicesForPrintClass(printClassId, undefined, preSendCheck.rvcId);
+              for (const od of orderDevices) {
+                if (od.kds_device_id) {
+                  targetStations.push(od.kds_device_id);
+                }
+                const kdsLinks = db.getOrderDeviceKds(od.id);
+                for (const link of kdsLinks) {
+                  if (link.kds_device_id && !targetStations.includes(link.kds_device_id)) {
+                    targetStations.push(link.kds_device_id);
                   }
                 }
               }
-              if (targetStations.length === 0) {
-                targetStations = ['default'];
-              }
-              for (const stationId of targetStations) {
-                if (!stationItemsMap.has(stationId)) {
-                  stationItemsMap.set(stationId, []);
-                }
-                stationItemsMap.get(stationId)!.push(item);
-              }
             }
+            if (targetStations.length === 0) {
+              targetStations = ['default'];
+            }
+            for (const stationId of targetStations) {
+              if (!stationItemsMap.has(stationId)) {
+                stationItemsMap.set(stationId, []);
+              }
+              stationItemsMap.get(stationId)!.push(item);
+            }
+          }
 
-            for (const [stationId, items] of stationItemsMap) {
-              kds.createTicket({
-                checkId: check.id,
-                checkNumber: check.checkNumber || 0,
-                roundNumber: result.roundNumber || 0,
-                orderType: check.orderType,
-                stationId: stationId === 'default' ? undefined : stationId,
-                items: items.map(i => ({
-                  name: i.name,
-                  quantity: i.quantity,
-                  modifiers: i.modifiers?.map(m => m.name || m),
-                  seatNumber: i.seatNumber,
-                })),
-              });
-            }
+          for (const [stationId, items] of stationItemsMap) {
+            kds.createTicket({
+              checkId: preSendCheck.id,
+              checkNumber: preSendCheck.checkNumber || 0,
+              roundNumber: result.roundNumber || 0,
+              orderType: preSendCheck.orderType,
+              stationId: stationId === 'default' ? undefined : stationId,
+              items: items.map(i => ({
+                name: i.name,
+                quantity: i.quantity,
+                modifiers: i.modifiers?.map(m => m.name || m),
+                seatNumber: i.seatNumber,
+              })),
+            });
           }
         }
       } catch (kdsErr) {
