@@ -1038,7 +1038,12 @@ ${countdownText}${isKdsMode ? '<div style="width:32px;height:32px;border:3px sol
       appLogger.info('Window', `Page loaded successfully: ${url}`);
       injectServiceHostUrl();
 
-      if (!bootstrapWatchdogCleared && bootstrapReloadCount < BOOTSTRAP_MAX_RELOADS) {
+      const isSetupWizard = url.includes('setup-wizard.html');
+      if (isSetupWizard) {
+        bootstrapWatchdogCleared = true;
+        if (bootstrapWatchdogTimer) { clearTimeout(bootstrapWatchdogTimer); bootstrapWatchdogTimer = null; }
+        appLogger.info('Window', 'Bootstrap watchdog disabled for setup wizard');
+      } else if (!bootstrapWatchdogCleared && bootstrapReloadCount < BOOTSTRAP_MAX_RELOADS) {
         if (bootstrapWatchdogTimer) clearTimeout(bootstrapWatchdogTimer);
         bootstrapWatchdogTimer = setTimeout(() => {
           if (!bootstrapWatchdogCleared && mainWindow && !mainWindow.isDestroyed()) {
