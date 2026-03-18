@@ -113,18 +113,7 @@ export class KdsController {
     
     const rows = this.db.all<KdsTicketRow>(sql, params);
     
-    return rows.map(row => ({
-      id: row.id,
-      checkId: row.check_id,
-      checkNumber: row.check_number,
-      orderType: row.order_type || undefined,
-      items: JSON.parse(row.items),
-      stationId: row.station_id || undefined,
-      status: row.status as 'active' | 'bumped' | 'recalled',
-      priority: row.priority,
-      createdAt: row.created_at,
-      bumpedAt: row.bumped_at || undefined,
-    }));
+    return rows.map(row => this.mapTicketRow(row));
   }
   
   bumpTicket(ticketId: string, stationId?: string): void {
@@ -181,7 +170,6 @@ export class KdsController {
     console.log(`Ticket ${ticketId} recalled`);
   }
   
-  // Get a specific ticket
   getTicket(ticketId: string): KdsTicket | null {
     const row = this.db.get<KdsTicketRow>(
       'SELECT * FROM kds_tickets WHERE id = ?',
@@ -189,13 +177,27 @@ export class KdsController {
     );
     
     if (!row) return null;
-    
+    return this.mapTicketRow(row);
+  }
+  
+  private mapTicketRow(row: KdsTicketRow): KdsTicket {
+    const rawItems = JSON.parse(row.items);
+    const items = rawItems.map((item: any, idx: number) => ({
+      id: item.id || `${row.id}-item-${idx}`,
+      name: item.name,
+      quantity: item.quantity,
+      modifiers: Array.isArray(item.modifiers)
+        ? item.modifiers.map((m: any) => typeof m === 'string' ? { name: m } : m)
+        : [],
+      status: item.status || 'pending',
+      seatNumber: item.seatNumber,
+    }));
     return {
       id: row.id,
       checkId: row.check_id,
       checkNumber: row.check_number,
-      orderType: row.order_type || undefined,
-      items: JSON.parse(row.items),
+      orderType: row.order_type || 'dine-in',
+      items,
       stationId: row.station_id || undefined,
       status: row.status as 'active' | 'bumped' | 'recalled',
       priority: row.priority,
@@ -204,25 +206,13 @@ export class KdsController {
     };
   }
   
-  // Get recently bumped tickets (for recall list)
   getBumpedTickets(limit: number = 10): KdsTicket[] {
     const rows = this.db.all<KdsTicketRow>(
       `SELECT * FROM kds_tickets WHERE status = 'bumped' ORDER BY bumped_at DESC LIMIT ?`,
       [limit]
     );
     
-    return rows.map(row => ({
-      id: row.id,
-      checkId: row.check_id,
-      checkNumber: row.check_number,
-      orderType: row.order_type || undefined,
-      items: JSON.parse(row.items),
-      stationId: row.station_id || undefined,
-      status: row.status as 'active' | 'bumped' | 'recalled',
-      priority: row.priority,
-      createdAt: row.created_at,
-      bumpedAt: row.bumped_at || undefined,
-    }));
+    return rows.map(row => this.mapTicketRow(row));
   }
   
   // Priority bump - increase ticket priority

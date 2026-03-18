@@ -421,7 +421,12 @@ class ServiceHost {
   private handleWebSocketMessage(ws: WebSocket, message: any) {
     switch (message.type) {
       case 'subscribe_kds':
-        this.kdsController.addClient(ws, message.deviceId);
+        this.kdsController.addClient(ws, message.deviceId || message.stationId || '*');
+        break;
+      case 'subscribe':
+        if (message.channel === 'kds') {
+          this.kdsController.addClient(ws, message.deviceId || message.rvcId || '*');
+        }
         break;
       case 'kds_bump':
         this.kdsController.bumpTicket(message.ticketId, message.stationId);

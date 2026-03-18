@@ -2930,8 +2930,17 @@ export function createApiRoutes(
   });
   router.get('/kds-tickets', (req, res) => {
     try {
-      const stationId = req.query.stationId as string | undefined;
+      const stationId = (req.query.stationId || req.query.kdsDeviceId || req.query.stationType) as string | undefined;
       const tickets = kds.getActiveTickets(stationId);
+      res.json(tickets);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+  router.get('/kds-tickets/bumped', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 10;
+      const tickets = kds.getBumpedTickets(limit);
       res.json(tickets);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });

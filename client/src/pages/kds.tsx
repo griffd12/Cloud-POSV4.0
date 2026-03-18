@@ -305,7 +305,7 @@ export default function KdsPage() {
           try {
             const shUrl = new URL(serviceHostUrl);
             const wsProtocol = shUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-            wsUrl = `${wsProtocol}//${shUrl.host}/ws/kds`;
+            wsUrl = `${wsProtocol}//${shUrl.host}/ws`;
           } catch {
             reconnectTimer = setTimeout(connect, 10000);
             return;
@@ -334,7 +334,14 @@ export default function KdsPage() {
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          if (message.type === "kds_update") {
+          if (
+            message.type === "kds_update" ||
+            message.type === "kds_ticket_new" ||
+            message.type === "kds_ticket_bumped" ||
+            message.type === "kds_ticket_recalled" ||
+            message.type === "kds_ticket_priority" ||
+            message.type === "kds_tickets"
+          ) {
             refetch();
           }
         } catch (e) {
