@@ -1,0 +1,114 @@
+ARCHITECTURE CONTRACT — READ CAREFULLY AND IMPLEMENT TO THIS MODEL
+
+We are building a HYBRID POS system with three layers:
+
+1) CLOUD
+- Central master for configuration, reporting, and sync ingestion
+- Stores enterprise/property configuration
+- Receives synced POS/KDS transactions from locations
+- Distributes config down to locations
+- Cloud is NOT the live runtime engine for ringing a sale
+
+2) CAPS / SERVICE-HOST
+- CAPS is the LOCAL STORE CONTROLLER and the STORE AUTHORITY
+- CAPS owns the local SQLite operational database for the location
+- CAPS exposes local APIs for POS and KDS
+- CAPS processes all live store operations locally
+- CAPS journals all events locally
+- CAPS syncs up to cloud when cloud is available
+- CAPS syncs config down from cloud when cloud is available
+
+3) WORKSTATIONS (WS)
+- Workstations are CLIENTS of CAPS
+- Workstations should talk to CAPS first, not directly to cloud, for live FOH/KDS operations
+- Workstations render UI only and send commands to CAPS
+- Workstations do not own the store truth if CAPS is alive
+
+NON-NEGOTIABLE RULES
+
+A) LOCAL-FIRST COMMIT
+All live POS and KDS actions must commit to CAPS local SQLite FIRST.
+Only after local commit succeeds can background sync happen.
+
+This includes:
+- sign in
+- open check
+- add item
+- modifiers
+- discounts
+- send to kitchen
+- pickup check
+- transfer check
+- reopen closed check
+- payments
+- close check
+- KDS create/bump/recall/priority
+
+If local commit fails, the UI must FAIL the action and show an error.
+Do not fake success.
+Do not require cloud to complete a sale.
+
+B) CLOUD IS NEVER IN THE BLOCKING WRITE PATH
+Correct write path is:
+WS → CAPS → local SQLite commit → success returned to UI → background sync to cloud
+
+Never:
+WS → cloud → maybe local later
+
+C) MODE DEFINITIONS
+Mode is based on REAL operational health, not just a ping.
+
+GREEN
+- CAPS reachable
+- local SQLite healthy
+- cloud sync probe succeeds
+
+YELLOW
+- CAPS reachable
+- local SQLite healthy
+- cloud sync unavailable/degraded
+- store still fully operates locally
+
+RED
+- CAPS unreachable OR local SQLite unhealthy
+- workstation cannot trust store authority
+
+Do NOT show GREEN just because /health returns 200.
+Mode detection must verify real read/write capability where applicable.
+
+D) PILOT FEATURE MATRIX
+When cloud is unavailable but CAPS is alive, these MUST still work:
+- sign in
+- menu ordering
+- modifiers
+- check functions
+- payments
+- KDS
+- offline daily reporting
+
+Gift/loyalty can remain online-only for pilot.
+
+IMPORTANT DESIGN DECISION
+For pilot, CAPS is the store authority.
+If a workstation cannot reach CAPS, the workstation should HARD FAIL and not continue normal operation.
+Do NOT build true standalone-per-workstation databases right now unless explicitly asked.
+We are not doing split-brain WS databases for pilot.
+
+WHAT I NEED FROM YOU
+1) Review the current codebase against this architecture contract
+2) Identify every place where WS or Electron is still depending on cloud for live POS/KDS operations
+3) Identify every place where mode detection is incorrect or misleading
+4) Propose the smallest set of code changes needed to enforce:
+   - WS → CAPS local-first
+   - truthful status mode
+   - offline store operation when cloud is down but CAPS is up
+5) Then implement those changes without adding unrelated features
+
+OUTPUT FORMAT
+Return:
+- Current architecture violations
+- Required code changes by file
+- Final corrected flow diagram for:
+  a) online
+  b) cloud-down / CAPS-up
+  c) CAPS-down

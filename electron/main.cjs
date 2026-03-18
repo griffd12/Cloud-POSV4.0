@@ -581,16 +581,58 @@ async function checkConnectivity(options = {}) {
     if (isOnline) {
       firstBootConnectivityChecked = true;
       connectivityFailCount = 0;
-      connectivitySuccessCount++;
-      if (connectionMode !== 'green') {
-        if (connectivitySuccessCount >= HYSTERESIS_THRESHOLD) {
-          setConnectionMode('green');
-          connectivitySuccessCount = 0;
-        } else {
-          appLogger.info('Network', `Cloud reachable (${connectivitySuccessCount}/${HYSTERESIS_THRESHOLD} checks) — waiting for stable connection`);
+
+      const config = loadConfig();
+      const serviceHostUrl = config.serviceHostUrl;
+      let capsReachable = true;
+
+      if (serviceHostUrl) {
+        try {
+          const capsHealthResp = await fetch(`${serviceHostUrl}/api/health`, {
+            signal: AbortSignal.timeout(3000),
+          });
+          if (capsHealthResp.ok) {
+            try {
+              const capsHealthData = await capsHealthResp.json();
+              capsReachable = capsHealthData.dbHealthy === true;
+              if (!capsReachable) {
+                appLogger.warn('Network', 'CAPS reachable but DB unhealthy — cannot set GREEN');
+              }
+            } catch {
+              capsReachable = false;
+              appLogger.warn('Network', 'CAPS /api/health returned OK but unparseable — treating as unhealthy');
+            }
+          } else {
+            capsReachable = false;
+            appLogger.warn('Network', `CAPS /api/health returned HTTP ${capsHealthResp.status} — CAPS unhealthy`);
+          }
+        } catch (capsErr) {
+          capsReachable = false;
+          appLogger.warn('Network', `CAPS unreachable during connectivity check: ${capsErr.message}`);
+        }
+      }
+
+      if (!capsReachable && serviceHostUrl) {
+        appLogger.error('Network', 'Cloud is reachable but CAPS is unreachable/unhealthy — setting RED (CAPS is store authority)');
+        setConnectionMode('red');
+        if (offlineInterceptor) {
+          offlineInterceptor.setConnectionMode('red');
+        }
+        if (mainWindow) {
+          mainWindow.webContents.send('connection-mode', 'red');
         }
       } else {
-        setConnectionMode('green');
+        connectivitySuccessCount++;
+        if (connectionMode !== 'green') {
+          if (connectivitySuccessCount >= HYSTERESIS_THRESHOLD) {
+            setConnectionMode('green');
+            connectivitySuccessCount = 0;
+          } else {
+            appLogger.info('Network', `Cloud + CAPS reachable (${connectivitySuccessCount}/${HYSTERESIS_THRESHOLD} checks) — waiting for stable connection`);
+          }
+        } else {
+          setConnectionMode('green');
+        }
       }
     } else {
       appLogger.warn('Network', `Cloud DB probe failed (HTTP ${response.status}) — cloud reachable but DB unhealthy`);
@@ -3079,7 +3121,7 @@ function registerProtocolInterceptor() {
     // CAPS-FIRST routing: All live POS/KDS operations go to CAPS first
     // Cloud is NEVER in the blocking write path (Architecture Contract Rule B)
     const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments|refunds|kds-tickets|time-punches|time-clock)(\/|$)/.test(url.pathname);
-    const isCapsAuthRoute = isApiRequest && /^\/api\/(auth\/login|auth\/pin)(\/|$)/.test(url.pathname);
+    const isCapsAuthRoute = isApiRequest && /^\/api\/(auth\/login|auth\/pin|auth\/manager-approval)(\/|$)/.test(url.pathname);
     const isWriteMethod = request.method !== 'GET' && request.method !== 'HEAD';
     if (isCapsTransactionRoute) {
       const capsUrl = getCapsServiceHostUrl();
@@ -3158,22 +3200,29 @@ function registerProtocolInterceptor() {
             body: authBody,
             signal: AbortSignal.timeout(3000),
           });
-          if (capsResp.ok) {
-            appLogger.info('Interceptor', `CAPS-AUTH: ${request.method} ${url.pathname} -> CAPS ${capsResp.status} [mode=${connectionMode}]`);
+          appLogger.info('Interceptor', `CAPS-AUTH: ${request.method} ${url.pathname} -> CAPS ${capsResp.status} [mode=${connectionMode}]`);
+          if (capsResp.ok || isWriteMethod) {
             return new Response(capsResp.body, {
               status: capsResp.status,
               statusText: capsResp.statusText,
               headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
             });
           }
-          appLogger.info('Interceptor', `CAPS-AUTH: CAPS returned ${capsResp.status} for ${url.pathname}, falling through to cloud`);
+          appLogger.info('Interceptor', `CAPS-AUTH: CAPS returned ${capsResp.status} for READ ${url.pathname}, falling through to cloud`);
         } catch (capsAuthErr) {
+          if (isWriteMethod) {
+            appLogger.error('Interceptor', `CAPS-AUTH: CAPS unreachable for WRITE ${request.method} ${url.pathname} — BLOCKING (${capsAuthErr.message})`);
+            return new Response(JSON.stringify({ error: 'Store server unreachable — cannot authenticate', detail: capsAuthErr.message }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
+            });
+          }
           appLogger.warn('Interceptor', `CAPS-AUTH: CAPS unreachable for ${url.pathname} (${capsAuthErr.message}), falling through to cloud`);
         }
       }
     }
 
-    if (isApiRequest && connectionMode === 'red' && isWriteMethod && !isCapsAuthRoute) {
+    if (isApiRequest && connectionMode === 'red' && isWriteMethod) {
       appLogger.error('Interceptor', `RED mode HARD FAIL: blocking WRITE ${request.method} ${url.pathname} — CAPS unreachable (Architecture Contract: pilot hard fail)`);
       return new Response(JSON.stringify({ error: 'Store server unreachable — POS operations disabled', mode: 'red', path: url.pathname }), {
         status: 503,
@@ -3935,9 +3984,44 @@ app.whenReady().then(async () => {
         }
       }
       if (dbHealthy) {
-        isOnline = true;
-        firstBootConnectivityChecked = true;
-        appLogger.info('App', 'Startup connectivity check: ONLINE (cloud + DB healthy)');
+        let startupCapsOk = true;
+        const startupServiceHostUrl = config.serviceHostUrl;
+        if (startupServiceHostUrl) {
+          try {
+            const capsStartCheck = await fetch(`${startupServiceHostUrl}/api/health`, {
+              signal: AbortSignal.timeout(3000),
+            });
+            if (capsStartCheck.ok) {
+              try {
+                const capsStartData = await capsStartCheck.json();
+                startupCapsOk = capsStartData.dbHealthy === true;
+              } catch {
+                startupCapsOk = false;
+              }
+            } else {
+              startupCapsOk = false;
+            }
+          } catch {
+            startupCapsOk = false;
+          }
+          if (!startupCapsOk) {
+            appLogger.warn('App', 'Startup: Cloud healthy but CAPS unreachable/unhealthy — setting RED');
+          }
+        }
+
+        if (startupCapsOk) {
+          isOnline = true;
+          firstBootConnectivityChecked = true;
+          appLogger.info('App', `Startup connectivity check: ONLINE (cloud + DB healthy${startupServiceHostUrl ? ' + CAPS healthy' : ''})`);
+        } else {
+          isOnline = true;
+          connectionMode = 'red';
+          firstBootConnectivityChecked = true;
+          if (offlineInterceptor) {
+            offlineInterceptor.setConnectionMode('red');
+          }
+          appLogger.info('App', 'Startup connectivity check: RED (cloud OK but CAPS is store authority and unreachable)');
+        }
       } else {
         isOnline = false;
         connectionMode = 'red';

@@ -131,6 +131,9 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - **Sync Early-Abort (v3.1.75)**: `syncFromCloud()` aborts after 3 consecutive network failures instead of attempting all 56+ table endpoints.
 - **5xx Cloud Fallback (v3.1.76)**: Protocol interceptor treats 502/503/504 as network failures — triggers CAPS/offline fallback + immediate `checkConnectivity()`. All check-mutation endpoints in `LOCAL_FIRST_WRITE_PATTERNS`.
 - **CalSync Log Suppression (v3.1.76)**: `CalSync.checkPendingDeployments()` uses `lastCloudDisconnectLogged` flag to suppress repeated disconnect logs (matches TransactionSync pattern).
+- **CAPS-Required GREEN Mode (v3.1.77)**: `checkConnectivity()` and startup probe now verify CAPS health alongside cloud — GREEN requires CAPS reachable + healthy when configured. Cloud UP + CAPS DOWN = RED.
+- **Auth Write Blocking (v3.1.77)**: Auth POSTs (login, PIN, manager-approval) always return CAPS response, never fall through to cloud. Auth excluded from RED mode exception — ALL writes blocked in RED.
+- **Manager Approval CAPS-First (v3.1.77)**: `/api/auth/manager-approval` added to `isCapsAuthRoute` for direct CAPS routing.
 
 ## External Dependencies
 
