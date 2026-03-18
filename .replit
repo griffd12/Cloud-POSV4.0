@@ -49,4 +49,4 @@ VITE_STRIPE_PUBLISHABLE_KEY = "pk_live_51SlfOk1jUKTTHde6QCPVM55FRVeB3ewxMgQqFyoz
 
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 20000
+timeoutMs = 60000
