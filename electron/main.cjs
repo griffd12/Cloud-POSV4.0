@@ -639,7 +639,7 @@ async function checkConnectivity(options = {}) {
       throw new Error('DB probe failed — cloud DB not functional');
     }
 
-    if (wasOffline && isOnline) {
+    if (wasOffline && isOnline && connectionMode !== 'red') {
       appLogger.info('Network', 'Cloud connection restored with healthy DB — triggering sync');
       setConnectionMode('green');
       triggerBackgroundSync();
