@@ -2745,11 +2745,36 @@ export function createApiRoutes(
       if (prop && (prop.enterpriseId || prop.enterprise_id) && caps.db) {
         enterprise = caps.db.getEnterprise(prop.enterpriseId || prop.enterprise_id);
       }
+
+      const wsRvcId = ws?.rvcId || ws?.rvc_id;
+      let defaultLayout: any = null;
+      if (wsRvcId) {
+        const layout = config.getPosLayoutForRvc(wsRvcId);
+        if (layout) {
+          const cells = config.getPosLayoutCells(layout.id);
+          defaultLayout = { ...layout, cells };
+        }
+      }
+
+      const menuItemCount = config.getMenuItems().length;
+      const sluCount = config.getSlus().length;
+      const tenderCount = config.getTenders().length;
+      const taxGroupCount = config.getTaxGroups().length;
+      const discountCount = config.getDiscounts().length;
+
       res.json({
         workstation: ws || { id: req.params.id, name: 'CAPS Workstation' },
         rvcs: rvcs || [],
         property: prop || null,
         enterprise: enterprise || null,
+        defaultLayout,
+        configSummary: {
+          menuItems: menuItemCount,
+          slus: sluCount,
+          tenders: tenderCount,
+          taxGroups: taxGroupCount,
+          discounts: discountCount,
+        },
         offlineMode: true,
       });
     } catch (e) { res.status(500).json({ error: (e as Error).message }); }
@@ -2765,7 +2790,19 @@ export function createApiRoutes(
       const propertyId = req.query.propertyId as string | undefined;
       const devices = config.getKdsDevices();
       const filtered = propertyId ? devices.filter((d: any) => d.propertyId === propertyId || d.property_id === propertyId) : devices;
-      res.json(filtered);
+      const orderDevices = config.getOrderDevices();
+      const enriched = filtered.map((d: any) => {
+        const linkedOrderDevices = orderDevices.filter((od: any) => {
+          if (od.kdsDeviceId === d.id || od.kds_device_id === d.id) return true;
+          if (caps.db) {
+            const odKdsLinks = caps.db.getOrderDeviceKds(od.id);
+            return odKdsLinks.some((link: any) => link.kds_device_id === d.id);
+          }
+          return false;
+        });
+        return { ...d, orderDevices: linkedOrderDevices };
+      });
+      res.json(enriched);
     } catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
   router.get('/kds-devices/:id', (req, res) => {
@@ -2773,7 +2810,16 @@ export function createApiRoutes(
       const devices = config.getKdsDevices();
       const device = devices.find((d: any) => d.id === req.params.id);
       if (!device) return res.status(404).json({ message: 'Not found' });
-      res.json(device);
+      const orderDevices = config.getOrderDevices();
+      const linkedOrderDevices = orderDevices.filter((od: any) => {
+        if (od.kdsDeviceId === device.id || od.kds_device_id === device.id) return true;
+        if (caps.db) {
+          const odKdsLinks = caps.db.getOrderDeviceKds(od.id);
+          return odKdsLinks.some((link: any) => link.kds_device_id === device.id);
+        }
+        return false;
+      });
+      res.json({ ...device, orderDevices: linkedOrderDevices });
     } catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
   router.get('/order-devices', (_req, res) => {
