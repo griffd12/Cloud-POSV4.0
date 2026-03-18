@@ -2297,7 +2297,7 @@ export function createApiRoutes(
       );
       const modGroups = caps.db.all<any>('SELECT * FROM modifier_groups');
       const modGroupMods = caps.db.all<any>(
-        'SELECT mgm.modifier_group_id, mgm.modifier_id, mgm.sort_order, mgm.is_default FROM modifier_group_modifiers mgm'
+        'SELECT mgm.modifier_group_id, mgm.modifier_id, mgm.display_order, mgm.is_default FROM modifier_group_modifiers mgm'
       );
       const modifiers = caps.db.all<any>('SELECT * FROM modifiers');
 
@@ -2324,7 +2324,7 @@ export function createApiRoutes(
               id: mod.id,
               name: mod.name,
               price: mod.price || mod.additional_price || 0,
-              sortOrder: mgm.sort_order || 0,
+              sortOrder: mgm.display_order || 0,
               isDefault: mgm.is_default ? true : false,
               active: mod.active !== 0
             };
@@ -2754,6 +2754,22 @@ export function createApiRoutes(
   });
   router.get('/kds-devices', (_req, res) => {
     try { res.json(config.getKdsDevices()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/kds-devices/active', (req, res) => {
+    try {
+      const propertyId = req.query.propertyId as string | undefined;
+      const devices = config.getKdsDevices();
+      const filtered = propertyId ? devices.filter((d: any) => d.propertyId === propertyId || d.property_id === propertyId) : devices;
+      res.json(filtered);
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  router.get('/kds-devices/:id', (req, res) => {
+    try {
+      const devices = config.getKdsDevices();
+      const device = devices.find((d: any) => d.id === req.params.id);
+      if (!device) return res.status(404).json({ message: 'Not found' });
+      res.json(device);
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
   router.get('/order-devices', (_req, res) => {
     try { res.json(config.getOrderDevices()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
