@@ -298,25 +298,20 @@ export default function KdsPage() {
         return;
       }
 
+      const serviceHostUrl = localStorage.getItem('serviceHostUrl');
       let wsUrl: string;
-      if (currentMode === 'yellow') {
-        const serviceHostUrl = localStorage.getItem('serviceHostUrl');
-        if (serviceHostUrl) {
-          try {
-            const shUrl = new URL(serviceHostUrl);
-            const wsProtocol = shUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-            wsUrl = `${wsProtocol}//${shUrl.host}/ws`;
-          } catch {
-            reconnectTimer = setTimeout(connect, 10000);
-            return;
-          }
-        } else {
-          reconnectTimer = setTimeout(connect, 10000);
+      if (serviceHostUrl) {
+        try {
+          const shUrl = new URL(serviceHostUrl);
+          const wsProtocol = shUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+          wsUrl = `${wsProtocol}//${shUrl.host}/ws`;
+        } catch {
+          reconnectTimer = setTimeout(connect, 5000);
           return;
         }
       } else {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        wsUrl = `${protocol}//${window.location.host}/ws/kds`;
+        wsUrl = `${protocol}//${window.location.host}/ws`;
       }
 
       socket = new WebSocket(wsUrl);
@@ -354,9 +349,7 @@ export default function KdsPage() {
       socket.onclose = () => {
         setWsConnected(false);
         if (!unmounted) {
-          const mode = apiClient.getMode();
-          const delay = mode === 'green' ? 3000 : 10000;
-          reconnectTimer = setTimeout(connect, delay);
+          reconnectTimer = setTimeout(connect, 3000);
         }
       };
 

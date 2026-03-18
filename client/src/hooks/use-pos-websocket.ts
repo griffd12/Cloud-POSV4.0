@@ -54,25 +54,20 @@ export function usePosWebSocket() {
         return;
       }
       
+      const serviceHostUrl = localStorage.getItem('serviceHostUrl');
       let wsUrl: string;
-      if (currentMode === 'yellow') {
-        const serviceHostUrl = localStorage.getItem('serviceHostUrl');
-        if (serviceHostUrl) {
-          try {
-            const shUrl = new URL(serviceHostUrl);
-            const wsProtocol = shUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-            wsUrl = `${wsProtocol}//${shUrl.host}/ws`;
-          } catch {
-            reconnectTimeoutRef.current = setTimeout(connect, 10000);
-            return;
-          }
-        } else {
-          reconnectTimeoutRef.current = setTimeout(connect, 10000);
+      if (serviceHostUrl) {
+        try {
+          const shUrl = new URL(serviceHostUrl);
+          const wsProtocol = shUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+          wsUrl = `${wsProtocol}//${shUrl.host}/ws`;
+        } catch {
+          reconnectTimeoutRef.current = setTimeout(connect, 5000);
           return;
         }
       } else {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        wsUrl = `${protocol}//${window.location.host}/ws/kds`;
+        wsUrl = `${protocol}//${window.location.host}/ws`;
       }
       
       try {
@@ -105,9 +100,7 @@ export function usePosWebSocket() {
         ws.onclose = () => {
           wsRef.current = null;
           if (!isUnmountedRef.current) {
-            const mode = apiClient.getMode();
-            const delay = mode === 'green' ? 2000 : 10000;
-            reconnectTimeoutRef.current = setTimeout(connect, delay);
+            reconnectTimeoutRef.current = setTimeout(connect, 3000);
           }
         };
 
@@ -118,9 +111,7 @@ export function usePosWebSocket() {
       } catch (error) {
         console.error("Failed to connect WebSocket:", error);
         if (!isUnmountedRef.current) {
-          const mode = apiClient.getMode();
-          const delay = mode === 'green' ? 2000 : 10000;
-          reconnectTimeoutRef.current = setTimeout(connect, delay);
+          reconnectTimeoutRef.current = setTimeout(connect, 3000);
         }
       }
     };

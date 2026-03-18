@@ -46,12 +46,6 @@ export function useCheckLock(options: UseCheckLockOptions): CheckLockResult {
   const refreshTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   
   const getApiBase = useCallback((): string => {
-    const serviceHostUrl = localStorage.getItem('serviceHostUrl');
-    const connectionMode = localStorage.getItem('connectionMode') || 'green';
-    
-    if (connectionMode === 'yellow' && serviceHostUrl) {
-      return serviceHostUrl;
-    }
     return '';
   }, []);
 

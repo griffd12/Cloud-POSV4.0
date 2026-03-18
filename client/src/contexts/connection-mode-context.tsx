@@ -92,13 +92,13 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
   };
 
   const applyConnectionMode = useCallback((mode: ConnectionMode) => {
-    const isOffline = mode !== 'green';
-    setElectronOfflineLock(isOffline);
+    const capsReachable = mode === 'green' || mode === 'yellow';
+    setElectronOfflineLock(!capsReachable);
     setStatus(prev => ({
       ...prev,
       mode,
       cloudReachable: mode === 'green',
-      serviceHostReachable: mode === 'yellow',
+      serviceHostReachable: capsReachable,
       printAgentAvailable: mode === 'orange',
       paymentAppAvailable: false,
       lastChecked: new Date(),
