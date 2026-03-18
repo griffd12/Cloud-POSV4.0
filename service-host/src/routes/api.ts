@@ -342,7 +342,8 @@ export function createApiRoutes(
   router.post('/caps/checks/:id/items/:itemId/void', (req, res) => {
     try {
       const { reason, workstationId, employeeId, managerPin } = req.body;
-      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+      const scope = resolveCheckScope(req.params.id);
+      if (!checkOptionBit('allow_voids', scope.rvcId, scope.propertyId)) {
         return res.status(403).json({ error: 'Void operations are disabled by configuration' });
       }
       const item = db?.get<any>('SELECT * FROM check_items WHERE id = ?', [req.params.itemId]);
@@ -415,7 +416,8 @@ export function createApiRoutes(
   router.post('/caps/checks/:id/void', (req, res) => {
     try {
       const { reason, workstationId, employeeId, managerPin } = req.body;
-      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+      const voidScope = resolveCheckScope(req.params.id);
+      if (!checkOptionBit('allow_voids', voidScope.rvcId, voidScope.propertyId)) {
         return res.status(403).json({ error: 'Void operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'void_sent', managerPin);
@@ -437,7 +439,8 @@ export function createApiRoutes(
   router.post('/caps/checks/:id/cancel-transaction', (req, res) => {
     try {
       const { workstationId, employeeId, reason, managerPin } = req.body;
-      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+      const cancelScope = resolveCheckScope(req.params.id);
+      if (!checkOptionBit('allow_voids', cancelScope.rvcId, cancelScope.propertyId)) {
         return res.status(403).json({ error: 'Void operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'void_unsent', managerPin);
@@ -2683,6 +2686,28 @@ export function createApiRoutes(
     const value = db.resolveOptionFlag('system', 'global', optionKey, scopeChain);
     if (value === null) return true;
     return value === 'true' || value === '1';
+  }
+
+  function resolveCheckScope(checkId: string): { rvcId?: string; propertyId?: string } {
+    if (!db) return {};
+    const check = db.get<{ rvc_id: string }>('SELECT rvc_id FROM checks WHERE id = ?', [checkId]);
+    if (!check?.rvc_id) return {};
+    const rvc = db.get<{ property_id: string }>('SELECT property_id FROM rvcs WHERE id = ?', [check.rvc_id]);
+    return { rvcId: check.rvc_id, propertyId: rvc?.property_id };
+  }
+
+  function resolveItemScope(itemId: string): { rvcId?: string; propertyId?: string } {
+    if (!db) return {};
+    const item = db.get<{ check_id: string }>('SELECT check_id FROM check_items WHERE id = ?', [itemId]);
+    if (!item?.check_id) return {};
+    return resolveCheckScope(item.check_id);
+  }
+
+  function resolvePaymentScope(paymentId: string): { rvcId?: string; propertyId?: string } {
+    if (!db) return {};
+    const pmt = db.get<{ check_id: string }>('SELECT check_id FROM check_payments WHERE id = ?', [paymentId]);
+    if (!pmt?.check_id) return {};
+    return resolveCheckScope(pmt.check_id);
   }
 
   router.get('/config/workstation-options', (req, res) => {

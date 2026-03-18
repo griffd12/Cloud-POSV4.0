@@ -162,7 +162,8 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
 
       const newMode = determineMode(cloudOk, serviceHostOk, printAgentOk);
 
-      setStatus({
+      setStatus(prev => ({
+        ...prev,
         mode: newMode,
         cloudReachable: cloudOk,
         serviceHostReachable: serviceHostOk,
@@ -170,7 +171,7 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
         paymentAppAvailable: paymentAppOk,
         lastChecked: new Date(),
         isChecking: false,
-      });
+      }));
 
       localStorage.setItem('connectionMode', newMode);
     } catch (error) {
