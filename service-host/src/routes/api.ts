@@ -133,9 +133,9 @@ export function createApiRoutes(
     try {
       const { workstationId, tipAmount, ...paymentParams } = req.body;
       if (!paymentParams.tenderType && paymentParams.tenderId && db) {
-        const tender = db.get<{ name: string; tender_type: string; type: string }>('SELECT name, tender_type, type FROM tenders WHERE id = ?', [paymentParams.tenderId]);
+        const tender = db.get<{ name: string; type: string }>('SELECT name, type FROM tenders WHERE id = ?', [paymentParams.tenderId]);
         if (tender) {
-          paymentParams.tenderType = tender.tender_type || tender.type || 'cash';
+          paymentParams.tenderType = tender.type || 'cash';
         } else {
           paymentParams.tenderType = 'cash';
         }
@@ -1422,9 +1422,9 @@ export function createApiRoutes(
     try {
       const { workstationId, tipAmount, ...paymentParams } = req.body;
       if (!paymentParams.tenderType && paymentParams.tenderId) {
-        const tender = caps.db.get<any>('SELECT name, tender_type, type FROM tenders WHERE id = ?', [paymentParams.tenderId]);
+        const tender = caps.db.get<any>('SELECT name, type FROM tenders WHERE id = ?', [paymentParams.tenderId]);
         if (tender) {
-          paymentParams.tenderType = tender.tender_type || tender.type || 'cash';
+          paymentParams.tenderType = tender.type || 'cash';
         } else {
           paymentParams.tenderType = 'cash';
         }
