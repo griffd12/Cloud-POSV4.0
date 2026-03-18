@@ -464,6 +464,18 @@ class ServiceHost {
       case 'JOB_RESULT':
         console.log(`[PrintAgent] Job result: ${message.jobId} -> ${message.status}`);
         break;
+      case 'DONE':
+        console.log(`[PrintAgent] Job completed: ${message.jobId}`);
+        break;
+      case 'ERROR':
+        console.log(`[PrintAgent] Job failed: ${message.jobId} - ${message.error || message.message || ''}`);
+        break;
+      case 'KICK_DONE':
+        console.log(`[PrintAgent] Cash drawer kick completed`);
+        break;
+      case 'KICK_ERROR':
+        console.log(`[PrintAgent] Cash drawer kick failed: ${message.error || message.message || ''}`);
+        break;
       case 'PRINTER_DISCOVERY_RESULT':
         console.log(`[PrintAgent] Discovered ${(message.printers || []).length} printers from agent ${message.agentId}`);
         break;
