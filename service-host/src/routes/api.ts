@@ -3561,7 +3561,19 @@ export function createApiRoutes(
         console.log(`[CAPS Sync] Check ${check.id} synced with ${check.items?.length || 0} items, ${check.payments?.length || 0} payments`);
 
         try {
-          db.addToSyncQueue('check', check.id, 'update', check, 5);
+          const existing = db.all<{ id: number }>(
+            `SELECT id FROM sync_queue WHERE entity_type = 'check' AND entity_id = ? AND attempts < max_attempts LIMIT 1`,
+            [check.id]
+          );
+          if (existing.length > 0) {
+            db.run(
+              `UPDATE sync_queue SET payload = ?, next_attempt_at = datetime('now') WHERE entity_type = 'check' AND entity_id = ? AND attempts < max_attempts`,
+              [JSON.stringify(check), check.id]
+            );
+            console.log(`[CAPS Sync] Updated existing sync_queue entry for check ${check.id}`);
+          } else {
+            db.addToSyncQueue('check', check.id, 'update', check, 5);
+          }
         } catch (qErr) {
           console.warn(`[CAPS Sync] Failed to queue check ${check.id} for cloud forward: ${(qErr as Error).message}`);
         }

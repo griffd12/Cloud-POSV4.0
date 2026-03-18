@@ -3185,12 +3185,12 @@ function registerProtocolInterceptor() {
         appLogger.info('Interceptor', `CAPS: ${request.method} ${url.pathname} -> ${capsPath} ${capsResp.status}`);
 
         if (capsResp.ok) {
-          if (!isOnline) {
-            isOnline = true;
-            setConnectionMode('green');
-            if (offlineInterceptor) offlineInterceptor.setOffline(false);
-            if (mainWindow) mainWindow.webContents.send('online-status', true);
-            appLogger.info('Network', 'CAPS connection restored');
+          if (connectionMode === 'red') {
+            setConnectionMode('yellow');
+            if (offlineInterceptor) offlineInterceptor.setConnectionMode('yellow');
+            if (mainWindow) mainWindow.webContents.send('connection-mode', 'yellow');
+            appLogger.info('Network', 'CAPS restored — upgrading RED→YELLOW (cloud status unknown until probe)');
+            checkConnectivity().catch(() => {});
           }
           protocolConsecutiveFailCount = 0;
         }
@@ -3511,14 +3511,13 @@ app.whenReady().then(async () => {
 
       pollCapsReady().then(() => {
         capsBootStage = 'ready';
-        isOnline = true;
         firstBootConnectivityChecked = true;
-        setConnectionMode('green');
-        if (offlineInterceptor) offlineInterceptor.setOffline(false);
-        if (mainWindow) mainWindow.webContents.send('online-status', true);
-        if (mainWindow) mainWindow.webContents.send('connection-mode', 'green');
+        setConnectionMode('yellow');
+        if (offlineInterceptor) offlineInterceptor.setConnectionMode('yellow');
+        if (mainWindow) mainWindow.webContents.send('connection-mode', 'yellow');
         if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
-        appLogger.info('App', 'Startup CAPS check: ONLINE (CAPS ready)');
+        appLogger.info('App', 'Startup CAPS check: CAPS ready — YELLOW until cloud probe confirms');
+        checkConnectivity().catch(() => {});
       }).catch((e) => {
         appLogger.error('App', `Startup CAPS readiness poll unexpected error: ${e.message}`);
       });
