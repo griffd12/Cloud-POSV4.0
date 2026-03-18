@@ -2978,37 +2978,6 @@ function getCachedResponseFromDisk(pathname) {
   }
 }
 
-async function parseRequestBody(req) {
-  if (req.method === 'GET' || req.method === 'HEAD') return null;
-  try {
-    const buf = await req.arrayBuffer();
-    const text = new TextDecoder().decode(buf);
-    if (!text || text.length === 0) return null;
-    try { return JSON.parse(text); } catch { return null; }
-  } catch {
-    return null;
-  }
-}
-
-function routeToOfflineInterceptor(method, url, body) {
-  const queryParams = Object.fromEntries(url.searchParams);
-  if (offlineInterceptor.canHandleOffline(method, url.pathname)) {
-    const result = offlineInterceptor.handleRequest(method, url.pathname, queryParams, body);
-    if (result) {
-      appLogger.info('Interceptor', `OFFLINE -> ${method} ${url.pathname} -> ${result.status}`);
-      return new Response(JSON.stringify(result.data), {
-        status: result.status,
-        headers: { 'Content-Type': 'application/json', 'X-Offline-Mode': 'true' },
-      });
-    }
-  }
-  appLogger.warn('Interceptor', `No offline handler for: ${method} ${url.pathname}`);
-  return new Response(JSON.stringify({ error: 'Not available offline', offline: true }), {
-    status: 503,
-    headers: { 'Content-Type': 'application/json', 'X-Offline-Mode': 'true' },
-  });
-}
-
 const MIME_TYPES = {
   '.html': 'text/html',
   '.js': 'application/javascript',
