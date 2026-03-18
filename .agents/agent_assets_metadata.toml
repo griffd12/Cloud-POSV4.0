@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "bLxczpAQlysHbFll8ctkX"
+uri = "file://ARCHITECTURE_OUTPUT.md"
+type = "text"
+title = "Cloud POS v3.1 — Architecture Verification Output"
