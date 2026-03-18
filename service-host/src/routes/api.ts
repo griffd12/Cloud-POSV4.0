@@ -2974,7 +2974,11 @@ export function createApiRoutes(
   router.get('/kds-tickets/bumped', (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 10;
-      const tickets = kds.getBumpedTickets(limit);
+      const stationFilter = (req.query.stationId || req.query.kdsDeviceId || req.query.stationType) as string | undefined;
+      let tickets = kds.getBumpedTickets(limit);
+      if (stationFilter) {
+        tickets = tickets.filter(t => !t.stationId || t.stationId === stationFilter);
+      }
       res.json(tickets);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -2983,7 +2987,7 @@ export function createApiRoutes(
   router.post('/kds-tickets/bump-all', (req, res) => {
     try {
       const { stationId, stationType, kdsDeviceId, deviceId } = req.body;
-      const effectiveStation = stationId || stationType || kdsDeviceId || deviceId;
+      const effectiveStation = stationId || kdsDeviceId || deviceId || stationType;
       const tickets = kds.getActiveTickets(effectiveStation);
       let bumped = 0;
       for (const ticket of tickets) {
