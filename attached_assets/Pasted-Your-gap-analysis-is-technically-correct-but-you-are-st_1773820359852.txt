@@ -1,0 +1,87 @@
+Your gap analysis is technically correct, but you are still thinking at the endpoint level instead of POS system behavior.
+
+We are not building a web app. We are building a transactional POS system.
+
+The system is currently "structurally close but behaviorally wrong."
+
+The issue is not missing routes alone — the issue is lack of enforced runtime authority.
+
+CRITICAL CORRECTION:
+
+CAPS must be the ONLY runtime authority for all live POS/KDS operations.
+
+Right now we still have split-brain behavior:
+- some reads go to CAPS
+- some reads fall back to cloud
+- some routes exist only without /caps/ prefix
+- privileges are enforced inconsistently
+- some operations rely on client logic instead of CAPS
+
+This is why:
+- checks are not visible across workstations
+- open check SLU is inconsistent
+- KDS does not reflect sent orders correctly
+- discounts and payments fail or behave incorrectly
+- privileges appear broken
+
+This is NOT a routing issue. This is an authority enforcement issue.
+
+NEW REQUIREMENT:
+
+Before adding any new features or fixing individual bugs, we must enforce a SINGLE SOURCE OF TRUTH model.
+
+IMPLEMENT THESE RULES:
+
+1) CAPS must own 100% of live POS/KDS routes.
+No exceptions.
+
+2) Remove ALL cloud fallback for the following routes:
+- checks
+- check items
+- check locks
+- discounts
+- payments
+- transfers
+- reopen
+- split/merge
+- KDS tickets
+
+If CAPS fails, return an error. Do not silently fall back to cloud.
+
+3) Normalize ALL routes:
+Every POS route must exist in CAPS with a consistent path structure.
+Do not rely on mixed /caps/ and non-/caps/ routes.
+
+4) Move ALL privilege enforcement into CAPS:
+- discount
+- void item
+- transfer
+- reopen
+- payment overrides
+Do not rely on the client to enforce privileges.
+
+5) Define a complete "check lifecycle contract" in CAPS:
+A check must behave consistently across all devices:
+- create → visible everywhere
+- update → visible everywhere
+- send → visible in KDS
+- payment → reflected everywhere
+- close → removed from open checks everywhere
+
+6) Fix behavior BEFORE adding features:
+Do not add new routes or enhancements until:
+- open checks list is consistent across all devices
+- KDS shows correct tickets after send
+- discounts apply correctly
+- payments complete correctly
+- privileges enforce correctly
+
+OUTPUT REQUIRED:
+
+Give me:
+1) A list of routes that still fall back to cloud (these are blockers)
+2) A list of routes missing /caps/ equivalents
+3) A list of operations where privilege enforcement is missing
+4) A step-by-step plan to enforce CAPS as the ONLY runtime authority
+
+Do not respond with partial fixes. Fix the system behavior end-to-end.
