@@ -29,7 +29,7 @@ export function createAuthMiddleware(db: Database) {
       token = workstationToken;
     }
     
-    if (req.path === '/health' || req.path.startsWith('/caps/sync/')) {
+    if (req.path === '/health' || req.path === '/health/ready' || req.path.startsWith('/caps/sync/')) {
       return next();
     }
 

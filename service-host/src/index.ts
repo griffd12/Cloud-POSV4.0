@@ -220,6 +220,12 @@ class ServiceHost {
   private paymentController: PaymentController;
   private deviceTracker: CapsDeviceTracker;
   private cloudHeartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  private readiness = {
+    dbReady: false,
+    configReady: false,
+    websocketReady: false,
+    deviceRegistryReady: false,
+  };
   
   constructor(config: Config) {
     this.config = config;
@@ -306,6 +312,27 @@ class ServiceHost {
       res.json(healthResponse());
     });
     
+    this.app.get('/health/ready', (_req, res) => {
+      const allReady = this.readiness.dbReady && this.readiness.configReady && 
+                       this.readiness.websocketReady && this.readiness.deviceRegistryReady;
+      const anyReady = this.readiness.dbReady || this.readiness.configReady;
+      const status = allReady ? 'ready' : (anyReady ? 'degraded' : 'starting');
+      res.json({
+        status,
+        ...this.readiness,
+      });
+    });
+    this.app.get('/api/health/ready', (_req, res) => {
+      const allReady = this.readiness.dbReady && this.readiness.configReady && 
+                       this.readiness.websocketReady && this.readiness.deviceRegistryReady;
+      const anyReady = this.readiness.dbReady || this.readiness.configReady;
+      const status = allReady ? 'ready' : (anyReady ? 'degraded' : 'starting');
+      res.json({
+        status,
+        ...this.readiness,
+      });
+    });
+    
     // CAPS connected devices endpoint (unauthenticated for local network visibility)
     this.app.get('/api/caps/connected-devices', (req, res) => {
       const devices = this.deviceTracker.getConnectedDevices();
@@ -339,6 +366,7 @@ class ServiceHost {
     // WebSocket server for KDS and real-time updates
     this.wss = new WebSocketServer({ server: this.server, path: '/ws' });
     this.setupWebSocket();
+    this.readiness.websocketReady = true;
   }
   
   private setupWebSocket() {
@@ -419,6 +447,7 @@ class ServiceHost {
     
     // Initialize database schema
     await this.db.initialize();
+    this.readiness.dbReady = true;
     console.log('Database initialized');
     
     // Connect to cloud and sync configuration
@@ -427,6 +456,7 @@ class ServiceHost {
       console.log('Connected to cloud');
       
       await this.configSync.syncFull();
+      this.readiness.configReady = true;
       console.log('Configuration synced from cloud');
       
       this.cloudConnection.onMessage('SALES_DATA_CLEARED', (data) => {
@@ -447,6 +477,7 @@ class ServiceHost {
       console.log('CAL deployment sync started');
     } catch (e) {
       console.warn('Cloud connection failed, operating in offline mode:', (e as Error).message);
+      this.readiness.configReady = true;
     }
     
     // Start transaction sync worker
@@ -454,6 +485,7 @@ class ServiceHost {
     
     // Start CAPS device tracker periodic logging
     this.deviceTracker.startPeriodicLog();
+    this.readiness.deviceRegistryReady = true;
     console.log('CAPS device tracker started');
     
     // Start periodic cloud heartbeat with connected device IDs

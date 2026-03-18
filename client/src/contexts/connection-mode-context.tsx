@@ -9,6 +9,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import { setElectronOfflineLock } from '@/lib/queryClient';
 
 export type ConnectionMode = 'green' | 'yellow' | 'orange' | 'red';
+export type CapsBootStage = 'connecting' | 'loading-config' | 'ready' | 'unreachable' | 'no-caps-url' | null;
 
 interface ConnectionModeStatus {
   mode: ConnectionMode;
@@ -18,6 +19,7 @@ interface ConnectionModeStatus {
   paymentAppAvailable: boolean;
   lastChecked: Date | null;
   isChecking: boolean;
+  capsBootStage: CapsBootStage;
 }
 
 interface ConnectionModeContextValue extends ConnectionModeStatus {
@@ -34,6 +36,7 @@ const defaultStatus: ConnectionModeStatus = {
   paymentAppAvailable: false,
   lastChecked: null,
   isChecking: false,
+  capsBootStage: null,
 };
 
 const ConnectionModeContext = createContext<ConnectionModeContextValue | null>(null);
@@ -122,6 +125,18 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
       return unsub;
     }
   }, [applyConnectionMode]);
+
+  useEffect(() => {
+    const w = window as any;
+    if (!isRunningInElectron()) return;
+    if (w.electronAPI?.onCapsBootStatus) {
+      const unsub = w.electronAPI.onCapsBootStatus((bootStatus: { stage: string }) => {
+        const stage = bootStatus?.stage as CapsBootStage || null;
+        setStatus(prev => ({ ...prev, capsBootStage: stage }));
+      });
+      return unsub;
+    }
+  }, []);
 
   const checkNow = useCallback(async () => {
     if (electronControlled.current) return;

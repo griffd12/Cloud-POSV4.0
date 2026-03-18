@@ -1,5 +1,5 @@
 import { useConnectionMode, type ConnectionMode } from "@/lib/api-client";
-import { Wifi, Signal, WifiOff, AlertTriangle } from "lucide-react";
+import { Wifi, Signal, WifiOff, AlertTriangle, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useState, useEffect } from "react";
 
@@ -14,6 +14,8 @@ interface SyncStatus {
   localDbHealthy: boolean;
   mode: string;
 }
+
+type CapsBootStage = 'connecting' | 'loading-config' | 'ready' | 'unreachable' | 'no-caps-url' | null;
 
 const modeConfig: Record<Exclude<ConnectionMode, 'orange'>, {
   bgColor: string;
@@ -49,6 +51,7 @@ export function ConnectionModeBanner({ className = "" }: ConnectionModeBannerPro
   const { mode, status } = useConnectionMode();
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [localDbCritical, setLocalDbCritical] = useState(false);
+  const [capsBootStage, setCapsBootStage] = useState<CapsBootStage>(null);
 
   useEffect(() => {
     const w = window as any;
@@ -58,6 +61,16 @@ export function ConnectionModeBanner({ className = "" }: ConnectionModeBannerPro
         if (s && s.localDbHealthy === false) {
           setLocalDbCritical(true);
         }
+      });
+      return unsub;
+    }
+  }, []);
+
+  useEffect(() => {
+    const w = window as any;
+    if (w.electronAPI?.onCapsBootStatus) {
+      const unsub = w.electronAPI.onCapsBootStatus((bootStatus: { stage: string }) => {
+        setCapsBootStage((bootStatus?.stage as CapsBootStage) || null);
       });
       return unsub;
     }
@@ -91,6 +104,40 @@ export function ConnectionModeBanner({ className = "" }: ConnectionModeBannerPro
           <p className="mt-4 text-sm opacity-70">The local SQLite database is not responding. No transactions can be processed.</p>
         </div>
       </div>
+    );
+  }
+
+  const isBooting = capsBootStage === 'connecting' || capsBootStage === 'loading-config';
+
+  if (isBooting) {
+    const bootMessage = capsBootStage === 'connecting' 
+      ? 'Connecting to store server...' 
+      : 'Loading configuration...';
+    return (
+      <>
+        <div
+          data-testid="caps-boot-overlay"
+          className="fixed inset-0 z-[9998] bg-slate-900/95 flex items-center justify-center"
+        >
+          <div className="text-center text-white p-8 max-w-lg">
+            <Loader2 className="h-16 w-16 mx-auto mb-4 text-blue-400 animate-spin" />
+            <h1 className="text-3xl font-bold mb-4" data-testid="text-caps-boot-title">Starting Up</h1>
+            <p className="text-lg opacity-90 mb-2" data-testid="text-caps-boot-message">{bootMessage}</p>
+            <p className="mt-6 text-sm opacity-70">Please wait while the system initializes.</p>
+            <div className="mt-8 flex items-center justify-center gap-2 text-blue-400">
+              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+              <span className="text-sm font-medium">Initializing...</span>
+            </div>
+          </div>
+        </div>
+        <div
+          data-testid="connection-mode-banner"
+          className={`h-6 w-full flex items-center justify-center gap-2 bg-blue-500 text-white text-xs font-medium select-none cursor-default ${className}`}
+        >
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>STARTING</span>
+        </div>
+      </>
     );
   }
 

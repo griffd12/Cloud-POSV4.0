@@ -147,6 +147,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('local-db-critical', handler);
   },
 
+  onCapsBootStatus: (callback) => {
+    const handler = (event, status) => callback(status);
+    ipcRenderer.on('caps-boot-status', handler);
+    return () => ipcRenderer.removeListener('caps-boot-status', handler);
+  },
+
   onPrintAgentStatus: (callback) => {
     const handler = (event, status) => callback(status);
     ipcRenderer.on('print-agent-status', handler);

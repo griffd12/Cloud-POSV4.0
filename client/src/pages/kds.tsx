@@ -104,9 +104,9 @@ export default function KdsPage() {
   const { data: configuredKdsDevice, isLoading: isLoadingDevice, isError: deviceError, error: deviceQueryError } = useQuery<KdsDevice>({
     queryKey: ["/api/kds-devices", linkedDeviceId],
     enabled: isDedicatedKds && !!linkedDeviceId,
-    retry: 3,
-    retryDelay: (attempt) => Math.min(2000 * (attempt + 1), 10000),
-    refetchInterval: deviceConnectionError ? 10000 : false,
+    retry: 10,
+    retryDelay: (attempt) => Math.min(2000 * (attempt + 1), 8000),
+    refetchInterval: deviceConnectionError ? 5000 : false,
   });
 
   useEffect(() => {
@@ -502,9 +502,9 @@ export default function KdsPage() {
       <div className="h-screen flex items-center justify-center bg-background" data-testid="kds-connection-error">
         <div className="text-center max-w-md">
           <WifiOff className="w-12 h-12 text-orange-500 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold mb-2">Reconnecting to Server</h2>
+          <h2 className="text-lg font-semibold mb-2">Waiting for Store Server</h2>
           <p className="text-muted-foreground mb-4">
-            Unable to reach the server to load KDS configuration. The display will automatically reconnect when the server is available.
+            The store server (CAPS) is not available. This display will automatically connect when the server is ready.
           </p>
           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-500 mx-auto mb-4" />
           <div className="flex items-center justify-center gap-2">
