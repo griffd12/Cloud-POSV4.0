@@ -2741,10 +2741,15 @@ export function createApiRoutes(
       const ws = config.getWorkstations().find((w: any) => w.id === req.params.id);
       const rvcs = config.getRvcs();
       const prop = config.getProperty();
+      let enterprise: any = null;
+      if (prop && (prop.enterpriseId || prop.enterprise_id) && caps.db) {
+        enterprise = caps.db.getEnterprise(prop.enterpriseId || prop.enterprise_id);
+      }
       res.json({
         workstation: ws || { id: req.params.id, name: 'CAPS Workstation' },
         rvcs: rvcs || [],
         property: prop || null,
+        enterprise: enterprise || null,
         offlineMode: true,
       });
     } catch (e) { res.status(500).json({ error: (e as Error).message }); }
