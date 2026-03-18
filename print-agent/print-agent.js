@@ -122,11 +122,10 @@ class PrintAgentConnection {
   }
   
   connect() {
-    // Build WebSocket URL - handle both base URLs and full URLs
-    let wsUrl = config.server.replace(/^http/, 'ws');
-    // Only append path if not already present
-    if (!wsUrl.includes('/ws/print-agents')) {
-      wsUrl += '/ws/print-agents';
+    // Build WebSocket URL - connect to CAPS at /ws
+    let wsUrl = config.server.replace(/^http/, 'ws').replace(/\/$/, '');
+    if (!wsUrl.endsWith('/ws')) {
+      wsUrl += '/ws';
     }
     console.log(`Connecting to ${wsUrl}...`);
     
