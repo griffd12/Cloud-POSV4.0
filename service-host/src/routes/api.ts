@@ -342,6 +342,9 @@ export function createApiRoutes(
   router.post('/caps/checks/:id/items/:itemId/void', (req, res) => {
     try {
       const { reason, workstationId, employeeId, managerPin } = req.body;
+      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+        return res.status(403).json({ error: 'Void operations are disabled by configuration' });
+      }
       const item = db?.get<any>('SELECT * FROM check_items WHERE id = ?', [req.params.itemId]);
       const requiredPriv = item && item.sent ? 'void_sent' : 'void_unsent';
       const privCheck = checkPrivilege(employeeId, requiredPriv, managerPin);
@@ -412,6 +415,9 @@ export function createApiRoutes(
   router.post('/caps/checks/:id/void', (req, res) => {
     try {
       const { reason, workstationId, employeeId, managerPin } = req.body;
+      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+        return res.status(403).json({ error: 'Void operations are disabled by configuration' });
+      }
       const privCheck = checkPrivilege(employeeId, 'void_sent', managerPin);
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
@@ -430,7 +436,11 @@ export function createApiRoutes(
   // Cancel transaction - void all unsent items
   router.post('/caps/checks/:id/cancel-transaction', (req, res) => {
     try {
-      const { workstationId, employeeId, reason } = req.body;
+      const { workstationId, employeeId, reason, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'void_unsent', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const check = caps.getCheck(req.params.id);
       if (!check) {
         return res.status(404).json({ error: 'Check not found' });
@@ -554,6 +564,9 @@ export function createApiRoutes(
       const itemId = req.params.id;
       const { discountId, employeeId, managerPin, workstationId } = req.body;
 
+      if (!checkOptionBit('allow_discounts', undefined, undefined)) {
+        return res.status(403).json({ error: 'Discount operations are disabled by configuration' });
+      }
       const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
@@ -845,7 +858,15 @@ export function createApiRoutes(
   // Refund payment
   router.post('/payment/:id/refund', async (req, res) => {
     try {
-      const result = await payment.refund(req.params.id, req.body.amount);
+      const { employeeId, managerPin, amount } = req.body;
+      if (!checkOptionBit('allow_refunds', undefined, undefined)) {
+        return res.status(403).json({ error: 'Refund operations are disabled by configuration' });
+      }
+      const privCheck = checkPrivilege(employeeId, 'process_refunds', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
+      const result = await payment.refund(req.params.id, amount);
       res.json(result);
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
@@ -1751,6 +1772,9 @@ export function createApiRoutes(
   router.post('/checks/:id/void', (req, res) => {
     try {
       const { reason, workstationId, employeeId, managerPin } = req.body;
+      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+        return res.status(403).json({ error: 'Void operations are disabled by configuration' });
+      }
       const privCheck = checkPrivilege(employeeId, 'void_sent', managerPin);
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
@@ -1766,11 +1790,18 @@ export function createApiRoutes(
 
   router.post('/checks/:id/cancel-transaction', (req, res) => {
     try {
+      const { reason, workstationId, employeeId, managerPin } = req.body;
+      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+        return res.status(403).json({ error: 'Void operations are disabled by configuration' });
+      }
+      const privCheck = checkPrivilege(employeeId, 'void_unsent', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
       const activeItems = (check.items || []).filter((i: any) => !i.voided);
       const voidedCount = activeItems.length;
-      const { reason, workstationId } = req.body;
       caps.voidCheck(req.params.id, reason || 'cancelled', workstationId);
       res.json({ success: true, voidedCount, remainingActiveItems: 0 });
     } catch (e) {
@@ -1781,6 +1812,9 @@ export function createApiRoutes(
   const reopenCheckHandler: RequestHandler = (req, res) => {
     try {
       const { employeeId, managerPin } = req.body;
+      if (!checkOptionBit('allow_reopen', undefined, undefined)) {
+        return res.status(403).json({ error: 'Reopen operations are disabled by configuration' });
+      }
       const privCheck = checkPrivilege(employeeId, 'reopen_check', managerPin);
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
@@ -1803,6 +1837,9 @@ export function createApiRoutes(
 
       const { discountId, checkItemId, name, type, amount, rate, managerPin, requiredPrivilege, employeeId } = req.body;
 
+      if (!checkOptionBit('allow_discounts', undefined, undefined)) {
+        return res.status(403).json({ error: 'Discount operations are disabled by configuration' });
+      }
       const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
@@ -1874,6 +1911,9 @@ export function createApiRoutes(
   const transferCheckHandler: RequestHandler = (req, res) => {
     try {
       const { employeeId, workstationId, managerPin } = req.body;
+      if (!checkOptionBit('allow_transfer', undefined, undefined)) {
+        return res.status(403).json({ error: 'Transfer operations are disabled by configuration' });
+      }
       const privCheck = checkPrivilege(employeeId, 'transfer_check', managerPin);
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
@@ -1896,6 +1936,9 @@ export function createApiRoutes(
   const splitCheckHandler: RequestHandler = (req, res) => {
     try {
       const { itemIds, workstationId, employeeId, managerPin } = req.body;
+      if (!checkOptionBit('allow_split', undefined, undefined)) {
+        return res.status(403).json({ error: 'Split check operations are disabled by configuration' });
+      }
       const privCheck = checkPrivilege(employeeId, 'split_check', managerPin);
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
@@ -1933,6 +1976,9 @@ export function createApiRoutes(
   const mergeChecksHandler: RequestHandler = (req, res) => {
     try {
       const { targetCheckId, sourceCheckIds, employeeId, managerPin } = req.body;
+      if (!checkOptionBit('allow_merge', undefined, undefined)) {
+        return res.status(403).json({ error: 'Merge check operations are disabled by configuration' });
+      }
       const privCheck = checkPrivilege(employeeId, 'merge_checks', managerPin);
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
@@ -1992,7 +2038,14 @@ export function createApiRoutes(
   const voidPaymentHandler: RequestHandler = (req, res) => {
     try {
       const paymentId = req.params.id;
-      const { reason, employeeId } = req.body;
+      const { reason, employeeId, managerPin } = req.body;
+      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+        return res.status(403).json({ error: 'Void operations are disabled by configuration' });
+      }
+      const privCheck = checkPrivilege(employeeId, 'void_sent', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const pmtRow = caps.db.get<any>('SELECT * FROM check_payments WHERE id = ?', [paymentId]);
       if (!pmtRow) return res.status(404).json({ error: 'Payment not found' });
       caps.db.run(
@@ -2018,6 +2071,11 @@ export function createApiRoutes(
 
   const restorePaymentHandler: RequestHandler = (req, res) => {
     try {
+      const { employeeId, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'void_sent', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const payment = caps.db.get<any>('SELECT * FROM check_payments WHERE id = ?', [req.params.id]);
       if (!payment) return res.status(404).json({ error: 'Payment not found' });
       caps.db.run("UPDATE check_payments SET voided = 0, status = 'completed' WHERE id = ?", [req.params.id]);
@@ -2130,6 +2188,9 @@ export function createApiRoutes(
   router.post('/check-items/:id/void', (req, res) => {
     try {
       const { reason, workstationId, employeeId, managerPin } = req.body;
+      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+        return res.status(403).json({ error: 'Void operations are disabled by configuration' });
+      }
       const itemRow = db?.get<any>('SELECT sent FROM check_items WHERE id = ?', [req.params.id]);
       const requiredPriv = itemRow && itemRow.sent ? 'void_sent' : 'void_unsent';
       const privCheck = checkPrivilege(employeeId, requiredPriv, managerPin);
@@ -2185,6 +2246,9 @@ export function createApiRoutes(
     try {
       const itemId = req.params.id;
       const { discountId, employeeId, managerPin } = req.body;
+      if (!checkOptionBit('allow_discounts', undefined, undefined)) {
+        return res.status(403).json({ error: 'Discount operations are disabled by configuration' });
+      }
       const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
@@ -2247,6 +2311,9 @@ export function createApiRoutes(
     try {
       const itemId = req.params.id;
       const { newPrice, reason, employeeId, managerPin } = req.body;
+      if (!checkOptionBit('allow_price_override', undefined, undefined)) {
+        return res.status(403).json({ error: 'Price override is disabled by configuration' });
+      }
       const privCheck = checkPrivilege(employeeId, 'modify_price', managerPin);
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
@@ -2602,6 +2669,38 @@ export function createApiRoutes(
     }
     return { allowed: false, error: { error: 'Permission denied', requiredPrivilege, employeeId } };
   }
+
+  function checkOptionBit(optionKey: string, rvcId?: string, propertyId?: string): boolean {
+    if (!db) return true;
+    const scopeChain: { level: string; id: string }[] = [];
+    if (rvcId) scopeChain.push({ level: 'rvc', id: rvcId });
+    if (propertyId) scopeChain.push({ level: 'property', id: propertyId });
+    scopeChain.push({ level: 'enterprise', id: '*' });
+    const value = db.resolveOptionFlag('system', 'global', optionKey, scopeChain);
+    if (value === null) return true;
+    return value === 'true' || value === '1';
+  }
+
+  router.get('/config/workstation-options', (req, res) => {
+    try {
+      const rvcId = req.query.rvcId as string | undefined;
+      const propertyId = req.query.propertyId as string | undefined;
+      const optionKeys = [
+        'allow_refunds', 'allow_voids', 'allow_discounts', 'allow_price_override',
+        'allow_reopen', 'allow_transfer', 'allow_split', 'allow_merge',
+        'require_manager_void', 'require_manager_discount', 'require_manager_refund',
+        'require_manager_reopen', 'require_manager_price_override',
+        'auto_close_on_payment', 'require_order_type', 'allow_zero_dollar_checks',
+      ];
+      const options: Record<string, boolean> = {};
+      for (const key of optionKeys) {
+        options[key] = checkOptionBit(key, rvcId, propertyId);
+      }
+      res.json(options);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
 
   router.post('/auth/login', (req, res) => {
     try {
@@ -3083,7 +3182,14 @@ export function createApiRoutes(
 
   const postRefundHandler: RequestHandler = (req, res) => {
     try {
-      const { checkId, rvcId, employeeId, items, reason, refundType, total } = req.body;
+      const { checkId, rvcId, employeeId, items, reason, refundType, total, managerPin } = req.body;
+      if (!checkOptionBit('allow_refunds', rvcId, undefined)) {
+        return res.status(403).json({ error: 'Refund operations are disabled by configuration' });
+      }
+      const privCheck = checkPrivilege(employeeId, 'process_refunds', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const refundId = randomUUID();
       const refundNumber = Date.now() % 100000;
       const now = new Date().toISOString();
