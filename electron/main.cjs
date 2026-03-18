@@ -3915,34 +3915,30 @@ app.whenReady().then(async () => {
   registerProtocolInterceptor();
 
   if (config.setupComplete) {
-    appLogger.info('App', 'Setup previously completed — launching window immediately, services in background');
+    appLogger.info('App', 'Setup previously completed — checking connectivity before opening window');
     migrateAutoStartup(config);
 
     await initOfflineDbEarly();
 
-    createWindow();
-
-    (async () => {
-      try {
-        const serverUrl = getServerUrl();
-        const quickCheck = await fetch(`${serverUrl}/api/health`, {
-          signal: AbortSignal.timeout(1500),
-        });
-        if (quickCheck.ok) {
-          isOnline = true;
-          firstBootConnectivityChecked = true;
-          appLogger.info('App', 'Background connectivity check: ONLINE');
-        } else {
-          isOnline = false;
-          connectionMode = 'red';
-          firstBootConnectivityChecked = true;
-          if (offlineInterceptor) {
-            offlineInterceptor.setOffline(true);
-            offlineInterceptor.setConnectionMode('red');
-          }
-          appLogger.info('App', `Background connectivity check: OFFLINE (status ${quickCheck.status})`);
+    try {
+      const serverUrl = getServerUrl();
+      const quickCheck = await fetch(`${serverUrl}/api/health/db-probe`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      let dbHealthy = false;
+      if (quickCheck.ok) {
+        try {
+          const probeData = await quickCheck.json();
+          dbHealthy = probeData.dbHealthy === true;
+        } catch {
+          dbHealthy = false;
         }
-      } catch (e) {
+      }
+      if (dbHealthy) {
+        isOnline = true;
+        firstBootConnectivityChecked = true;
+        appLogger.info('App', 'Startup connectivity check: ONLINE (cloud + DB healthy)');
+      } else {
         isOnline = false;
         connectionMode = 'red';
         firstBootConnectivityChecked = true;
@@ -3950,9 +3946,20 @@ app.whenReady().then(async () => {
           offlineInterceptor.setOffline(true);
           offlineInterceptor.setConnectionMode('red');
         }
-        appLogger.info('App', `Background connectivity check: OFFLINE (${e.message})`);
+        appLogger.info('App', `Startup connectivity check: OFFLINE (db-probe ${quickCheck.ok ? 'unhealthy' : 'HTTP ' + quickCheck.status})`);
       }
-    })();
+    } catch (e) {
+      isOnline = false;
+      connectionMode = 'red';
+      firstBootConnectivityChecked = true;
+      if (offlineInterceptor) {
+        offlineInterceptor.setOffline(true);
+        offlineInterceptor.setConnectionMode('red');
+      }
+      appLogger.info('App', `Startup connectivity check: OFFLINE (${e.message})`);
+    }
+
+    createWindow();
 
     initAllServices().then(() => {
       appLogger.info('App', 'Background service initialization complete');
