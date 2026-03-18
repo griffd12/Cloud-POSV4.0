@@ -284,15 +284,29 @@ class ApiClient {
     return offlineQueue.getPendingCount();
   }
   
+  private static readonly CAPS_ONLY_PATTERNS = [
+    /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges)(\/|$)/,
+    /^\/api\/(payments|refunds|kds-tickets|terminal-sessions)(\/|$)/,
+    /^\/api\/(auth\/login|auth\/pin|auth\/manager-approval)(\/|$)/,
+    /^\/api\/(time-punches|time-clock|item-availability|cash-drawer-kick)(\/|$)/,
+  ];
+
+  private isCapsOnlyRoute(endpoint: string): boolean {
+    return ApiClient.CAPS_ONLY_PATTERNS.some(re => re.test(endpoint));
+  }
+
   private async handleFailure<T>(endpoint: string, options: RequestInit, error: Error): Promise<T> {
     console.warn(`Request failed in ${this.currentMode} mode:`, error.message);
     
     if (this.isElectron) {
       throw error;
     }
+
+    if (this.isCapsOnlyRoute(endpoint)) {
+      throw error;
+    }
     
     if (this.currentMode === 'green') {
-      const oldMode = this.currentMode;
       this.setMode('yellow');
       
       try {
@@ -315,17 +329,6 @@ class ApiClient {
         throw new Error('Both cloud and Service Host unavailable');
       }
     } else if (this.currentMode === 'yellow') {
-      try {
-        const cloudCheck = await fetch(`${this.config.cloudUrl}/health`, {
-          signal: createTimeoutSignal(3000),
-        });
-        if (cloudCheck.ok) {
-          this.setMode('green');
-          return this.request<T>(endpoint, options);
-        }
-      } catch {
-      }
-      
       this.setMode('orange');
       throw error;
     }

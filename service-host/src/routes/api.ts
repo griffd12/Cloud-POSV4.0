@@ -9,7 +9,7 @@
  * - Configuration
  */
 
-import { Router } from 'express';
+import { Router, RequestHandler } from 'express';
 import { randomUUID } from 'crypto';
 import { CapsService } from '../services/caps.js';
 import { PrintController } from '../services/print-controller.js';
@@ -268,7 +268,11 @@ export function createApiRoutes(
   // Send to kitchen
   router.post('/caps/checks/:id/send', (req, res) => {
     try {
-      const { workstationId } = req.body;
+      const { workstationId, employeeId, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'send_to_kitchen', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const result = caps.sendToKitchen(req.params.id, workstationId);
       
       try {
@@ -303,7 +307,13 @@ export function createApiRoutes(
   // Void an item
   router.post('/caps/checks/:id/items/:itemId/void', (req, res) => {
     try {
-      const { reason, workstationId } = req.body;
+      const { reason, workstationId, employeeId, managerPin } = req.body;
+      const item = db?.get<any>('SELECT * FROM check_items WHERE id = ?', [req.params.itemId]);
+      const requiredPriv = item && item.sent ? 'void_sent' : 'void_unsent';
+      const privCheck = checkPrivilege(employeeId, requiredPriv, managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       caps.voidItem(req.params.id, req.params.itemId, reason, workstationId);
       res.json({ success: true });
     } catch (e) {
@@ -367,7 +377,11 @@ export function createApiRoutes(
   // Void check
   router.post('/caps/checks/:id/void', (req, res) => {
     try {
-      const { reason, workstationId } = req.body;
+      const { reason, workstationId, employeeId, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'void_sent', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       caps.voidCheck(req.params.id, reason, workstationId);
       res.json({ success: true });
     } catch (e) {
@@ -476,11 +490,17 @@ export function createApiRoutes(
   router.post('/caps/check-items/:id/void', (req, res) => {
     try {
       const itemId = req.params.id;
-      const { reason, workstationId, employeeId } = req.body;
+      const { reason, workstationId, employeeId, managerPin } = req.body;
       
-      const itemRow = db?.get<{ check_id: string }>('SELECT check_id FROM check_items WHERE id = ?', [itemId]);
+      const itemRow = db?.get<any>('SELECT check_id, sent FROM check_items WHERE id = ?', [itemId]);
       if (!itemRow) {
         return res.status(404).json({ error: 'Check item not found' });
+      }
+
+      const requiredPriv = itemRow.sent ? 'void_sent' : 'void_unsent';
+      const privCheck = checkPrivilege(employeeId, requiredPriv, managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
       }
       
       caps.voidItem(itemRow.check_id, itemId, reason, workstationId);
@@ -499,6 +519,11 @@ export function createApiRoutes(
     try {
       const itemId = req.params.id;
       const { discountId, employeeId, managerPin, workstationId } = req.body;
+
+      const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       
       const itemRow = db?.get<{ check_id: string; name: string; unit_price: number; quantity: number }>(
         'SELECT check_id, name, unit_price, quantity FROM check_items WHERE id = ?', [itemId]
@@ -1371,7 +1396,7 @@ export function createApiRoutes(
     }
   });
 
-  router.get('/checks/open', (req, res) => {
+  const openChecksHandler: RequestHandler = (req, res) => {
     try {
       const rvcId = req.query.rvcId as string | undefined;
       const checks = caps.getOpenChecks(rvcId);
@@ -1398,7 +1423,8 @@ export function createApiRoutes(
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.get('/checks/open', openChecksHandler);
 
   router.get('/checks/orders', (req, res) => {
     try {
@@ -1478,7 +1504,7 @@ export function createApiRoutes(
     }
   });
 
-  router.get('/checks/:id/full-details', (req, res) => {
+  const fullDetailsHandler: RequestHandler = (req, res) => {
     try {
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
@@ -1490,9 +1516,10 @@ export function createApiRoutes(
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.get('/checks/:id/full-details', fullDetailsHandler);
 
-  router.get('/checks/:id/payments', (req, res) => {
+  const checkPaymentsHandler: RequestHandler = (req, res) => {
     try {
       const check = caps.getCheck(req.params.id);
       if (!check) return res.json({ payments: [], paidAmount: 0 });
@@ -1502,18 +1529,20 @@ export function createApiRoutes(
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.get('/checks/:id/payments', checkPaymentsHandler);
 
-  router.get('/checks/:id/discounts', (req, res) => {
+  const checkDiscountsHandler: RequestHandler = (req, res) => {
     try {
       const check = caps.getCheck(req.params.id);
       res.json(check?.discounts || []);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.get('/checks/:id/discounts', checkDiscountsHandler);
 
-  router.get('/checks/:id/service-charges', (req, res) => {
+  const getServiceChargesHandler: RequestHandler = (req, res) => {
     try {
       const rows = caps.db.all(
         'SELECT * FROM check_service_charges WHERE check_id = ? AND voided = 0 ORDER BY created_at',
@@ -1532,9 +1561,10 @@ export function createApiRoutes(
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.get('/checks/:id/service-charges', getServiceChargesHandler);
 
-  router.post('/checks/:id/service-charges', (req, res) => {
+  const postServiceChargesHandler: RequestHandler = (req, res) => {
     try {
       const { serviceChargeId, employeeId, amount: overrideAmount } = req.body;
       const check = caps.getCheck(req.params.id);
@@ -1564,7 +1594,8 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.post('/checks/:id/service-charges', postServiceChargesHandler);
 
   router.post('/checks/:id/items', (req, res) => {
     try {
@@ -1581,7 +1612,11 @@ export function createApiRoutes(
 
   router.post('/checks/:id/send', (req, res) => {
     try {
-      const { workstationId } = req.body;
+      const { workstationId, employeeId, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'send_to_kitchen', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const result = caps.sendToKitchen(req.params.id, workstationId);
       try {
         const check = caps.getCheck(req.params.id);
@@ -1669,7 +1704,11 @@ export function createApiRoutes(
 
   router.post('/checks/:id/void', (req, res) => {
     try {
-      const { reason, workstationId } = req.body;
+      const { reason, workstationId, employeeId, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'void_sent', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       caps.voidCheck(req.params.id, reason, workstationId);
       res.json({ success: true });
     } catch (e) {
@@ -1693,8 +1732,13 @@ export function createApiRoutes(
     }
   });
 
-  router.post('/checks/:id/reopen', (req, res) => {
+  const reopenCheckHandler: RequestHandler = (req, res) => {
     try {
+      const { employeeId, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'reopen_check', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
       caps.reopenCheck(req.params.id);
@@ -1703,14 +1747,20 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.post('/checks/:id/reopen', reopenCheckHandler);
 
-  router.post('/checks/:id/discount', (req, res) => {
+  const checkDiscountHandler: RequestHandler = (req, res) => {
     try {
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
 
       const { discountId, checkItemId, name, type, amount, rate, managerPin, requiredPrivilege, employeeId } = req.body;
+
+      const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
 
       if (requiredPrivilege && !managerPin) {
         return res.status(401).json({ error: 'Manager approval required for this discount' });
@@ -1761,9 +1811,10 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.post('/checks/:id/discount', checkDiscountHandler);
 
-  router.post('/checks/:id/print', (req, res) => {
+  const printCheckHandler: RequestHandler = (req, res) => {
     try {
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
@@ -1771,11 +1822,16 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.post('/checks/:id/print', printCheckHandler);
 
-  router.post('/checks/:id/transfer', (req, res) => {
+  const transferCheckHandler: RequestHandler = (req, res) => {
     try {
-      const { employeeId, workstationId } = req.body;
+      const { employeeId, workstationId, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'transfer_check', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
       caps.db.run('UPDATE checks SET employee_id = ? WHERE id = ?', [employeeId, req.params.id]);
@@ -1788,13 +1844,18 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.post('/checks/:id/transfer', transferCheckHandler);
 
-  router.post('/checks/:id/split', (req, res) => {
+  const splitCheckHandler: RequestHandler = (req, res) => {
     try {
+      const { itemIds, workstationId, employeeId, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'split_check', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
-      const { itemIds, workstationId } = req.body;
       const newCheck = caps.createCheck({
         rvcId: check.rvcId,
         employeeId: check.employeeId,
@@ -1820,11 +1881,16 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.post('/checks/:id/split', splitCheckHandler);
 
-  router.post('/checks/merge', (req, res) => {
+  const mergeChecksHandler: RequestHandler = (req, res) => {
     try {
-      const { targetCheckId, sourceCheckIds, employeeId } = req.body;
+      const { targetCheckId, sourceCheckIds, employeeId, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'merge_checks', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const targetCheck = caps.getCheck(targetCheckId);
       if (!targetCheck) return res.status(404).json({ error: 'Target check not found' });
       for (const sourceId of (sourceCheckIds || [])) {
@@ -1845,9 +1911,10 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.post('/checks/merge', mergeChecksHandler);
 
-  router.patch('/checks/:id', (req, res) => {
+  const patchCheckHandler: RequestHandler = (req, res) => {
     try {
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
@@ -1873,7 +1940,8 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.patch('/checks/:id', patchCheckHandler);
 
   router.patch('/check-payments/:id/void', (req, res) => {
     try {
@@ -1906,7 +1974,7 @@ export function createApiRoutes(
     }
   });
 
-  router.post('/check-service-charges/:id/void', (req, res) => {
+  const voidServiceChargeHandler: RequestHandler = (req, res) => {
     try {
       const sc = caps.db.get<any>('SELECT * FROM check_service_charges WHERE id = ?', [req.params.id]);
       if (!sc) return res.status(404).json({ error: 'Service charge not found' });
@@ -1919,9 +1987,10 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.post('/check-service-charges/:id/void', voidServiceChargeHandler);
 
-  router.delete('/check-items/:id', (req, res) => {
+  const deleteCheckItemHandler: RequestHandler = (req, res) => {
     try {
       const item = caps.db.get<any>('SELECT * FROM check_items WHERE id = ?', [req.params.id]);
       if (!item) return res.status(404).json({ error: 'Item not found' });
@@ -1935,7 +2004,8 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.delete('/check-items/:id', deleteCheckItemHandler);
 
   router.delete('/check-discounts/:id', (req, res) => {
     try {
@@ -2000,10 +2070,16 @@ export function createApiRoutes(
 
   router.post('/check-items/:id/void', (req, res) => {
     try {
+      const { reason, workstationId, employeeId, managerPin } = req.body;
+      const itemRow = db?.get<any>('SELECT sent FROM check_items WHERE id = ?', [req.params.id]);
+      const requiredPriv = itemRow && itemRow.sent ? 'void_sent' : 'void_unsent';
+      const privCheck = checkPrivilege(employeeId, requiredPriv, managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const checks = caps.getOpenChecks();
       for (const check of checks) {
         if (check.items?.some((i: any) => i.id === req.params.id)) {
-          const { reason, workstationId } = req.body;
           caps.voidItem(check.id, req.params.id, reason, workstationId);
           const updatedCheck = caps.getCheck(check.id);
           const voidedItem = updatedCheck?.items?.find((i: any) => i.id === req.params.id);
@@ -2049,7 +2125,11 @@ export function createApiRoutes(
   router.post('/check-items/:id/discount', (req, res) => {
     try {
       const itemId = req.params.id;
-      const { discountId, employeeId } = req.body;
+      const { discountId, employeeId, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const item = caps.db.get<any>('SELECT * FROM check_items WHERE id = ?', [itemId]);
       if (!item) return res.status(404).json({ error: 'Item not found' });
       const discount = caps.db.getDiscount(discountId);
@@ -2077,9 +2157,14 @@ export function createApiRoutes(
     }
   });
 
-  router.delete('/check-items/:id/discount', (req, res) => {
+  const deleteItemDiscountHandler: RequestHandler = (req, res) => {
     try {
       const itemId = req.params.id;
+      const { employeeId, managerPin } = req.body || {};
+      const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const item = caps.db.get<any>('SELECT * FROM check_items WHERE id = ?', [itemId]);
       if (!item) return res.status(404).json({ error: 'Item not found' });
       caps.db.run(
@@ -2096,12 +2181,17 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.delete('/check-items/:id/discount', deleteItemDiscountHandler);
 
-  router.post('/check-items/:id/price-override', (req, res) => {
+  const priceOverrideHandler: RequestHandler = (req, res) => {
     try {
       const itemId = req.params.id;
-      const { newPrice, reason, employeeId } = req.body;
+      const { newPrice, reason, employeeId, managerPin } = req.body;
+      const privCheck = checkPrivilege(employeeId, 'modify_price', managerPin);
+      if (!privCheck.allowed) {
+        return res.status(403).json(privCheck.error);
+      }
       const item = caps.db.get<any>('SELECT * FROM check_items WHERE id = ?', [itemId]);
       if (!item) return res.status(404).json({ error: 'Item not found' });
       const modifiers = JSON.parse(item.modifiers || '[]');
@@ -2118,9 +2208,10 @@ export function createApiRoutes(
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.post('/check-items/:id/price-override', priceOverrideHandler);
 
-  router.post('/payments', (req, res) => {
+  const postPaymentHandler: RequestHandler = (req, res) => {
     try {
       const body = req.body || {};
       const checkId = body.checkId || body.check_id;
@@ -2159,7 +2250,8 @@ export function createApiRoutes(
       console.error('[CAPS] Payment route error:', (e as Error).message);
       res.status(500).json({ error: (e as Error).message });
     }
-  });
+  };
+  router.post('/payments', postPaymentHandler);
 
   router.post('/pos/record-external-payment', (req, res) => {
     try {
@@ -2350,6 +2442,41 @@ export function createApiRoutes(
     }
   });
 
+  // ============================================================================
+  // CAPS-prefixed route aliases for Electron interceptor path rewriting
+  // The /caps/ prefix is added by the Electron interceptor; these aliases
+  // use the same named handler functions as the non-prefixed routes to
+  // guarantee behavioral parity with zero duplication.
+  // Static paths (e.g. /caps/checks/open) are registered before parameterized
+  // paths (e.g. /caps/checks/:id) to prevent path shadowing.
+  // ============================================================================
+
+  router.get('/caps/checks/open', openChecksHandler);
+  router.post('/caps/checks/merge', mergeChecksHandler);
+  router.post('/caps/payments', postPaymentHandler);
+
+  router.post('/caps/checks/:id/reopen', reopenCheckHandler);
+  router.post('/caps/checks/:id/transfer', transferCheckHandler);
+  router.post('/caps/checks/:id/split', splitCheckHandler);
+  router.post('/caps/checks/:id/discount', checkDiscountHandler);
+  router.post('/caps/checks/:id/print', printCheckHandler);
+  router.post('/caps/checks/:id/service-charges', postServiceChargesHandler);
+  router.get('/caps/checks/:id/full-details', fullDetailsHandler);
+  router.get('/caps/checks/:id/payments', checkPaymentsHandler);
+  router.get('/caps/checks/:id/discounts', checkDiscountsHandler);
+  router.get('/caps/checks/:id/service-charges', getServiceChargesHandler);
+  router.patch('/caps/checks/:id', patchCheckHandler);
+
+  router.delete('/caps/check-items/:id/discount', deleteItemDiscountHandler);
+  router.post('/caps/check-items/:id/price-override', priceOverrideHandler);
+  router.delete('/caps/check-items/:id', deleteCheckItemHandler);
+
+  router.post('/caps/check-service-charges/:id/void', voidServiceChargeHandler);
+
+  // ============================================================================
+  // Privilege Enforcement
+  // ============================================================================
+
   const DEFAULT_PRIVILEGES = [
     'fast_transaction', 'send_to_kitchen', 'void_unsent', 'void_sent',
     'apply_discount', 'admin_access', 'kds_access', 'manager_approval',
@@ -2387,6 +2514,33 @@ export function createApiRoutes(
     }
     console.warn(`[Auth] Falling back to default privileges for employee ${employee.id} — no role/assignment privileges found`);
     return DEFAULT_PRIVILEGES;
+  }
+
+  function checkPrivilege(employeeId: string | undefined, requiredPrivilege: string, managerPin?: string): { allowed: boolean; error?: any } {
+    if (!employeeId) {
+      return { allowed: false, error: { error: 'Permission denied', requiredPrivilege, employeeId: employeeId || 'unknown' } };
+    }
+    const employees = config.getEmployees();
+    const employee = employees.find((emp: any) => emp.id === employeeId);
+    if (!employee) {
+      return { allowed: false, error: { error: 'Permission denied', requiredPrivilege, employeeId } };
+    }
+    const privileges = resolveEmployeePrivileges(employee);
+    if (privileges.includes('admin_access') || privileges.includes(requiredPrivilege)) {
+      return { allowed: true };
+    }
+    if (managerPin) {
+      const manager = employees.find((emp: any) =>
+        emp.pinHash === managerPin || emp.pin_hash === managerPin || emp.pin === managerPin || emp.posPin === managerPin || emp.pos_pin === managerPin
+      );
+      if (manager) {
+        const managerPrivs = resolveEmployeePrivileges(manager);
+        if (managerPrivs.includes('admin_access') || managerPrivs.includes(requiredPrivilege)) {
+          return { allowed: true };
+        }
+      }
+    }
+    return { allowed: false, error: { error: 'Permission denied', requiredPrivilege, employeeId } };
   }
 
   router.post('/auth/login', (req, res) => {

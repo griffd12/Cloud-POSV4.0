@@ -3125,6 +3125,13 @@ function registerProtocolInterceptor() {
     const isWriteMethod = request.method !== 'GET' && request.method !== 'HEAD';
     if (isCapsTransactionRoute) {
       const capsUrl = getCapsServiceHostUrl();
+      if (!capsUrl) {
+        appLogger.error('Interceptor', `CAPS-FIRST: No CAPS URL configured for ${request.method} ${url.pathname} — BLOCKING (cloud never in transactional path)`);
+        return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
+        });
+      }
       if (capsUrl) {
         try {
           let capsPath = url.pathname;
@@ -3139,7 +3146,7 @@ function registerProtocolInterceptor() {
           } else if (capsPath.startsWith('/api/checks')) {
             capsPath = capsPath.replace('/api/checks', '/api/caps/checks');
           } else if (capsPath.startsWith('/api/payments')) {
-            capsPath = capsPath.replace('/api/payments', '/api/payment');
+            capsPath = capsPath.replace('/api/payments', '/api/caps/payments');
           } else if (capsPath.startsWith('/api/refunds')) {
             capsPath = capsPath.replace('/api/refunds', '/api/payment');
           }
@@ -3159,37 +3166,37 @@ function registerProtocolInterceptor() {
             body: capsBody,
             signal: AbortSignal.timeout(5000),
           });
-          if (capsResp.status !== 401 && capsResp.status !== 404) {
-            appLogger.info('Interceptor', `CAPS-FIRST: ${request.method} ${url.pathname} -> ${capsPath} CAPS ${capsResp.status} [mode=${connectionMode}]`);
-            return new Response(capsResp.body, {
-              status: capsResp.status,
-              statusText: capsResp.statusText,
-              headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
+          appLogger.info('Interceptor', `CAPS-FIRST: ${request.method} ${url.pathname} -> ${capsPath} CAPS ${capsResp.status} [mode=${connectionMode}]`);
+          if (capsResp.status === 404) {
+            return new Response(JSON.stringify({ error: 'Not found', source: 'caps' }), {
+              status: 404,
+              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
             });
           }
-          if (isWriteMethod) {
-            appLogger.error('Interceptor', `CAPS-FIRST: CAPS returned ${capsResp.status} for WRITE ${request.method} ${capsPath} — BLOCKING (cloud never in write path)`);
-            return new Response(JSON.stringify({ error: 'Store server rejected the request', capsStatus: capsResp.status, path: capsPath }), {
-              status: capsResp.status === 404 ? 404 : 503,
-              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
-            });
-          }
-          appLogger.info('Interceptor', `CAPS-FIRST: CAPS returned ${capsResp.status} for READ ${capsPath}, falling through to cloud`);
+          return new Response(capsResp.body, {
+            status: capsResp.status,
+            statusText: capsResp.statusText,
+            headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
+          });
         } catch (capsFirstErr) {
-          if (isWriteMethod) {
-            appLogger.error('Interceptor', `CAPS-FIRST: CAPS unreachable for WRITE ${request.method} ${url.pathname} — BLOCKING (${capsFirstErr.message})`);
-            return new Response(JSON.stringify({ error: 'Store server unreachable — cannot process write', detail: capsFirstErr.message }), {
-              status: 503,
-              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
-            });
-          }
-          appLogger.warn('Interceptor', `CAPS-FIRST: CAPS unreachable for READ ${url.pathname} (${capsFirstErr.message}), falling through to cloud`);
+          appLogger.error('Interceptor', `CAPS-FIRST: CAPS unreachable for ${request.method} ${url.pathname} — BLOCKING (${capsFirstErr.message})`);
+          return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
+          });
         }
       }
     }
 
     if (isCapsAuthRoute) {
       const capsUrl = getCapsServiceHostUrl();
+      if (!capsUrl) {
+        appLogger.error('Interceptor', `CAPS-AUTH: No CAPS URL configured for ${request.method} ${url.pathname} — BLOCKING (cloud never in auth path)`);
+        return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
+        });
+      }
       if (capsUrl) {
         try {
           const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
@@ -3209,23 +3216,17 @@ function registerProtocolInterceptor() {
             signal: AbortSignal.timeout(3000),
           });
           appLogger.info('Interceptor', `CAPS-AUTH: ${request.method} ${url.pathname} -> CAPS ${capsResp.status} [mode=${connectionMode}]`);
-          if (capsResp.ok || isWriteMethod) {
-            return new Response(capsResp.body, {
-              status: capsResp.status,
-              statusText: capsResp.statusText,
-              headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
-            });
-          }
-          appLogger.info('Interceptor', `CAPS-AUTH: CAPS returned ${capsResp.status} for READ ${url.pathname}, falling through to cloud`);
+          return new Response(capsResp.body, {
+            status: capsResp.status,
+            statusText: capsResp.statusText,
+            headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
+          });
         } catch (capsAuthErr) {
-          if (isWriteMethod) {
-            appLogger.error('Interceptor', `CAPS-AUTH: CAPS unreachable for WRITE ${request.method} ${url.pathname} — BLOCKING (${capsAuthErr.message})`);
-            return new Response(JSON.stringify({ error: 'Store server unreachable — cannot authenticate', detail: capsAuthErr.message }), {
-              status: 503,
-              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
-            });
-          }
-          appLogger.warn('Interceptor', `CAPS-AUTH: CAPS unreachable for ${url.pathname} (${capsAuthErr.message}), falling through to cloud`);
+          appLogger.error('Interceptor', `CAPS-AUTH: CAPS unreachable for ${request.method} ${url.pathname} — BLOCKING (${capsAuthErr.message})`);
+          return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
+          });
         }
       }
     }
@@ -3393,12 +3394,26 @@ function registerProtocolInterceptor() {
             headers: { 'Content-Type': 'application/json', 'X-Local-First': 'true', 'X-Connection-Mode': connectionMode },
           });
         } else if (connectionMode === 'green') {
+          if (isCapsTransactionRoute || isCapsAuthRoute) {
+            appLogger.error('Interceptor', `GREEN-FALLTHROUGH BLOCKED: ${request.method} ${url.pathname} is a CAPS route — not falling through to cloud`);
+            return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
+            });
+          }
           appLogger.info('Interceptor', `GREEN-FALLTHROUGH: ${request.method} ${url.pathname} -> cloud (interceptor returned null)`);
           return electronNet.fetch(cloudFallbackClone, { bypassCustomProtocolHandlers: true });
         }
       }
       if (!interceptorHandled) {
         if (connectionMode === 'green') {
+          if (isCapsTransactionRoute || isCapsAuthRoute) {
+            appLogger.error('Interceptor', `GREEN-FALLTHROUGH BLOCKED: ${request.method} ${url.pathname} is a CAPS route — not falling through to cloud`);
+            return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
+            });
+          }
           appLogger.info('Interceptor', `GREEN-FALLTHROUGH: ${request.method} ${url.pathname} -> cloud (not handled offline)`);
           return electronNet.fetch(cloudFallbackClone, { bypassCustomProtocolHandlers: true });
         } else {
@@ -3483,16 +3498,19 @@ function registerProtocolInterceptor() {
             signal: AbortSignal.timeout(3000),
           });
           appLogger.info('Interceptor', `YELLOW mode -> CAPS: ${request.method} ${url.pathname} -> ${capsResponse.status}`);
-          if (capsResponse.status === 401 || capsResponse.status === 404) {
-            if (isWriteMethod) {
-              appLogger.error('Interceptor', `YELLOW mode: CAPS returned ${capsResponse.status} for WRITE ${request.method} ${url.pathname} — returning CAPS response (cloud never in write path)`);
-              return new Response(capsResponse.body, {
-                status: capsResponse.status,
-                statusText: capsResponse.statusText,
-                headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': 'yellow', 'X-Source': 'caps' },
-              });
-            }
-            appLogger.warn('Interceptor', `YELLOW mode: CAPS returned ${capsResponse.status} for READ ${url.pathname}, trying offline cache`);
+          if (capsResponse.status === 404) {
+            appLogger.info('Interceptor', `YELLOW mode: CAPS returned 404 for ${request.method} ${url.pathname} — returning to UI (no offline cache fallback)`);
+            return new Response(JSON.stringify({ error: 'Not found', source: 'caps' }), {
+              status: 404,
+              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': 'yellow', 'X-Source': 'caps' },
+            });
+          }
+          if (capsResponse.status === 401) {
+            return new Response(capsResponse.body, {
+              status: capsResponse.status,
+              statusText: capsResponse.statusText,
+              headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': 'yellow', 'X-Source': 'caps' },
+            });
           } else {
             return new Response(capsResponse.body, {
               status: capsResponse.status,
@@ -3595,25 +3613,7 @@ function registerProtocolInterceptor() {
         }
       }
 
-      if (response.ok && isApiRequest && request.method === 'GET' && enhancedOfflineDb) {
-        const singleCheckReadMatch = url.pathname.match(/^\/api\/checks\/([0-9a-f][^/]*)$/);
-        if (singleCheckReadMatch) {
-          const persistClone = response.clone();
-          (async () => {
-            try {
-              const ct = persistClone.headers.get('content-type') || '';
-              if (!ct.includes('json')) return;
-              const cloudData = await persistClone.json();
-              if (cloudData && cloudData.check && cloudData.check.id) {
-                const checkToSave = { ...cloudData.check, items: cloudData.items || [], payments: cloudData.payments || [] };
-                enhancedOfflineDb.saveOfflineCheck(checkToSave);
-              }
-            } catch (e) {
-              appLogger.debug('Interceptor', `Failed to persist cloud check read locally: ${e.message}`);
-            }
-          })();
-        }
-      }
+      // Cloud check warm-sync removed: reads never reach cloud for transactional data
 
       if (response.ok && isApiRequest && /^\/api\/checks/.test(url.pathname) && request.method !== 'GET' && connectionMode === 'green') {
         const capsUrl = getCapsServiceHostUrl();
