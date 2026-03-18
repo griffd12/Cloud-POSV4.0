@@ -942,7 +942,19 @@ export function createApiRoutes(
   router.get('/config/kds-devices', (req, res) => {
     try {
       const kdsDevices = config.getKdsDevices();
-      res.json(kdsDevices);
+      const orderDevices = config.getOrderDevices();
+      const enriched = kdsDevices.map((d: any) => {
+        const linkedOrderDevices = orderDevices.filter((od: any) => {
+          if (od.kdsDeviceId === d.id || od.kds_device_id === d.id) return true;
+          if (caps.db) {
+            const odKdsLinks = caps.db.getOrderDeviceKds(od.id);
+            return odKdsLinks.some((link: any) => link.kds_device_id === d.id);
+          }
+          return false;
+        });
+        return { ...d, orderDevices: linkedOrderDevices };
+      });
+      res.json(enriched);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
