@@ -161,7 +161,7 @@ class PrintAgentService {
       const wsUrl = this.serverUrl
         .replace(/^https:/, 'wss:')
         .replace(/^http:/, 'ws:')
-        .replace(/\/$/, '') + '/ws/print-agents';
+        .replace(/\/$/, '') + '/ws';
 
       printLogger.info('Connect', `Connecting to ${wsUrl}`);
 

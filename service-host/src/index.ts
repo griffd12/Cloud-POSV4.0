@@ -219,6 +219,7 @@ class ServiceHost {
   private kdsController: KdsController;
   private paymentController: PaymentController;
   private deviceTracker: CapsDeviceTracker;
+  private printAgentClients: Map<WebSocket, { agentId: string; agentName: string; authenticatedAt: string }> = new Map();
   private cloudHeartbeatInterval: ReturnType<typeof setInterval> | null = null;
   private readiness = {
     dbReady: false,
@@ -398,7 +399,13 @@ class ServiceHost {
       });
       
       ws.on('close', () => {
-        console.log('Workstation disconnected');
+        const printAgent = this.printAgentClients.get(ws);
+        if (printAgent) {
+          console.log(`[PrintAgent] ${printAgent.agentName} disconnected`);
+          this.printAgentClients.delete(ws);
+        } else {
+          console.log('Workstation disconnected');
+        }
         this.kdsController.removeClient(ws);
       });
     });
@@ -433,6 +440,32 @@ class ServiceHost {
         break;
       case 'kds_recall':
         this.kdsController.recallTicket(message.ticketId);
+        break;
+      case 'HELLO': {
+        const agentId = message.agentId || `print-agent-${Date.now()}`;
+        const agentName = message.agentName || `Print Agent (${agentId.substring(0, 8)})`;
+        console.log(`[PrintAgent] HELLO from ${agentName} (${agentId})`);
+        this.printAgentClients.set(ws, { agentId, agentName, authenticatedAt: new Date().toISOString() });
+        ws.send(JSON.stringify({
+          type: 'AUTH_OK',
+          agentId,
+          agentName,
+          propertyId: this.config.propertyId,
+          serviceHostId: this.config.serviceHostId,
+        }));
+        break;
+      }
+      case 'HEARTBEAT':
+        ws.send(JSON.stringify({ type: 'HEARTBEAT_ACK', timestamp: new Date().toISOString() }));
+        break;
+      case 'PING':
+        ws.send(JSON.stringify({ type: 'PONG', timestamp: new Date().toISOString() }));
+        break;
+      case 'JOB_RESULT':
+        console.log(`[PrintAgent] Job result: ${message.jobId} -> ${message.status}`);
+        break;
+      case 'PRINTER_DISCOVERY_RESULT':
+        console.log(`[PrintAgent] Discovered ${(message.printers || []).length} printers from agent ${message.agentId}`);
         break;
       default:
         console.log('Unknown WebSocket message type:', message.type);
