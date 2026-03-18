@@ -3120,7 +3120,7 @@ function registerProtocolInterceptor() {
 
     // CAPS-FIRST routing: All live POS/KDS operations go to CAPS first
     // Cloud is NEVER in the blocking write path (Architecture Contract Rule B)
-    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments|refunds|kds-tickets|time-punches|time-clock)(\/|$)/.test(url.pathname);
+    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments|refunds|kds-tickets|time-punches|time-clock|item-availability|cash-drawer-kick)(\/|$)/.test(url.pathname);
     const isCapsAuthRoute = isApiRequest && /^\/api\/(auth\/login|auth\/pin|auth\/manager-approval)(\/|$)/.test(url.pathname);
     const isWriteMethod = request.method !== 'GET' && request.method !== 'HEAD';
     if (isCapsTransactionRoute) {
@@ -3476,7 +3476,15 @@ function registerProtocolInterceptor() {
           });
           appLogger.info('Interceptor', `YELLOW mode -> CAPS: ${request.method} ${url.pathname} -> ${capsResponse.status}`);
           if (capsResponse.status === 401 || capsResponse.status === 404) {
-            appLogger.warn('Interceptor', `YELLOW->RED fallback: CAPS returned ${capsResponse.status} for ${request.method} ${url.pathname}`);
+            if (isWriteMethod) {
+              appLogger.error('Interceptor', `YELLOW mode: CAPS returned ${capsResponse.status} for WRITE ${request.method} ${url.pathname} — returning CAPS response (cloud never in write path)`);
+              return new Response(capsResponse.body, {
+                status: capsResponse.status,
+                statusText: capsResponse.statusText,
+                headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': 'yellow', 'X-Source': 'caps' },
+              });
+            }
+            appLogger.warn('Interceptor', `YELLOW mode: CAPS returned ${capsResponse.status} for READ ${url.pathname}, trying offline cache`);
           } else {
             return new Response(capsResponse.body, {
               status: capsResponse.status,
