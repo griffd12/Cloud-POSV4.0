@@ -17,6 +17,8 @@ const logger = getLogger('TransactionSync');
 export class TransactionSync {
   private db: Database;
   private cloud: CloudConnection;
+  private serviceHostId: string;
+  private propertyId: string;
   private workerTimer: NodeJS.Timeout | null = null;
   private syncInterval: number = 5000;
   private circuitBreaker: CircuitBreaker;
@@ -25,9 +27,11 @@ export class TransactionSync {
   private maxConsecutiveFailures: number = 10;
   private lastCloudDisconnectLogged: boolean = false;
   
-  constructor(db: Database, cloud: CloudConnection) {
+  constructor(db: Database, cloud: CloudConnection, serviceHostId?: string, propertyId?: string) {
     this.db = db;
     this.cloud = cloud;
+    this.serviceHostId = serviceHostId || '';
+    this.propertyId = propertyId || '';
     this.circuitBreaker = getCircuitBreaker('cloud-sync', {
       failureThreshold: 5,
       recoveryTimeMs: 60000,
@@ -152,6 +156,9 @@ export class TransactionSync {
       const result = await this.circuitBreaker.execute(() =>
         this.cloud.post<JournalSyncResponse>('/api/sync/transactions', {
           batch: true,
+          serviceHostId: this.serviceHostId,
+          propertyId: this.propertyId,
+          businessDate: entries[0]?.business_date || new Date().toISOString().split('T')[0],
           transactions,
         })
       );

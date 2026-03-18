@@ -3128,7 +3128,15 @@ function registerProtocolInterceptor() {
       if (capsUrl) {
         try {
           let capsPath = url.pathname;
-          if (capsPath.startsWith('/api/checks')) {
+          if (capsPath.startsWith('/api/check-items')) {
+            capsPath = capsPath.replace('/api/check-items', '/api/caps/check-items');
+          } else if (capsPath.startsWith('/api/check-payments')) {
+            capsPath = capsPath.replace('/api/check-payments', '/api/caps/check-payments');
+          } else if (capsPath.startsWith('/api/check-discounts')) {
+            capsPath = capsPath.replace('/api/check-discounts', '/api/caps/check-discounts');
+          } else if (capsPath.startsWith('/api/check-service-charges')) {
+            capsPath = capsPath.replace('/api/check-service-charges', '/api/caps/check-service-charges');
+          } else if (capsPath.startsWith('/api/checks')) {
             capsPath = capsPath.replace('/api/checks', '/api/caps/checks');
           } else if (capsPath.startsWith('/api/payments')) {
             capsPath = capsPath.replace('/api/payments', '/api/payment');

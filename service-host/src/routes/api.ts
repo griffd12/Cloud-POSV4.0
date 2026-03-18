@@ -71,7 +71,7 @@ export function createApiRoutes(
     try {
       const { workstationId } = req.body;
       const items = caps.addItems(req.params.id, req.body.items || [req.body], workstationId);
-      res.json({ items });
+      res.status(201).json(items[0]);
     } catch (e) {
       const error = e as Error;
       if (error.message.includes('locked by another')) {
@@ -95,6 +95,7 @@ export function createApiRoutes(
           kds.createTicket({
             checkId: check.id,
             checkNumber: check.checkNumber,
+            roundNumber: result.roundNumber,
             orderType: check.orderType,
             items: unsentItems.map(i => ({
               name: i.name,
@@ -128,7 +129,7 @@ export function createApiRoutes(
   });
   
   // Add payment
-  router.post('/caps/checks/:id/pay', (req, res) => {
+  const payHandler = (req: any, res: any) => {
     try {
       const { workstationId, ...paymentParams } = req.body;
       const payment = caps.addPayment(req.params.id, paymentParams, workstationId);
@@ -140,7 +141,9 @@ export function createApiRoutes(
       }
       res.status(400).json({ error: error.message });
     }
-  });
+  };
+  router.post('/caps/checks/:id/pay', payHandler);
+  router.post('/caps/checks/:id/payments', payHandler);
   
   // Close check
   router.post('/caps/checks/:id/close', (req, res) => {
@@ -169,6 +172,170 @@ export function createApiRoutes(
         return res.status(409).json({ error: error.message });
       }
       res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // Cancel transaction - void all unsent items
+  router.post('/caps/checks/:id/cancel-transaction', (req, res) => {
+    try {
+      const { workstationId, employeeId, reason } = req.body;
+      const check = caps.getCheck(req.params.id);
+      if (!check) {
+        return res.status(404).json({ error: 'Check not found' });
+      }
+      
+      const unsentItems = check.items.filter(i => !i.sentToKitchen && !i.voided);
+      const previouslySentItems = check.items.filter(i => i.sentToKitchen && !i.voided);
+      
+      for (const item of unsentItems) {
+        caps.voidItem(req.params.id, item.id, reason || 'Transaction cancelled', workstationId);
+      }
+      
+      if (previouslySentItems.length === 0) {
+        caps.closeCheck(req.params.id, workstationId);
+      }
+      
+      const updatedCheck = caps.getCheck(req.params.id);
+      res.json({
+        success: true,
+        itemsVoided: unsentItems.length,
+        checkStatus: updatedCheck?.status || 'closed',
+      });
+    } catch (e) {
+      const error = e as Error;
+      if (error.message.includes('locked by another')) {
+        return res.status(409).json({ error: error.message });
+      }
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // ============================================================================
+  // CHECK ITEMS - Direct item operations (flat URL structure matching cloud API)
+  // ============================================================================
+  
+  // Update item modifiers
+  router.patch('/caps/check-items/:id/modifiers', (req, res) => {
+    try {
+      const itemId = req.params.id;
+      const { modifiers, workstationId } = req.body;
+      
+      const itemRow = db?.get<{ check_id: string }>('SELECT check_id FROM check_items WHERE id = ?', [itemId]);
+      if (!itemRow) {
+        return res.status(404).json({ error: 'Check item not found' });
+      }
+      
+      const modifiersJson = JSON.stringify(modifiers || []);
+      db?.run(
+        'UPDATE check_items SET modifiers = ?, modifiers_json = ? WHERE id = ?',
+        [modifiersJson, modifiersJson, itemId]
+      );
+      
+      caps.recalculateTotals(itemRow.check_id);
+      
+      const check = caps.getCheck(itemRow.check_id);
+      const updatedItem = check?.items.find(i => i.id === itemId);
+      res.json(updatedItem || { id: itemId, modifiers });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+  
+  // Also support PUT for modifiers
+  router.put('/caps/check-items/:id/modifiers', (req, res) => {
+    try {
+      const itemId = req.params.id;
+      const { modifiers, workstationId } = req.body;
+      
+      const itemRow = db?.get<{ check_id: string }>('SELECT check_id FROM check_items WHERE id = ?', [itemId]);
+      if (!itemRow) {
+        return res.status(404).json({ error: 'Check item not found' });
+      }
+      
+      const modifiersJson = JSON.stringify(modifiers || []);
+      db?.run(
+        'UPDATE check_items SET modifiers = ?, modifiers_json = ? WHERE id = ?',
+        [modifiersJson, modifiersJson, itemId]
+      );
+      
+      caps.recalculateTotals(itemRow.check_id);
+      
+      const check = caps.getCheck(itemRow.check_id);
+      const updatedItem = check?.items.find(i => i.id === itemId);
+      res.json(updatedItem || { id: itemId, modifiers });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+  
+  // Void item by item ID (flat URL)
+  router.post('/caps/check-items/:id/void', (req, res) => {
+    try {
+      const itemId = req.params.id;
+      const { reason, workstationId, employeeId } = req.body;
+      
+      const itemRow = db?.get<{ check_id: string }>('SELECT check_id FROM check_items WHERE id = ?', [itemId]);
+      if (!itemRow) {
+        return res.status(404).json({ error: 'Check item not found' });
+      }
+      
+      caps.voidItem(itemRow.check_id, itemId, reason, workstationId);
+      res.json({ success: true });
+    } catch (e) {
+      const error = e as Error;
+      if (error.message.includes('locked by another')) {
+        return res.status(409).json({ error: error.message });
+      }
+      res.status(400).json({ error: error.message });
+    }
+  });
+  
+  // Apply discount to item by item ID (flat URL)
+  router.post('/caps/check-items/:id/discount', (req, res) => {
+    try {
+      const itemId = req.params.id;
+      const { discountId, employeeId, managerPin, workstationId } = req.body;
+      
+      const itemRow = db?.get<{ check_id: string; name: string; unit_price: number; quantity: number }>(
+        'SELECT check_id, name, unit_price, quantity FROM check_items WHERE id = ?', [itemId]
+      );
+      if (!itemRow) {
+        return res.status(404).json({ error: 'Check item not found' });
+      }
+      
+      let discountName = 'Item Discount';
+      let discountType = 'amount';
+      let discountAmount = 0;
+      
+      if (discountId && db) {
+        const discount = db.get<{ name: string; discount_type: string; value: number; rate: number }>(
+          'SELECT name, discount_type, value, rate FROM discounts WHERE id = ?', [discountId]
+        );
+        if (discount) {
+          discountName = discount.name;
+          discountType = discount.discount_type;
+          const itemTotal = itemRow.unit_price * itemRow.quantity;
+          if (discount.discount_type === 'percent') {
+            discountAmount = itemTotal * (discount.rate / 100);
+          } else {
+            discountAmount = discount.value;
+          }
+          discountAmount = Math.min(discountAmount, itemTotal);
+        }
+      }
+      
+      const result = caps.addDiscount(itemRow.check_id, {
+        discountId,
+        checkItemId: itemId,
+        name: discountName,
+        type: discountType,
+        amount: discountAmount,
+        employeeId,
+      });
+      
+      res.json(result);
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
     }
   });
   

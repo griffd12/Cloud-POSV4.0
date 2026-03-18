@@ -237,7 +237,7 @@ class ServiceHost {
     
     // Initialize sync services
     this.configSync = new ConfigSync(this.db, this.cloudConnection, config.propertyId);
-    this.transactionSync = new TransactionSync(this.db, this.cloudConnection);
+    this.transactionSync = new TransactionSync(this.db, this.cloudConnection, config.serviceHostId, config.propertyId);
     this.calSync = new CalSync(this.db, this.cloudConnection, config.serviceHostId, config.dataDir, config.calRootDir);
     
     // Initialize service controllers

@@ -54,12 +54,13 @@ export class KdsController {
     const id = randomUUID();
     
     this.db.run(
-      `INSERT INTO kds_tickets (id, check_id, check_number, order_type, items, station_id, status, priority)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
+      `INSERT INTO kds_tickets (id, check_id, check_number, round_number, order_type, items, station_id, status, priority)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
       [
         id,
         params.checkId,
         params.checkNumber,
+        params.roundNumber || 0,
         params.orderType,
         JSON.stringify(params.items),
         params.stationId,
@@ -300,6 +301,7 @@ export class KdsController {
 interface CreateTicketParams {
   checkId: string;
   checkNumber: number;
+  roundNumber?: number;
   orderType?: string;
   items: KdsItem[];
   stationId?: string;
