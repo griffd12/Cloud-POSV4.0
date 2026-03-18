@@ -2948,8 +2948,8 @@ export function createApiRoutes(
   });
   router.post('/kds-tickets/bump-all', (req, res) => {
     try {
-      const { stationId, kdsDeviceId, deviceId } = req.body;
-      const effectiveStation = stationId || kdsDeviceId || deviceId;
+      const { stationId, stationType, kdsDeviceId, deviceId } = req.body;
+      const effectiveStation = stationId || stationType || kdsDeviceId || deviceId;
       const tickets = kds.getActiveTickets(effectiveStation);
       let bumped = 0;
       for (const ticket of tickets) {

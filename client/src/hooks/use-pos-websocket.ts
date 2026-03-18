@@ -61,7 +61,7 @@ export function usePosWebSocket() {
           try {
             const shUrl = new URL(serviceHostUrl);
             const wsProtocol = shUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-            wsUrl = `${wsProtocol}//${shUrl.host}/ws/kds`;
+            wsUrl = `${wsProtocol}//${shUrl.host}/ws`;
           } catch {
             reconnectTimeoutRef.current = setTimeout(connect, 10000);
             return;
