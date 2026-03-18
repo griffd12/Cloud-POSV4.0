@@ -2456,7 +2456,8 @@ async function initPrintAgent() {
   }
 
   printAgent = new PrintAgentService({
-    serverUrl: getServerUrl(),
+    capsUrl: getCapsServiceHostUrl() || getServerUrl(),
+    serverUrl: getCapsServiceHostUrl() || getServerUrl(),
     agentId: config.printAgentId || null,
     agentToken: config.printAgentToken || null,
     configDir: CONFIG_DIR,
@@ -3106,445 +3107,100 @@ function registerProtocolInterceptor() {
       return electronNet.fetch(request, { bypassCustomProtocolHandlers: true });
     }
 
-    if (url.pathname === '/health' || url.pathname === '/api/health/db-probe') {
-      if (!isOnline) {
-        return new Response(JSON.stringify({ status: 'offline', offline: true, timestamp: new Date().toISOString() }), {
-          status: 503,
-          headers: { 'Content-Type': 'application/json', 'X-Offline-Mode': 'true' },
-        });
-      }
-      return electronNet.fetch(request, { bypassCustomProtocolHandlers: true });
-    }
-
     const isApiRequest = url.pathname.startsWith('/api/');
-
-    // CAPS-FIRST routing: All live POS/KDS operations go to CAPS first
-    // Cloud is NEVER in the blocking write path (Architecture Contract Rule B)
-    const isCapsTransactionRoute = isApiRequest && /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges|payments|refunds|kds-tickets|time-punches|time-clock|item-availability|cash-drawer-kick|terminal-sessions)(\/|$)/.test(url.pathname);
-    const isCapsAuthRoute = isApiRequest && /^\/api\/(auth\/login|auth\/pin|auth\/manager-approval)(\/|$)/.test(url.pathname);
     const isWriteMethod = request.method !== 'GET' && request.method !== 'HEAD';
-    if (isCapsTransactionRoute) {
+
+    // ========================================================================
+    // CAPS-ONLY ARCHITECTURE: All API requests go to CAPS. No cloud fallback.
+    // Electron is a terminal UI only — it does not route, decide, or fallback.
+    // ========================================================================
+
+    if (isApiRequest) {
       const capsUrl = getCapsServiceHostUrl();
       if (!capsUrl) {
-        appLogger.error('Interceptor', `CAPS-FIRST: No CAPS URL configured for ${request.method} ${url.pathname} — BLOCKING (cloud never in transactional path)`);
+        appLogger.error('Interceptor', `CAPS: No CAPS URL configured for ${request.method} ${url.pathname} — BLOCKING`);
         return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
           status: 503,
           headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
         });
       }
-      if (capsUrl) {
-        try {
-          let capsPath = url.pathname;
-          if (capsPath.startsWith('/api/check-items')) {
-            capsPath = capsPath.replace('/api/check-items', '/api/caps/check-items');
-          } else if (capsPath.startsWith('/api/check-payments')) {
-            capsPath = capsPath.replace('/api/check-payments', '/api/caps/check-payments');
-          } else if (capsPath.startsWith('/api/check-discounts')) {
-            capsPath = capsPath.replace('/api/check-discounts', '/api/caps/check-discounts');
-          } else if (capsPath.startsWith('/api/check-service-charges')) {
-            capsPath = capsPath.replace('/api/check-service-charges', '/api/caps/check-service-charges');
-          } else if (capsPath.startsWith('/api/checks')) {
-            capsPath = capsPath.replace('/api/checks', '/api/caps/checks');
-          } else if (capsPath.startsWith('/api/payments')) {
-            capsPath = capsPath.replace('/api/payments', '/api/caps/payments');
-          } else if (capsPath.startsWith('/api/refunds')) {
-            capsPath = capsPath.replace('/api/refunds', '/api/payment');
-          }
-          const capsApiUrl = `${capsUrl}${capsPath}${url.search}`;
-          const capsReqHeaders = {};
-          for (const [key, value] of request.headers.entries()) {
-            if (key.toLowerCase() !== 'host') capsReqHeaders[key] = value;
-          }
-          const cfgForCaps = loadConfig();
-          if (cfgForCaps.serviceHostToken) capsReqHeaders['x-workstation-token'] = cfgForCaps.serviceHostToken;
-          if (cfgForCaps.deviceId) capsReqHeaders['x-workstation-id'] = cfgForCaps.deviceId;
-          if (cfgForCaps.deviceName) capsReqHeaders['x-device-name'] = cfgForCaps.deviceName;
-          const capsBody = isWriteMethod ? await request.clone().arrayBuffer() : undefined;
-          const capsResp = await fetch(capsApiUrl, {
-            method: request.method,
-            headers: capsReqHeaders,
-            body: capsBody,
-            signal: AbortSignal.timeout(5000),
-          });
-          appLogger.info('Interceptor', `CAPS-FIRST: ${request.method} ${url.pathname} -> ${capsPath} CAPS ${capsResp.status} [mode=${connectionMode}]`);
-          if (capsResp.status === 404) {
-            return new Response(JSON.stringify({ error: 'Not found', source: 'caps' }), {
-              status: 404,
-              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
-            });
-          }
-          return new Response(capsResp.body, {
-            status: capsResp.status,
-            statusText: capsResp.statusText,
-            headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
-          });
-        } catch (capsFirstErr) {
-          appLogger.error('Interceptor', `CAPS-FIRST: CAPS unreachable for ${request.method} ${url.pathname} — BLOCKING (${capsFirstErr.message})`);
-          return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
-            status: 503,
-            headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
-          });
-        }
-      }
-    }
 
-    if (isCapsAuthRoute) {
-      const capsUrl = getCapsServiceHostUrl();
-      if (!capsUrl) {
-        appLogger.error('Interceptor', `CAPS-AUTH: No CAPS URL configured for ${request.method} ${url.pathname} — BLOCKING (cloud never in auth path)`);
-        return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
-          status: 503,
-          headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
+      try {
+        let capsPath = url.pathname;
+        if (capsPath.startsWith('/api/check-items')) {
+          capsPath = capsPath.replace('/api/check-items', '/api/caps/check-items');
+        } else if (capsPath.startsWith('/api/check-payments')) {
+          capsPath = capsPath.replace('/api/check-payments', '/api/caps/check-payments');
+        } else if (capsPath.startsWith('/api/check-discounts')) {
+          capsPath = capsPath.replace('/api/check-discounts', '/api/caps/check-discounts');
+        } else if (capsPath.startsWith('/api/check-service-charges')) {
+          capsPath = capsPath.replace('/api/check-service-charges', '/api/caps/check-service-charges');
+        } else if (capsPath.startsWith('/api/checks')) {
+          capsPath = capsPath.replace('/api/checks', '/api/caps/checks');
+        } else if (capsPath.startsWith('/api/payments')) {
+          capsPath = capsPath.replace('/api/payments', '/api/caps/payments');
+        } else if (capsPath.startsWith('/api/refunds')) {
+          capsPath = capsPath.replace('/api/refunds', '/api/caps/refunds');
+        }
+        const capsApiUrl = `${capsUrl}${capsPath}${url.search}`;
+        const capsReqHeaders = {};
+        for (const [key, value] of request.headers.entries()) {
+          if (key.toLowerCase() !== 'host') capsReqHeaders[key] = value;
+        }
+        const cfgForCaps = loadConfig();
+        if (cfgForCaps.serviceHostToken) capsReqHeaders['x-workstation-token'] = cfgForCaps.serviceHostToken;
+        if (cfgForCaps.deviceId) capsReqHeaders['x-workstation-id'] = cfgForCaps.deviceId;
+        if (cfgForCaps.deviceName) capsReqHeaders['x-device-name'] = cfgForCaps.deviceName;
+        const capsBody = isWriteMethod ? await request.clone().arrayBuffer() : undefined;
+        const capsResp = await fetch(capsApiUrl, {
+          method: request.method,
+          headers: capsReqHeaders,
+          body: capsBody,
+          signal: AbortSignal.timeout(8000),
         });
-      }
-      if (capsUrl) {
-        try {
-          const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
-          const capsReqHeaders = {};
-          for (const [key, value] of request.headers.entries()) {
-            if (key.toLowerCase() !== 'host') capsReqHeaders[key] = value;
-          }
-          const cfgForCaps = loadConfig();
-          if (cfgForCaps.serviceHostToken) capsReqHeaders['x-workstation-token'] = cfgForCaps.serviceHostToken;
-          if (cfgForCaps.deviceId) capsReqHeaders['x-workstation-id'] = cfgForCaps.deviceId;
-          if (cfgForCaps.deviceName) capsReqHeaders['x-device-name'] = cfgForCaps.deviceName;
-          const authBody = isWriteMethod ? await request.clone().arrayBuffer() : undefined;
-          const capsResp = await fetch(capsApiUrl, {
-            method: request.method,
-            headers: capsReqHeaders,
-            body: authBody,
-            signal: AbortSignal.timeout(3000),
-          });
-          appLogger.info('Interceptor', `CAPS-AUTH: ${request.method} ${url.pathname} -> CAPS ${capsResp.status} [mode=${connectionMode}]`);
-          return new Response(capsResp.body, {
-            status: capsResp.status,
-            statusText: capsResp.statusText,
-            headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
-          });
-        } catch (capsAuthErr) {
-          appLogger.error('Interceptor', `CAPS-AUTH: CAPS unreachable for ${request.method} ${url.pathname} — BLOCKING (${capsAuthErr.message})`);
-          return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
-            status: 503,
-            headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
-          });
-        }
-      }
-    }
+        appLogger.info('Interceptor', `CAPS: ${request.method} ${url.pathname} -> ${capsPath} ${capsResp.status}`);
 
-    if (isApiRequest && connectionMode === 'red' && isWriteMethod) {
-      appLogger.error('Interceptor', `RED mode HARD FAIL: blocking WRITE ${request.method} ${url.pathname} — CAPS unreachable (Architecture Contract: pilot hard fail)`);
-      return new Response(JSON.stringify({ error: 'Store server unreachable — POS operations disabled', mode: 'red', path: url.pathname }), {
-        status: 503,
-        headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': 'red', 'X-Source': 'red-blocked' },
-      });
-    }
+        if (capsResp.ok) {
+          if (!isOnline) {
+            isOnline = true;
+            setConnectionMode('green');
+            if (offlineInterceptor) offlineInterceptor.setOffline(false);
+            if (mainWindow) mainWindow.webContents.send('online-status', true);
+            appLogger.info('Network', 'CAPS connection restored');
+          }
+          protocolConsecutiveFailCount = 0;
+        }
 
-    if (isApiRequest && offlineInterceptor && isLocalFirstWrite(request.method, url.pathname)) {
-      const cloudFallbackClone = request.clone();
-      const body = await parseRequestBody(request);
-      const queryParams = Object.fromEntries(url.searchParams);
-      let interceptorHandled = false;
-      if (offlineInterceptor.canHandleOffline(request.method, url.pathname)) {
-        const result = offlineInterceptor.handleRequest(request.method, url.pathname, queryParams, body);
-        if (result) {
-          interceptorHandled = true;
-          appLogger.info('Interceptor', `LOCAL-FIRST: ${request.method} ${url.pathname} -> ${result.status} [mode=${connectionMode}]`);
-          broadcastSyncStatus();
-          const sendMatch = url.pathname.match(/^\/api\/checks\/([^/]+)\/send/);
-          if (sendMatch) {
-            const capsUrl = getCapsServiceHostUrl();
-            if (capsUrl) {
-              const capsCheckId = sendMatch[1];
-              const fwdConfig = loadConfig();
-              const fwdHeaders = { 'Content-Type': 'application/json' };
-              if (fwdConfig.deviceId) fwdHeaders['x-workstation-id'] = fwdConfig.deviceId;
-              if (fwdConfig.deviceName) fwdHeaders['x-device-name'] = fwdConfig.deviceName;
-              if (fwdConfig.serviceHostToken) fwdHeaders['x-workstation-token'] = fwdConfig.serviceHostToken;
-              (async () => {
-                try {
-                  if (enhancedOfflineDb && enhancedOfflineDb.syncToCaps) {
-                    appLogger.info('Interceptor', `CAPS send: syncing pending checks to CAPS before send (check ${capsCheckId})`);
-                    const syncResult = await enhancedOfflineDb.syncToCaps(capsUrl);
-                    appLogger.info('Interceptor', `CAPS send: pre-sync done - synced:${syncResult?.synced || 0} failed:${syncResult?.failed || 0}`);
-                  }
-                } catch (syncErr) {
-                  appLogger.warn('Interceptor', `CAPS send: pre-sync failed (will still attempt send): ${syncErr.message}`);
-                }
-                const capsSendUrl = `${capsUrl}/api/caps/checks/${capsCheckId}/send`;
-                const maxRetries = 3;
-                let lastError = null;
-                for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                  try {
-                    const r = await fetch(capsSendUrl, {
-                      method: 'POST',
-                      headers: fwdHeaders,
-                      body: JSON.stringify(body || {}),
-                      signal: AbortSignal.timeout(8000),
-                    });
-                    appLogger.info('Interceptor', `CAPS send-to-kitchen forwarded: ${capsCheckId} -> ${r.status} (attempt ${attempt})`);
-                    if (r.status >= 500 || r.status === 429) {
-                      const errBody = await r.text().catch(() => '');
-                      appLogger.warn('Interceptor', `CAPS send-to-kitchen server error (retryable): ${errBody}`);
-                      lastError = new Error(`Server error ${r.status}`);
-                      if (attempt < maxRetries) {
-                        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-                        continue;
-                      }
-                      break;
-                    }
-                    if (r.status >= 400) {
-                      const errBody = await r.text().catch(() => '');
-                      appLogger.warn('Interceptor', `CAPS send-to-kitchen client error (not retryable): ${errBody}`);
-                    }
-                    lastError = null;
-                    break;
-                  } catch (e) {
-                    lastError = e;
-                    appLogger.warn('Interceptor', `CAPS send-to-kitchen attempt ${attempt}/${maxRetries} failed: ${e.message}`);
-                    if (attempt < maxRetries) {
-                      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-                    }
-                  }
-                }
-                if (lastError) {
-                  appLogger.error('Interceptor', `CAPS send-to-kitchen all ${maxRetries} attempts failed for check ${capsCheckId}, queuing for retry`);
-                  if (enhancedOfflineDb && enhancedOfflineDb.queueOperation) {
-                    enhancedOfflineDb.queueOperation('kds_send_retry', `/api/caps/checks/${capsCheckId}/send`, 'POST', body || {}, 1);
-                  }
-                }
-              })();
-            }
-          }
-          const termSessionCreateMatch = url.pathname.match(/^\/api\/terminal-sessions\/?$/);
-          if (termSessionCreateMatch && request.method === 'POST') {
-            const capsUrl = getCapsServiceHostUrl();
-            if (capsUrl) {
-              const tsConfig = loadConfig();
-              const tsHeaders = { 'Content-Type': 'application/json' };
-              if (tsConfig.deviceId) tsHeaders['x-workstation-id'] = tsConfig.deviceId;
-              if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
-              let capsForwardSuccess = false;
-              for (let tsAttempt = 1; tsAttempt <= 2; tsAttempt++) {
-                try {
-                  const capsResp = await fetch(`${capsUrl}/api/terminal-sessions`, {
-                    method: 'POST',
-                    headers: tsHeaders,
-                    body: JSON.stringify(body || {}),
-                    signal: AbortSignal.timeout(5000),
-                  });
-                  if (!capsResp.ok) {
-                    const errBody = await capsResp.text().catch(() => '');
-                    appLogger.warn('Interceptor', `CAPS terminal-session create returned ${capsResp.status}: ${errBody} (attempt ${tsAttempt})`);
-                    if (tsAttempt < 2) await new Promise(r => setTimeout(r, 500));
-                    continue;
-                  }
-                  const capsData = await capsResp.json().catch(() => ({}));
-                  appLogger.info('Interceptor', `CAPS terminal-session created: ${capsResp.status} -> id=${capsData.id || 'unknown'} (attempt ${tsAttempt})`);
-                  if (capsData.id && result.data && result.data.id) {
-                    if (offlineInterceptor) {
-                      offlineInterceptor._capsTerminalSessionMap = offlineInterceptor._capsTerminalSessionMap || {};
-                      offlineInterceptor._capsTerminalSessionMap[result.data.id] = capsData.id;
-                    }
-                    result.data.capsSessionId = capsData.id;
-                  }
-                  capsForwardSuccess = true;
-                  break;
-                } catch (e) {
-                  appLogger.warn('Interceptor', `CAPS terminal-session create attempt ${tsAttempt}/2 failed: ${e.message}`);
-                  if (tsAttempt < 2) await new Promise(r => setTimeout(r, 500));
-                }
-              }
-              if (!capsForwardSuccess) {
-                appLogger.error('Interceptor', 'CAPS terminal-session create failed after 2 attempts, queuing for retry');
-                if (enhancedOfflineDb && enhancedOfflineDb.queueOperation) {
-                  enhancedOfflineDb.queueOperation('terminal_session_create', '/api/terminal-sessions', 'POST', body || {}, 1);
-                }
-                result.data.capsForwardPending = true;
-              }
-            }
-          }
-          const termSessionPatchMatch = url.pathname.match(/^\/api\/terminal-sessions\/([^/]+)$/);
-          if (termSessionPatchMatch && (request.method === 'PATCH' || request.method === 'PUT')) {
-            const capsUrl = getCapsServiceHostUrl();
-            if (capsUrl) {
-              const tsId = termSessionPatchMatch[1];
-              const mappedId = (offlineInterceptor && offlineInterceptor._capsTerminalSessionMap && offlineInterceptor._capsTerminalSessionMap[tsId]) || tsId;
-              const tsConfig = loadConfig();
-              const tsHeaders = { 'Content-Type': 'application/json' };
-              if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
-              for (let patchAttempt = 1; patchAttempt <= 2; patchAttempt++) {
-                try {
-                  const patchResp = await fetch(`${capsUrl}/api/terminal-sessions/${mappedId}`, {
-                    method: 'PATCH',
-                    headers: tsHeaders,
-                    body: JSON.stringify(body || {}),
-                    signal: AbortSignal.timeout(3000),
-                  });
-                  appLogger.info('Interceptor', `CAPS terminal-session patch: ${mappedId} -> ${patchResp.status} (attempt ${patchAttempt})`);
-                  break;
-                } catch (e) {
-                  appLogger.warn('Interceptor', `CAPS terminal-session patch attempt ${patchAttempt}/2 failed: ${e.message}`);
-                  if (patchAttempt < 2) await new Promise(r => setTimeout(r, 500));
-                }
-              }
-            }
-          }
-          return new Response(JSON.stringify(result.data), {
-            status: result.status,
-            headers: { 'Content-Type': 'application/json', 'X-Local-First': 'true', 'X-Connection-Mode': connectionMode },
-          });
-        } else if (connectionMode === 'green') {
-          if (isCapsTransactionRoute || isCapsAuthRoute) {
-            appLogger.error('Interceptor', `GREEN-FALLTHROUGH BLOCKED: ${request.method} ${url.pathname} is a CAPS route — not falling through to cloud`);
-            return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
-              status: 503,
-              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
-            });
-          }
-          appLogger.info('Interceptor', `GREEN-FALLTHROUGH: ${request.method} ${url.pathname} -> cloud (interceptor returned null)`);
-          return electronNet.fetch(cloudFallbackClone, { bypassCustomProtocolHandlers: true });
-        }
-      }
-      if (!interceptorHandled) {
-        if (connectionMode === 'green') {
-          if (isCapsTransactionRoute || isCapsAuthRoute) {
-            appLogger.error('Interceptor', `GREEN-FALLTHROUGH BLOCKED: ${request.method} ${url.pathname} is a CAPS route — not falling through to cloud`);
-            return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
-              status: 503,
-              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
-            });
-          }
-          appLogger.info('Interceptor', `GREEN-FALLTHROUGH: ${request.method} ${url.pathname} -> cloud (not handled offline)`);
-          return electronNet.fetch(cloudFallbackClone, { bypassCustomProtocolHandlers: true });
-        } else {
-          appLogger.warn('Interceptor', `OFFLINE-QUEUE: ${request.method} ${url.pathname}, queuing for sync [mode=${connectionMode}]`);
-          if (enhancedOfflineDb && enhancedOfflineDb.queueOperation) {
-            enhancedOfflineDb.queueOperation('unhandled_write', url.pathname, request.method, body || {}, 3);
-            broadcastSyncStatus();
-          }
-        }
-      }
-    }
-
-    if (isApiRequest && offlineInterceptor && isLocalFirstRead(request.method, url.pathname, url.search)) {
-      const isTerminalSessionPoll = url.pathname.match(/^\/api\/terminal-sessions\/[^/]+$/);
-      if (isTerminalSessionPoll) {
-        const capsUrl = getCapsServiceHostUrl();
-        if (capsUrl) {
-          try {
-            const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
-            const tsConfig = loadConfig();
-            const tsHeaders = { 'Content-Type': 'application/json' };
-            if (tsConfig.serviceHostToken) tsHeaders['x-workstation-token'] = tsConfig.serviceHostToken;
-            const sessionId = url.pathname.match(/^\/api\/terminal-sessions\/([^/]+)$/)[1];
-            const mappedId = (offlineInterceptor._capsTerminalSessionMap && offlineInterceptor._capsTerminalSessionMap[sessionId]) || sessionId;
-            const capsResp = await fetch(`${capsUrl}/api/terminal-sessions/${mappedId}`, {
-              method: 'GET',
-              headers: tsHeaders,
-              signal: AbortSignal.timeout(2000),
-            });
-            if (capsResp.ok) {
-              const capsData = await capsResp.json();
-              if (capsData.status && capsData.status !== 'pending') {
-                const existing = offlineInterceptor.db.getEntity('terminal_sessions', sessionId);
-                if (existing && existing.status !== capsData.status) {
-                  const updated = { ...existing, status: capsData.status, updatedAt: new Date().toISOString() };
-                  if (offlineInterceptor.db.usingSqlite) {
-                    offlineInterceptor.db.db.prepare(`
-                      UPDATE terminal_sessions SET data = ?, status = ?, updated_at = datetime('now') WHERE id = ?
-                    `).run(JSON.stringify(updated), capsData.status, sessionId);
-                  }
-                }
-              }
-              return new Response(JSON.stringify(capsData), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json', 'X-Local-First': 'true', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
-              });
-            }
-          } catch (capsErr) {
-            appLogger.debug('Interceptor', `Terminal session CAPS poll failed, using local: ${capsErr.message}`);
-          }
-        }
-      }
-      const queryParams = Object.fromEntries(url.searchParams);
-      const result = offlineInterceptor.handleRequest('GET', url.pathname, queryParams, null);
-      if (result) {
-        appLogger.info('Interceptor', `LOCAL-FIRST-READ: GET ${url.pathname} -> ${result.status} [mode=${connectionMode}]`);
-        return new Response(JSON.stringify(result.data), {
-          status: result.status,
-          headers: { 'Content-Type': 'application/json', 'X-Local-First': 'true', 'X-Connection-Mode': connectionMode },
+        return new Response(capsResp.body, {
+          status: capsResp.status,
+          statusText: capsResp.statusText,
+          headers: { ...Object.fromEntries(capsResp.headers.entries()), 'X-Connection-Mode': connectionMode, 'X-Source': 'caps' },
         });
-      }
-    }
+      } catch (capsErr) {
+        appLogger.error('Interceptor', `CAPS: unreachable for ${request.method} ${url.pathname} — ${capsErr.message}`);
 
-    if (isApiRequest && (connectionMode === 'yellow' || connectionMode === 'red')) {
-      const capsUrl = getCapsServiceHostUrl();
-      if (capsUrl && connectionMode === 'yellow') {
-        try {
-          const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
-          appLogger.info('Interceptor', `YELLOW mode -> CAPS: ${request.method} ${url.pathname}`);
-          const capsHeaders = {};
-          for (const [key, value] of request.headers.entries()) {
-            if (key.toLowerCase() !== 'host') capsHeaders[key] = value;
-          }
-          const config = loadConfig();
-          if (config.serviceHostToken) {
-            capsHeaders['x-workstation-token'] = config.serviceHostToken;
-          }
-          const capsResponse = await fetch(capsApiUrl, {
-            method: request.method,
-            headers: capsHeaders,
-            body: request.method !== 'GET' && request.method !== 'HEAD' ? await request.arrayBuffer() : undefined,
-            signal: AbortSignal.timeout(3000),
-          });
-          appLogger.info('Interceptor', `YELLOW mode -> CAPS: ${request.method} ${url.pathname} -> ${capsResponse.status}`);
-          if (capsResponse.status === 404) {
-            appLogger.info('Interceptor', `YELLOW mode: CAPS returned 404 for ${request.method} ${url.pathname} — returning to UI (no offline cache fallback)`);
-            return new Response(JSON.stringify({ error: 'Not found', source: 'caps' }), {
-              status: 404,
-              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': 'yellow', 'X-Source': 'caps' },
-            });
-          }
-          if (capsResponse.status === 401) {
-            return new Response(capsResponse.body, {
-              status: capsResponse.status,
-              statusText: capsResponse.statusText,
-              headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': 'yellow', 'X-Source': 'caps' },
-            });
-          } else {
-            return new Response(capsResponse.body, {
-              status: capsResponse.status,
-              statusText: capsResponse.statusText,
-              headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': 'yellow' },
-            });
-          }
-        } catch (capsError) {
-          appLogger.warn('Interceptor', `CAPS proxy failed: ${capsError.message}, falling to RED`);
+        protocolConsecutiveFailCount++;
+        if (protocolConsecutiveFailCount >= PROTOCOL_FAIL_THRESHOLD) {
+          isOnline = false;
           setConnectionMode('red');
-          if (offlineInterceptor) offlineInterceptor.setConnectionMode('red');
+          if (offlineInterceptor) {
+            offlineInterceptor.setOffline(true);
+            offlineInterceptor.setConnectionMode('red');
+          }
+          if (mainWindow) mainWindow.webContents.send('online-status', false);
+          appLogger.warn('Network', `CAPS connection lost after ${protocolConsecutiveFailCount} consecutive failures`);
+          protocolConsecutiveFailCount = 0;
+          checkConnectivity().catch(() => {});
         }
-      }
 
-      if (connectionMode === 'red') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          appLogger.error('Interceptor', `RED mode HARD FAIL: blocking WRITE ${request.method} ${url.pathname} — CAPS unreachable (Architecture Contract: pilot hard fail)`);
-          return new Response(JSON.stringify({ error: 'Store server unreachable — POS operations disabled', mode: 'red', path: url.pathname }), {
-            status: 503,
-            headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': 'red', 'X-Source': 'red-blocked' },
-          });
-        }
-        if (offlineInterceptor) {
-          appLogger.info('Interceptor', `RED mode -> local cache READ: ${url.pathname}`);
-          const body = await parseRequestBody(request);
-          return routeToOfflineInterceptor(request.method, url, body);
-        }
-      } else if (offlineInterceptor) {
-        appLogger.info('Interceptor', `YELLOW fallback -> local: ${request.method} ${url.pathname}`);
-        const body = await parseRequestBody(request);
-        return routeToOfflineInterceptor(request.method, url, body);
+        return new Response(JSON.stringify({ error: 'Store server unreachable' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': connectionMode, 'X-Source': 'caps-blocked' },
+        });
       }
     }
 
+    // Non-API requests: serve bundled assets or SPA fallback
     if (!isApiRequest) {
       const bundled = serveBundledAsset(url.pathname);
       if (bundled) {
@@ -3559,217 +3215,22 @@ function registerProtocolInterceptor() {
       }
     }
 
-    const failoverClone = isApiRequest ? request.clone() : null;
+    // Health checks go to cloud (config sync/reporting only)
+    if (url.pathname === '/health' || url.pathname === '/api/health/db-probe') {
+      try {
+        return await electronNet.fetch(request, { bypassCustomProtocolHandlers: true });
+      } catch {
+        return new Response(JSON.stringify({ status: 'offline', offline: true, timestamp: new Date().toISOString() }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json', 'X-Offline-Mode': 'true' },
+        });
+      }
+    }
 
+    // Non-API, non-health: try serving from bundled assets or return offline page
     try {
-      let fetchSignal;
-      if (typeof AbortSignal.timeout === 'function') {
-        fetchSignal = AbortSignal.timeout(2000);
-      } else {
-        const ac = new AbortController();
-        setTimeout(() => ac.abort(), 2000);
-        fetchSignal = ac.signal;
-      }
-      const response = await Promise.race([
-        electronNet.fetch(request, { bypassCustomProtocolHandlers: true, signal: fetchSignal }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Protocol fetch timeout (2s)')), 2500)),
-      ]);
-
-      if (response.status === 502 || response.status === 503 || response.status === 504) {
-        appLogger.warn('Interceptor', `Cloud returned ${response.status} for ${request.method} ${url.pathname} — treating as network failure`);
-        response.body?.cancel().catch(() => {});
-        checkConnectivity().catch(() => {});
-        throw new Error(`Cloud gateway error (HTTP ${response.status})`);
-      }
-
-      if (response.ok && isApiRequest) {
-        protocolConsecutiveFailCount = 0;
-      }
-
-      if (!isOnline && response.ok && isApiRequest) {
-        isOnline = true;
-        if (offlineInterceptor) offlineInterceptor.setOffline(false);
-        setConnectionMode('green');
-        if (mainWindow) mainWindow.webContents.send('online-status', true);
-        appLogger.info('Network', 'Connection restored via protocol handler');
-        triggerBackgroundSync();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          const currentUrl = mainWindow.webContents.getURL();
-          if (currentUrl.startsWith('data:')) {
-            const bundledIndex = path.join(getBundledAssetsDir(), 'index.html');
-            appLogger.info('Network', `Window stuck on error/loading page, loading bundled index.html`);
-            setTimeout(() => {
-              if (mainWindow && !mainWindow.isDestroyed()) {
-                if (fs.existsSync(bundledIndex)) {
-                  mainWindow.loadFile(bundledIndex);
-                } else {
-                  const sUrl = getServerUrl();
-                  const sPath = appMode === 'kds' ? '/kds' : '/';
-                  mainWindow.loadURL(`${sUrl}${sPath}`);
-                }
-              }
-            }, 1000);
-          }
-        }
-      }
-
-      // Cloud check warm-sync removed: reads never reach cloud for transactional data
-
-      if (response.ok && isApiRequest && /^\/api\/checks/.test(url.pathname) && request.method !== 'GET' && connectionMode === 'green') {
-        const capsUrl = getCapsServiceHostUrl();
-        if (capsUrl) {
-          const warmClone = response.clone();
-          (async () => {
-            try {
-              const contentType = warmClone.headers.get('content-type') || '';
-              if (!contentType.includes('json')) return;
-              const responseData = await warmClone.json();
-              let checkId = null;
-              const checkIdMatch = url.pathname.match(/^\/api\/checks\/([^/]+)/);
-              if (checkIdMatch) {
-                checkId = checkIdMatch[1];
-              } else if (responseData && responseData.id) {
-                checkId = responseData.id;
-              } else if (responseData && responseData.check && responseData.check.id) {
-                checkId = responseData.check.id;
-              }
-              if (!checkId) return;
-              const cloudBaseUrl = request.url.replace(url.pathname + url.search, '');
-              const warmHeaders = {};
-              for (const [key, value] of request.headers.entries()) {
-                if (key.toLowerCase() !== 'host' && key.toLowerCase() !== 'content-type' && key.toLowerCase() !== 'content-length') {
-                  warmHeaders[key] = value;
-                }
-              }
-              const fullCheckResp = await electronNet.fetch(`${cloudBaseUrl}/api/checks/${checkId}`, {
-                headers: warmHeaders,
-                bypassCustomProtocolHandlers: true,
-                signal: AbortSignal.timeout(4000),
-              });
-              if (!fullCheckResp.ok) {
-                appLogger.warn('Interceptor', `GREEN->CAPS warm sync: cloud GET /api/checks/${checkId} returned ${fullCheckResp.status}`);
-                return;
-              }
-              const fullData = await fullCheckResp.json();
-              const checkState = fullData.check ? { ...fullData.check, items: fullData.items || [], payments: fullData.payments || [] } : responseData;
-              if (!checkState.id) return;
-              const syncHeaders = { 'Content-Type': 'application/json' };
-              const warmConfig = loadConfig();
-              if (warmConfig.serviceHostToken) syncHeaders['x-workstation-token'] = warmConfig.serviceHostToken;
-              if (warmConfig.deviceId) syncHeaders['x-workstation-id'] = warmConfig.deviceId;
-              const syncResp = await fetch(`${capsUrl}/api/caps/sync/check-state`, {
-                method: 'POST',
-                headers: syncHeaders,
-                body: JSON.stringify(checkState),
-                signal: AbortSignal.timeout(5000),
-              });
-              appLogger.info('Interceptor', `GREEN->CAPS warm sync: check ${checkId} (${(checkState.items || []).length} items) -> ${syncResp.status}`);
-            } catch (warmErr) {
-              appLogger.warn('Interceptor', `GREEN->CAPS warm sync failed: ${warmErr.message}`);
-            }
-          })();
-        }
-      }
-
-      return response;
+      return await electronNet.fetch(request, { bypassCustomProtocolHandlers: true });
     } catch (networkError) {
-      const msSinceStart = Date.now() - protocolInterceptorStartTime;
-      const inGracePeriod = msSinceStart < PROTOCOL_STARTUP_GRACE_MS;
-
-      if (inGracePeriod) {
-        appLogger.debug('Interceptor', `Startup grace: ignoring timeout for ${isApiRequest ? 'API' : 'asset'} ${url.pathname} (${Math.round((PROTOCOL_STARTUP_GRACE_MS - msSinceStart) / 1000)}s remaining)`);
-      } else if (!isApiRequest) {
-        appLogger.debug('Interceptor', `Ignoring asset timeout (non-API): ${url.pathname}`);
-      }
-
-      if (isOnline && !inGracePeriod && isApiRequest) {
-        protocolConsecutiveFailCount++;
-        if (protocolConsecutiveFailCount >= PROTOCOL_FAIL_THRESHOLD) {
-          isOnline = false;
-          if (offlineInterceptor) offlineInterceptor.setOffline(true);
-          if (mainWindow) mainWindow.webContents.send('online-status', false);
-          appLogger.warn('Network', `Connection lost after ${protocolConsecutiveFailCount} consecutive API failures: ${networkError.message}`);
-          protocolConsecutiveFailCount = 0;
-          checkConnectivity().catch(() => {});
-        } else {
-          appLogger.info('Network', `API request failed (${protocolConsecutiveFailCount}/${PROTOCOL_FAIL_THRESHOLD}): ${url.pathname} — ${networkError.message}`);
-        }
-      }
-
-      if (isApiRequest) {
-        const capsUrl = getCapsServiceHostUrl();
-        if (capsUrl) {
-          try {
-            const capsApiUrl = `${capsUrl}${url.pathname}${url.search}`;
-            appLogger.info('Interceptor', `FAILOVER YELLOW -> CAPS: ${request.method} ${url.pathname}`);
-            const capsHeaders = {};
-            if (failoverClone) {
-              for (const [key, value] of failoverClone.headers.entries()) {
-                if (key.toLowerCase() !== 'host') capsHeaders[key] = value;
-              }
-            }
-            const failoverConfig = loadConfig();
-            if (failoverConfig.serviceHostToken) {
-              capsHeaders['x-workstation-token'] = failoverConfig.serviceHostToken;
-            }
-            const capsBody = failoverClone && request.method !== 'GET' && request.method !== 'HEAD'
-              ? await failoverClone.arrayBuffer()
-              : undefined;
-            const capsResponse = await fetch(capsApiUrl, {
-              method: request.method,
-              headers: capsHeaders,
-              body: capsBody,
-              signal: AbortSignal.timeout(3000),
-            });
-            appLogger.info('Interceptor', `FAILOVER YELLOW -> CAPS: ${request.method} ${url.pathname} -> ${capsResponse.status}`);
-            if (capsResponse.status === 401 || capsResponse.status === 404) {
-              appLogger.warn('Interceptor', `YELLOW->RED fallback: CAPS returned ${capsResponse.status} for ${request.method} ${url.pathname}`);
-            } else {
-              if (!inGracePeriod) {
-                setConnectionMode('yellow');
-                if (offlineInterceptor) offlineInterceptor.setConnectionMode('yellow');
-              } else {
-                appLogger.debug('Interceptor', `Startup grace: serving via CAPS but suppressing yellow mode downgrade for ${url.pathname}`);
-              }
-              return new Response(capsResponse.body, {
-                status: capsResponse.status,
-                statusText: capsResponse.statusText,
-                headers: { ...Object.fromEntries(capsResponse.headers.entries()), 'X-Connection-Mode': inGracePeriod ? 'green' : 'yellow' },
-              });
-            }
-          } catch (capsErr) {
-            if (!inGracePeriod) {
-              appLogger.warn('Interceptor', `CAPS also unreachable: ${capsErr.message}, falling to RED`);
-              setConnectionMode('red');
-              if (offlineInterceptor) offlineInterceptor.setConnectionMode('red');
-            } else {
-              appLogger.debug('Interceptor', `Startup grace: CAPS unreachable (${capsErr.message}), using offline handler`);
-            }
-          }
-        } else {
-          if (!inGracePeriod) {
-            setConnectionMode('red');
-            if (offlineInterceptor) offlineInterceptor.setConnectionMode('red');
-          }
-        }
-
-        if (offlineInterceptor && failoverClone) {
-          if (connectionMode === 'red' && request.method !== 'GET' && request.method !== 'HEAD') {
-            appLogger.error('Interceptor', `RED FAILOVER HARD FAIL: blocking WRITE ${request.method} ${url.pathname} — no offline write in RED mode`);
-            return new Response(JSON.stringify({ error: 'Store server unreachable — POS operations disabled', mode: 'red', path: url.pathname }), {
-              status: 503,
-              headers: { 'Content-Type': 'application/json', 'X-Connection-Mode': 'red', 'X-Source': 'red-blocked' },
-            });
-          }
-          appLogger.info('Interceptor', `FAILOVER -> offline: ${request.method} ${url.pathname} [mode=${connectionMode}]`);
-          const body = await parseRequestBody(failoverClone);
-          return routeToOfflineInterceptor(request.method, url, body);
-        }
-      }
-
-      const cached = getCachedResponseFromDisk(url.pathname);
-      if (cached) return cached;
-
       const bundled = serveBundledAsset(url.pathname);
       if (bundled) {
         appLogger.info('BundledAssets', `Serving bundled asset (network error fallback): ${url.pathname}`);
@@ -3784,36 +3245,21 @@ function registerProtocolInterceptor() {
       }
 
       if (!url.pathname.includes('.')) {
-        appLogger.warn('PageCache', `No cached page or bundled asset for: ${url.pathname}, serving offline fallback`);
         return new Response(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS - Offline</title>
 <style>body{font-family:system-ui;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
 .c{max-width:480px;padding:40px}h1{margin-bottom:12px}p{opacity:0.8;line-height:1.6;margin-bottom:20px}
 button{padding:12px 32px;font-size:16px;border:1px solid #4a4a6a;border-radius:8px;background:#2a2a4a;color:#fff;cursor:pointer}
 button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:13px;opacity:0.5}</style></head>
 <body><div class="c"><h1>Cloud POS Offline</h1>
-<p>The server is unreachable and no bundled or cached pages are available. Please reinstall the application or connect to the internet.</p>
+<p>The store server is unreachable. Please check the CAPS service host connection.</p>
 <button onclick="location.reload()">Retry Connection</button>
-<p class="info">Once connected, the app will automatically cache itself for offline use.</p></div></body></html>`, {
+<p class="info">All POS operations require connection to the local CAPS server.</p></div></body></html>`, {
           status: 503,
           headers: { 'Content-Type': 'text/html' },
         });
       }
 
-      appLogger.warn('BundledAssets', `No fallback available for asset: ${url.pathname}, serving minimal offline response`);
-      const offlineFallbackHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS - Restart Required</title>
-<style>body{font-family:system-ui;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
-.c{max-width:480px;padding:40px}h1{margin-bottom:12px;color:#f59e0b}p{opacity:0.8;line-height:1.6;margin-bottom:20px}
-button{padding:12px 32px;font-size:16px;border:1px solid #4a4a6a;border-radius:8px;background:#2a2a4a;color:#fff;cursor:pointer}
-button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:13px;opacity:0.5}</style></head>
-<body><div class="c"><h1>Restart Required</h1>
-<p>The application needs to be restarted. Bundled assets are missing or unavailable.</p>
-<p>Please close and reopen the application, or connect to the internet to download the latest version.</p>
-<button onclick="location.reload()">Retry</button>
-<p class="info">If this persists, reinstall the application.</p></div></body></html>`;
-      return new Response(offlineFallbackHtml, {
-        status: 503,
-        headers: { 'Content-Type': 'text/html' },
-      });
+      return new Response('', { status: 503, headers: { 'Content-Type': 'text/plain' } });
     }
   });
 
@@ -3980,65 +3426,46 @@ app.whenReady().then(async () => {
   registerProtocolInterceptor();
 
   if (config.setupComplete) {
-    appLogger.info('App', 'Setup previously completed — checking connectivity before opening window');
+    appLogger.info('App', 'Setup complete — opening window immediately, CAPS connectivity check runs in background');
     migrateAutoStartup(config);
 
-    await initOfflineDbEarly();
+    createWindow();
 
-    try {
-      const serverUrl = getServerUrl();
-      const quickCheck = await fetch(`${serverUrl}/api/health/db-probe`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      let dbHealthy = false;
-      if (quickCheck.ok) {
-        try {
-          const probeData = await quickCheck.json();
-          dbHealthy = probeData.dbHealthy === true;
-        } catch {
-          dbHealthy = false;
-        }
-      }
-      if (dbHealthy) {
-        let startupCapsOk = true;
+    initOfflineDbEarly().catch(err => {
+      appLogger.warn('App', `Offline DB early init failed: ${err.message}`);
+    });
+
+    (async () => {
+      try {
         const startupServiceHostUrl = config.serviceHostUrl;
         if (startupServiceHostUrl) {
-          try {
-            const capsStartCheck = await fetch(`${startupServiceHostUrl}/api/health`, {
-              signal: AbortSignal.timeout(3000),
-            });
-            if (capsStartCheck.ok) {
-              try {
-                const capsStartData = await capsStartCheck.json();
-                startupCapsOk = capsStartData.dbHealthy === true;
-              } catch {
-                startupCapsOk = false;
-              }
+          const capsStartCheck = await fetch(`${startupServiceHostUrl}/api/health`, {
+            signal: AbortSignal.timeout(3000),
+          });
+          if (capsStartCheck.ok) {
+            const capsStartData = await capsStartCheck.json().catch(() => ({}));
+            if (capsStartData.dbHealthy === true) {
+              isOnline = true;
+              firstBootConnectivityChecked = true;
+              setConnectionMode('green');
+              if (offlineInterceptor) offlineInterceptor.setOffline(false);
+              if (mainWindow) mainWindow.webContents.send('online-status', true);
+              if (mainWindow) mainWindow.webContents.send('connection-mode', 'green');
+              appLogger.info('App', 'Startup CAPS check: ONLINE (CAPS healthy)');
             } else {
-              startupCapsOk = false;
+              throw new Error('CAPS DB unhealthy');
             }
-          } catch {
-            startupCapsOk = false;
+          } else {
+            throw new Error(`CAPS health returned ${capsStartCheck.status}`);
           }
-          if (!startupCapsOk) {
-            appLogger.warn('App', 'Startup: Cloud healthy but CAPS unreachable/unhealthy — setting RED');
-          }
-        }
-
-        if (startupCapsOk) {
-          isOnline = true;
-          firstBootConnectivityChecked = true;
-          appLogger.info('App', `Startup connectivity check: ONLINE (cloud + DB healthy${startupServiceHostUrl ? ' + CAPS healthy' : ''})`);
         } else {
-          isOnline = true;
+          isOnline = false;
           connectionMode = 'red';
           firstBootConnectivityChecked = true;
-          if (offlineInterceptor) {
-            offlineInterceptor.setConnectionMode('red');
-          }
-          appLogger.info('App', 'Startup connectivity check: RED (cloud OK but CAPS is store authority and unreachable)');
+          if (mainWindow) mainWindow.webContents.send('connection-mode', 'red');
+          appLogger.warn('App', 'Startup: No CAPS URL configured — RED mode');
         }
-      } else {
+      } catch (e) {
         isOnline = false;
         connectionMode = 'red';
         firstBootConnectivityChecked = true;
@@ -4046,20 +3473,11 @@ app.whenReady().then(async () => {
           offlineInterceptor.setOffline(true);
           offlineInterceptor.setConnectionMode('red');
         }
-        appLogger.info('App', `Startup connectivity check: OFFLINE (db-probe ${quickCheck.ok ? 'unhealthy' : 'HTTP ' + quickCheck.status})`);
+        if (mainWindow) mainWindow.webContents.send('online-status', false);
+        if (mainWindow) mainWindow.webContents.send('connection-mode', 'red');
+        appLogger.warn('App', `Startup CAPS check: RED (${e.message})`);
       }
-    } catch (e) {
-      isOnline = false;
-      connectionMode = 'red';
-      firstBootConnectivityChecked = true;
-      if (offlineInterceptor) {
-        offlineInterceptor.setOffline(true);
-        offlineInterceptor.setConnectionMode('red');
-      }
-      appLogger.info('App', `Startup connectivity check: OFFLINE (${e.message})`);
-    }
-
-    createWindow();
+    })();
 
     initAllServices().then(() => {
       appLogger.info('App', 'Background service initialization complete');

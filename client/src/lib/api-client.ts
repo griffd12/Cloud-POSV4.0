@@ -1,15 +1,13 @@
 /**
- * API Client with Automatic Failover
+ * API Client — CAPS-Only Architecture
  * 
- * Handles seamless switching between:
- * - GREEN mode: Cloud API (primary)
- * - YELLOW mode: Service Host API (offline fallback)
- * - ORANGE mode: Local agents only
- * - RED mode: Browser IndexedDB only
+ * All API requests go through the Electron protocol interceptor to CAPS.
+ * The frontend uses relative URLs; Electron routes them to the local CAPS server.
+ * In browser (dev mode), requests go to the current origin which proxies to CAPS.
  * 
- * In Electron, the backend determines the connection mode via real network checks
- * and sends it via IPC. The frontend trusts the Electron backend's mode determination.
- * In browser, the client runs its own health checks.
+ * Connection modes (display only — no routing decisions):
+ * - GREEN: CAPS reachable and healthy
+ * - RED: CAPS unreachable — POS operations disabled
  */
 
 import { useState, useEffect } from 'react';
@@ -22,15 +20,9 @@ function createTimeoutSignal(ms: number): AbortSignal {
 
 export type ConnectionMode = 'green' | 'yellow' | 'orange' | 'red';
 
-interface ApiClientConfig {
-  cloudUrl: string;
-  serviceHostUrl: string;
-  localPrintAgentUrl: string;
-  localPaymentAppUrl: string;
-}
-
 interface ModeStatus {
   mode: ConnectionMode;
+  capsReachable: boolean;
   cloudReachable: boolean;
   serviceHostReachable: boolean;
   printAgentAvailable: boolean;
@@ -39,22 +31,14 @@ interface ModeStatus {
 }
 
 class ApiClient {
-  private config: ApiClientConfig;
   private currentMode: ConnectionMode = 'green';
   private modeListeners: ((mode: ConnectionMode) => void)[] = [];
-  private healthCheckInterval: NodeJS.Timeout | null = null;
   private lastStatus: ModeStatus | null = null;
   private isElectron: boolean = false;
   private electronCleanup: (() => void) | null = null;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
   
   constructor() {
-    this.config = {
-      cloudUrl: '',
-      serviceHostUrl: localStorage.getItem('serviceHostUrl') || 'http://service-host.local:3001',
-      localPrintAgentUrl: 'http://localhost:3003',
-      localPaymentAppUrl: 'http://localhost:3004',
-    };
-    
     this.isElectron = !!(window as any).electronAPI;
     
     if (this.isElectron) {
@@ -95,7 +79,8 @@ class ApiClient {
   private updateStatusFromElectron(mode: ConnectionMode): void {
     this.lastStatus = {
       mode,
-      cloudReachable: mode === 'green',
+      capsReachable: mode === 'green' || mode === 'yellow',
+      cloudReachable: false,
       serviceHostReachable: mode === 'green' || mode === 'yellow',
       printAgentAvailable: mode !== 'red',
       paymentAppAvailable: mode !== 'red',
@@ -103,8 +88,7 @@ class ApiClient {
     };
   }
   
-  configure(config: Partial<ApiClientConfig>): void {
-    this.config = { ...this.config, ...config };
+  configure(config: { serviceHostUrl?: string }): void {
     if (config.serviceHostUrl) {
       localStorage.setItem('serviceHostUrl', config.serviceHostUrl);
     }
@@ -126,26 +110,26 @@ class ApiClient {
   }
   
   async request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const baseUrl = this.getBaseUrl();
+    const response = await fetch(endpoint, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      signal: createTimeoutSignal(10000),
+    });
     
-    try {
-      const response = await fetch(`${baseUrl}${endpoint}`, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
-        signal: createTimeoutSignal(10000),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      return response.json();
-    } catch (error) {
-      return this.handleFailure<T>(endpoint, options, error as Error);
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error) errorMessage = errorJson.error;
+      } catch {}
+      throw new Error(errorMessage);
     }
+    
+    return response.json();
   }
   
   async get<T = any>(endpoint: string): Promise<T> {
@@ -178,79 +162,17 @@ class ApiClient {
   }
   
   async print(params: PrintParams): Promise<PrintResult> {
-    if (this.currentMode === 'green' || this.currentMode === 'yellow') {
-      try {
-        return await this.request('/api/print/jobs', {
-          method: 'POST',
-          body: JSON.stringify(params),
-        });
-      } catch (error) {
-        console.warn('Service Host print failed, trying local agent');
-      }
-    }
-    
-    try {
-      const response = await fetch(`${this.config.localPrintAgentUrl}/api/print`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
-        signal: createTimeoutSignal(5000),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Local print agent failed');
-      }
-      
-      return response.json();
-    } catch (error) {
-      throw new Error('Printing unavailable - no print service reachable');
-    }
+    return this.request('/api/print/jobs', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
   }
   
   async authorizePayment(params: PaymentParams): Promise<PaymentResult> {
-    if (this.currentMode === 'green' || this.currentMode === 'yellow') {
-      try {
-        return await this.request('/api/payment/authorize', {
-          method: 'POST',
-          body: JSON.stringify(params),
-        });
-      } catch (error) {
-        console.warn('Service Host payment failed, trying local app');
-      }
-    }
-    
-    if (this.lastStatus?.paymentAppAvailable) {
-      try {
-        const response = await fetch(`${this.config.localPaymentAppUrl}/api/payment/authorize`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(params),
-          signal: createTimeoutSignal(30000),
-        });
-        
-        if (!response.ok) {
-          throw new Error('Local payment app failed');
-        }
-        
-        return response.json();
-      } catch (error) {
-        throw new Error('Payment processing unavailable');
-      }
-    }
-    
-    throw new Error('No payment service available - cash only');
-  }
-  
-  private getBaseUrl(): string {
-    switch (this.currentMode) {
-      case 'green':
-        return this.config.cloudUrl || '';
-      case 'yellow':
-      case 'orange':
-        return this.config.serviceHostUrl;
-      case 'red':
-        return '';
-    }
+    return this.request('/api/payment/authorize', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
   }
   
   async queueForSync(endpoint: string, method: string, body?: any): Promise<string> {
@@ -266,7 +188,7 @@ class ApiClient {
     const { offlineQueue } = await import('./offline-queue');
     return offlineQueue.processQueue(async (op) => {
       try {
-        const response = await fetch(`${this.getBaseUrl()}${op.endpoint}`, {
+        const response = await fetch(op.endpoint, {
           method: op.method,
           headers: { 'Content-Type': 'application/json' },
           body: op.body ? JSON.stringify(op.body) : undefined,
@@ -282,58 +204,6 @@ class ApiClient {
   async getPendingOperationsCount(): Promise<number> {
     const { offlineQueue } = await import('./offline-queue');
     return offlineQueue.getPendingCount();
-  }
-  
-  private static readonly CAPS_ONLY_PATTERNS = [
-    /^\/api\/(checks|check-items|check-payments|check-discounts|check-service-charges)(\/|$)/,
-    /^\/api\/(payments|refunds|kds-tickets|terminal-sessions)(\/|$)/,
-    /^\/api\/(auth\/login|auth\/pin|auth\/manager-approval)(\/|$)/,
-    /^\/api\/(time-punches|time-clock|item-availability|cash-drawer-kick)(\/|$)/,
-  ];
-
-  private isCapsOnlyRoute(endpoint: string): boolean {
-    return ApiClient.CAPS_ONLY_PATTERNS.some(re => re.test(endpoint));
-  }
-
-  private async handleFailure<T>(endpoint: string, options: RequestInit, error: Error): Promise<T> {
-    console.warn(`Request failed in ${this.currentMode} mode:`, error.message);
-    
-    if (this.isElectron) {
-      throw error;
-    }
-
-    if (this.isCapsOnlyRoute(endpoint)) {
-      throw error;
-    }
-    
-    if (this.currentMode === 'green') {
-      this.setMode('yellow');
-      
-      try {
-        const response = await fetch(`${this.config.serviceHostUrl}${endpoint}`, {
-          ...options,
-          headers: {
-            'Content-Type': 'application/json',
-            ...options.headers,
-          },
-          signal: createTimeoutSignal(10000),
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        
-        return response.json();
-      } catch (e) {
-        this.setMode('orange');
-        throw new Error('Both cloud and Service Host unavailable');
-      }
-    } else if (this.currentMode === 'yellow') {
-      this.setMode('orange');
-      throw error;
-    }
-    
-    throw error;
   }
   
   private setMode(mode: ConnectionMode): void {
@@ -365,6 +235,7 @@ class ApiClient {
     
     const status: ModeStatus = {
       mode: this.currentMode,
+      capsReachable: false,
       cloudReachable: false,
       serviceHostReachable: false,
       printAgentAvailable: false,
@@ -373,56 +244,18 @@ class ApiClient {
     };
     
     try {
-      const cloudUrl = this.config.cloudUrl || window.location.origin;
-      const response = await fetch(`${cloudUrl}/health`, {
+      const response = await fetch('/health', {
         signal: createTimeoutSignal(3000),
       });
-      status.cloudReachable = response.ok;
-    } catch {
-      status.cloudReachable = false;
-    }
-    
-    try {
-      const response = await fetch(`${this.config.serviceHostUrl}/health`, {
-        signal: createTimeoutSignal(3000),
-      });
+      status.capsReachable = response.ok;
       status.serviceHostReachable = response.ok;
     } catch {
-      status.serviceHostReachable = false;
+      status.capsReachable = false;
     }
     
-    try {
-      const response = await fetch(`${this.config.localPrintAgentUrl}/health`, {
-        signal: createTimeoutSignal(1000),
-      });
-      status.printAgentAvailable = response.ok;
-    } catch {
-      status.printAgentAvailable = false;
-    }
-    
-    try {
-      const response = await fetch(`${this.config.localPaymentAppUrl}/health`, {
-        signal: createTimeoutSignal(1000),
-      });
-      status.paymentAppAvailable = response.ok;
-    } catch {
-      status.paymentAppAvailable = false;
-    }
-    
-    let newMode: ConnectionMode;
-    if (status.cloudReachable) {
-      newMode = 'green';
-    } else if (status.serviceHostReachable) {
-      newMode = 'yellow';
-    } else if (status.printAgentAvailable || status.paymentAppAvailable) {
-      newMode = 'orange';
-    } else {
-      newMode = 'red';
-    }
-    
-    status.mode = newMode;
+    status.mode = status.capsReachable ? 'green' : 'red';
     this.lastStatus = status;
-    this.setMode(newMode);
+    this.setMode(status.mode);
   }
   
   async forceHealthCheck(): Promise<ModeStatus> {

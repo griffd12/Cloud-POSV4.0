@@ -6,7 +6,8 @@ const { printLogger } = require('./logger.cjs');
 
 class PrintAgentService {
   constructor(options = {}) {
-    this.serverUrl = options.serverUrl || 'https://localhost:5000';
+    this.capsUrl = options.capsUrl || options.serverUrl || 'https://localhost:5000';
+    this.serverUrl = this.capsUrl;
     this.agentId = options.agentId || null;
     this.agentToken = options.agentToken || null;
     this.configDir = options.configDir || path.join(require('os').homedir(), '.cloudpos');
