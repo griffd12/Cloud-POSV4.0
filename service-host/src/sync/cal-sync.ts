@@ -48,6 +48,7 @@ export class CalSync {
   private db: Database;
   private cloud: CloudConnection;
   private serviceHostId: string;
+  private lastCloudDisconnectLogged: boolean = false;
   private packagesDir: string;
   private calRootDir: string;
   private deploymentQueue: PendingDeployment[] = [];
@@ -150,8 +151,16 @@ export class CalSync {
 
   async checkPendingDeployments(): Promise<void> {
     if (!this.cloud.isConnected()) {
-      console.log('[CAL] Cloud not connected, skipping deployment check');
+      if (!this.lastCloudDisconnectLogged) {
+        console.log('[CAL] Cloud not connected, skipping deployment check (will suppress until reconnect)');
+        this.lastCloudDisconnectLogged = true;
+      }
       return;
+    }
+
+    if (this.lastCloudDisconnectLogged) {
+      console.log('[CAL] Cloud reconnected, resuming deployment checks');
+      this.lastCloudDisconnectLogged = false;
     }
 
     try {
