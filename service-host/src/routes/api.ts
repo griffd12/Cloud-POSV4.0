@@ -437,6 +437,9 @@ export function createApiRoutes(
   router.post('/caps/checks/:id/cancel-transaction', (req, res) => {
     try {
       const { workstationId, employeeId, reason, managerPin } = req.body;
+      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+        return res.status(403).json({ error: 'Void operations are disabled by configuration' });
+      }
       const privCheck = checkPrivilege(employeeId, 'void_unsent', managerPin);
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
@@ -536,6 +539,9 @@ export function createApiRoutes(
       const itemId = req.params.id;
       const { reason, workstationId, employeeId, managerPin } = req.body;
       
+      if (!checkOptionBit('allow_voids', undefined, undefined)) {
+        return res.status(403).json({ error: 'Void operations are disabled by configuration' });
+      }
       const itemRow = db?.get<any>('SELECT check_id, sent FROM check_items WHERE id = ?', [itemId]);
       if (!itemRow) {
         return res.status(404).json({ error: 'Check item not found' });
@@ -2605,11 +2611,9 @@ export function createApiRoutes(
   // ============================================================================
 
   const DEFAULT_PRIVILEGES = [
-    'fast_transaction', 'send_to_kitchen', 'void_unsent', 'void_sent',
-    'apply_discount', 'admin_access', 'kds_access', 'manager_approval',
-    'transfer_check', 'split_check', 'merge_checks', 'reopen_check', 'modify_price',
+    'fast_transaction', 'send_to_kitchen', 'void_unsent',
     'open_check', 'close_check', 'add_modifier', 'remove_modifier',
-    'apply_tender', 'split_payment', 'process_refunds',
+    'apply_tender',
   ];
 
   function resolveEmployeePrivileges(employee: any): string[] {

@@ -300,6 +300,26 @@ export default function PosPage() {
   // Derive connection status from query state
   const apiConnected = healthQuery.isSuccess ? true : healthQuery.isError ? false : null;
 
+  // Fetch EMC option-bit flags from CAPS for runtime gating
+  const { data: optionBits } = useQuery<Record<string, boolean>>({
+    queryKey: ["/api/config/workstation-options", currentRvc?.id, currentRvc?.propertyId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (currentRvc?.id) params.append("rvcId", currentRvc.id);
+      if (currentRvc?.propertyId) params.append("propertyId", currentRvc.propertyId);
+      const res = await fetchWithTimeout(`/api/config/workstation-options?${params.toString()}`, { credentials: "include", headers: getAuthHeaders() });
+      if (!res.ok) return {};
+      return res.json();
+    },
+    enabled: !!currentRvc,
+    staleTime: 60000,
+  });
+
+  const checkOptionAllowed = useCallback((key: string): boolean => {
+    if (!optionBits) return true;
+    return optionBits[key] !== false;
+  }, [optionBits]);
+
   const { data: paymentInfo, isLoading: paymentsLoading } = useQuery<{ payments: any[]; paidAmount: number }>({
     queryKey: ["/api/checks", currentCheck?.id, "payments"],
     queryFn: async () => {
@@ -1332,6 +1352,10 @@ export default function PosPage() {
   };
 
   const handleLookupClick = () => {
+    if (!checkOptionAllowed("allow_refunds")) {
+      toast({ title: "Refund operations are disabled", variant: "destructive" });
+      return;
+    }
     if (!hasPrivilege("refund") && !hasPrivilege("process_refunds") && !hasPrivilege("admin_access")) {
       toast({ title: "You do not have permission to process refunds", variant: "destructive" });
       return;
@@ -2307,9 +2331,9 @@ export default function PosPage() {
               setShowDiscountModal(true);
             }}
             canSend={hasPrivilege("send_to_kitchen")}
-            canVoid={hasPrivilege("void_unsent") || hasPrivilege("void_sent")}
-            canPriceOverride={hasPrivilege("modify_price")}
-            canDiscount={hasPrivilege("apply_discount")}
+            canVoid={(hasPrivilege("void_unsent") || hasPrivilege("void_sent")) && checkOptionAllowed("allow_voids")}
+            canPriceOverride={hasPrivilege("modify_price") && checkOptionAllowed("allow_price_override")}
+            canDiscount={hasPrivilege("apply_discount") && checkOptionAllowed("allow_discounts")}
             isSending={sendCheckMutation.isPending}
             subtotal={subtotal}
             tax={tax}
@@ -2325,7 +2349,7 @@ export default function PosPage() {
             selectedPaymentId={selectedPaymentId}
             onSelectPayment={(payment) => setSelectedPaymentId(payment?.id || null)}
             onVoidPayment={(payment) => voidPaymentMutation.mutate(payment)}
-            canVoidPayment={hasPrivilege("void_sent") || hasPrivilege("void_unsent")}
+            canVoidPayment={(hasPrivilege("void_sent") || hasPrivilege("void_unsent")) && checkOptionAllowed("allow_voids")}
             tenderNames={tenderNames}
             onRemoveCheckDiscounts={currentCheck?.status === "open" ? () => removeCheckDiscountsMutation.mutate() : undefined}
             serviceChargeTotal={serviceChargeTotal}
@@ -2503,11 +2527,11 @@ export default function PosPage() {
           });
         }}
         privileges={{
-          canTransfer: hasPrivilege("transfer_check"),
-          canSplit: hasPrivilege("split_check"),
-          canMerge: hasPrivilege("merge_checks"),
-          canReopen: hasPrivilege("reopen_check"),
-          canPriceOverride: hasPrivilege("modify_price"),
+          canTransfer: hasPrivilege("transfer_check") && checkOptionAllowed("allow_transfer"),
+          canSplit: hasPrivilege("split_check") && checkOptionAllowed("allow_split"),
+          canMerge: hasPrivilege("merge_checks") && checkOptionAllowed("allow_merge"),
+          canReopen: hasPrivilege("reopen_check") && checkOptionAllowed("allow_reopen"),
+          canPriceOverride: hasPrivilege("modify_price") && checkOptionAllowed("allow_price_override"),
         }}
         propertyId={currentRvc?.propertyId}
         onOpenDrawer={() => {
