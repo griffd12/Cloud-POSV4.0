@@ -1,0 +1,378 @@
+MASTER TASK PLAN — REBUILD RUNTIME FLOW FOR ELECTRON / WS / KDS / CAPS / CLOUD
+
+We are NOT starting over from scratch.
+We are freezing the architecture and correcting the runtime model.
+
+==================================================
+1) FINAL ARCHITECTURE MODEL
+==================================================
+
+A. Electron App
+The Electron app is the terminal shell installed on each workstation or KDS device.
+It is responsible for:
+- initial installer/setup flow
+- saving device identity and selected environment locally
+- launching the UI
+- talking to CAPS only for runtime operations
+- showing truthful connection/device status
+
+Electron is NOT the store authority.
+Electron is NOT allowed to decide cloud vs local for live POS/KDS transactions.
+Electron is NOT allowed to silently fallback to cloud for live runtime functions.
+
+B. CAPS / Service Host
+CAPS is the local site controller and single runtime authority for the location.
+CAPS is responsible for:
+- local SQLite operational database
+- workstation and KDS device registration/state
+- employees, roles, privileges used at runtime
+- menu, modifiers, layouts, taxes, tenders, discounts
+- checks, items, payments, service charges, locks
+- KDS tickets and KDS device communication
+- local journals and sync queue
+- syncing up to cloud
+- syncing config down from cloud
+
+C. Cloud
+Cloud is upstream only.
+Cloud is responsible for:
+- configuration master
+- enterprise reporting
+- device activation/bootstrap data
+- receiving synced transactions/journal data from CAPS
+- remote management/admin
+
+Cloud is NOT in the live POS/KDS transaction path.
+
+==================================================
+2) REQUIRED DEVICE BOOT FLOW
+==================================================
+
+When Electron is first installed:
+
+STEP 1 — ENVIRONMENT SETUP
+User enters:
+- customer cloud URL
+- username/password
+- property
+- device type (WS or KDS)
+- specific workstation/KDS device identity
+
+STEP 2 — DEVICE ACTIVATION
+Electron authenticates to cloud ONLY for setup/activation.
+Cloud returns:
+- property id
+- workstation or KDS device id
+- device name
+- CAPS activation configuration
+- service host URL if this device is the CAPS server or should connect to CAPS
+Electron stores this locally.
+
+STEP 3 — LOCAL DEVICE PROFILE
+Electron writes local device profile containing:
+- cloud URL
+- property id
+- device id
+- device name
+- device type
+- serviceHostUrl
+- whether this machine is the CAPS host
+- last known config version
+
+STEP 4 — CAPS STARTUP DECISION
+If device is CAPS host:
+- start embedded service-host locally
+- wait for CAPS ready state
+- then continue boot
+
+If device is not CAPS host:
+- do not start embedded service-host
+- connect to configured CAPS host over LAN/local network
+- wait for CAPS ready state
+- then continue boot
+
+STEP 5 — CAPS READINESS CHECK
+Electron must not enter normal runtime state until CAPS confirms:
+- DB open
+- schema ready
+- config loaded
+- device/workstation records loaded
+- websocket server ready
+- runtime APIs ready
+
+CAPS must expose a clear readiness endpoint:
+GET /health/ready
+Returns:
+- status: starting | ready | degraded
+- dbReady
+- configReady
+- websocketReady
+- deviceRegistryReady
+
+STEP 6 — UI BOOT
+Electron opens UI immediately but in boot/loading state.
+UI must show:
+- loading device configuration
+- connecting to store server
+- loading menu/layout
+- ready
+
+UI must NOT enter broken runtime state if CAPS is not ready.
+It must wait or retry cleanly.
+
+==================================================
+3) WS RUNTIME MODEL
+==================================================
+
+Workstation runtime behavior:
+
+- sign in through CAPS
+- load workstation context from CAPS
+- load menu/layout/modifiers from CAPS
+- create/open/pickup/transfer/send/pay only through CAPS
+- all reads/writes come from CAPS
+- no cloud fallback
+
+If CAPS is unavailable:
+- show store server unavailable
+- do not partially load broken UI
+- do not attempt live transactions
+
+If check is created on WS01:
+- WS02 sees it from CAPS
+- KDS sees it from CAPS
+- reports see it from CAPS
+
+==================================================
+4) KDS RUNTIME MODEL
+==================================================
+
+KDS runtime behavior:
+
+- KDS boots using stored device identity
+- loads KDS device config from CAPS
+- opens local CAPS websocket or polling channel
+- receives tickets only from CAPS
+- bump/recall/priority actions go only to CAPS
+
+KDS must not require cloud to function once configured.
+If cloud is down but CAPS is up:
+- KDS still works
+
+If CAPS is unavailable:
+- KDS shows waiting for store server
+- not a permanent broken config screen
+
+==================================================
+5) CAPS RESPONSIBILITIES IN DETAIL
+==================================================
+
+CAPS must fully own:
+
+A. Device Registry
+- workstation records
+- KDS device records
+- connected device status
+- lock ownership
+- last heartbeat
+
+B. Runtime Configuration
+- menu items
+- modifiers
+- modifier maps
+- taxes
+- discounts
+- tenders
+- layouts
+- RVCs
+- workstation context
+- KDS routing
+
+C. Transactions
+- create/open/pickup/transfer/reopen/split/merge
+- add/delete/void items
+- discounts/service charges
+- payments
+- send to kitchen
+- close checks
+
+D. KDS
+- create tickets
+- route to correct KDS devices
+- update ticket states
+- broadcast changes
+
+E. Sync
+- journal every transaction locally
+- sync upward to cloud
+- idempotent sync only
+
+==================================================
+6) CLOUD RESPONSIBILITIES IN DETAIL
+==================================================
+
+Cloud handles:
+- login for setup/admin
+- property and device activation
+- config publishing/master data
+- receiving journals/transactions from CAPS
+- enterprise reporting
+- remote admin
+
+Cloud does NOT handle:
+- live check reads
+- live open check list
+- live KDS reads
+- live payment or discount operations
+- pickup or transfer logic
+
+==================================================
+7) REQUIRED FIX PHASES
+==================================================
+
+PHASE 1 — DEVICE BOOT AND READINESS
+Goal:
+Restore stable boot for WS and KDS.
+
+Fix:
+- workstation not found
+- KDS stuck loading device configuration
+- startup race between Electron and CAPS
+- clear CAPS readiness endpoint
+- UI boot state with retry
+
+Deliverables:
+- successful WS boot
+- successful KDS boot
+- no broken state if CAPS is late
+
+PHASE 2 — CONFIG LOAD CORRECTNESS
+Goal:
+Make runtime configuration load correctly from CAPS.
+
+Fix:
+- menu/layout visibility
+- modifier-map query bug
+- workstation context correctness
+- KDS device config loading
+- missing/stale runtime config paths
+
+Deliverables:
+- menu visible
+- POS layout visible
+- modifiers work
+- KDS device config loads
+
+PHASE 3 — CORE POS FUNCTIONALITY
+Goal:
+Make all core POS flows work through CAPS.
+
+Fix and validate:
+- create check
+- pickup check
+- open checks
+- transfer/reopen/split/merge
+- add/delete/void items
+- discount/service charge
+- send to kitchen
+- cash/card stub payments
+- close check
+
+Deliverables:
+- same check visible across terminals
+- pickup actually usable
+- open check SLU accurate
+- no cloud fallback
+
+PHASE 4 — KDS RUNTIME
+Goal:
+Make KDS fully operational off CAPS.
+
+Fix:
+- ticket creation
+- ticket routing
+- bump/recall/priority
+- websocket/polling stability
+- remove broken ws/print-agents assumptions if KDS should use /ws
+- correct KDS endpoint contract
+
+Deliverables:
+- sent items appear on KDS
+- KDS actions reflect back into CAPS
+- no stuck loading state
+
+PHASE 5 — PRINT / DEVICE CHANNELS
+Goal:
+Correct local service communication.
+
+Fix:
+- print websocket endpoint mismatch
+- handshake/upgrade path
+- local queue/retry behavior
+- avoid 400 handshake errors forever
+
+Deliverables:
+- print agent connects successfully
+- print jobs stay local via CAPS
+
+PHASE 6 — PRIVILEGES AND OPTION-BIT LOGIC
+Goal:
+EMC configuration must actually drive runtime behavior.
+
+Fix:
+- runtime privilege checks in CAPS
+- workstation role/employee privilege load
+- reopen/transfer/void/discount/payment override enforcement
+- option-bit driven behavior for allowed functions
+
+Deliverables:
+- if EMC says allowed, POS can do it
+- if EMC says not allowed, CAPS denies it
+- client UI reflects CAPS permissions
+
+PHASE 7 — SYNC / CLOUD
+Goal:
+Cloud becomes upstream sync only.
+
+Fix:
+- journal integrity
+- idempotent sync
+- config sync health
+- no live cloud dependency for runtime ops
+
+Deliverables:
+- cloud outage does not stop store
+- reconnect sync works cleanly
+
+==================================================
+8) NON-NEGOTIABLE RULES
+==================================================
+
+1. No live POS or KDS route may fallback to cloud.
+2. CAPS must be ready before runtime context is considered valid.
+3. Electron may show loading, but must not enter broken runtime state.
+4. Device identity must be persisted locally and resolvable every launch.
+5. All workstations and KDS devices must read the same live store data from CAPS.
+6. EMC/runtime options must be enforced in CAPS, not just in UI.
+7. If CAPS is unavailable, fail clearly — do not fake partial operation.
+
+==================================================
+9) OUTPUT REQUIRED FROM AI
+==================================================
+
+Return:
+1. Boot flow diagram for:
+   - CAPS host workstation
+   - non-CAPS workstation
+   - KDS device
+
+2. Route ownership table:
+   ROUTE | OWNER (CAPS/CLOUD) | PURPOSE | STATUS
+
+3. Device lifecycle table:
+   STEP | WS behavior | KDS behavior | CAPS responsibility | CLOUD responsibility
+
+4. Phase-by-phase implementation plan:
+   PHASE | FILES | ROOT CAUSE | FIX | TEST TO PROVE
+
+5. No new features until phases 1–4 are working.
