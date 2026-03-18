@@ -27,6 +27,113 @@ export function createApiRoutes(
   db?: Database
 ): Router {
   const router = Router();
+
+  // ============================================================================
+  // GATEWAY LOG — structured request/response logging for all CAPS traffic
+  // ============================================================================
+
+  interface GatewayLogEntry {
+    id: string;
+    timestamp: string;
+    deviceName: string;
+    method: string;
+    url: string;
+    requestBody: string | null;
+    responseStatus: number;
+    responseSummary: string | null;
+    durationMs: number;
+    error: string | null;
+  }
+
+  const GATEWAY_LOG_MAX = 500;
+  const gatewayLog: GatewayLogEntry[] = [];
+
+  router.use((req: any, res: any, next: any) => {
+    const start = Date.now();
+    const deviceName = (req.headers['x-device-name'] as string)
+      || (req.headers['x-workstation-id'] as string)
+      || (req.headers['x-device-token'] as string)
+      || 'unknown';
+    const method = req.method;
+    const url = req.originalUrl || req.url;
+
+    if (url === '/api/caps/gateway-log' || req.method === 'OPTIONS') {
+      return next();
+    }
+
+    const REDACTED_FIELDS = ['pin', 'managerPin', 'pinHash', 'pin_hash', 'posPin', 'pos_pin', 'password', 'token', 'cardNumber', 'cvv', 'expiryDate'];
+    let requestBodySummary: string | null = null;
+    if (req.body && Object.keys(req.body).length > 0) {
+      const sanitized = { ...req.body };
+      for (const field of REDACTED_FIELDS) {
+        if (field in sanitized) sanitized[field] = '[REDACTED]';
+      }
+      const bodyStr = JSON.stringify(sanitized);
+      requestBodySummary = bodyStr.length > 200 ? bodyStr.substring(0, 200) + '...' : bodyStr;
+    }
+
+    const originalJson = res.json.bind(res);
+    res.json = (body: any) => {
+      const durationMs = Date.now() - start;
+      let responseSummary: string | null = null;
+      let errorMsg: string | null = null;
+
+      if (body) {
+        if (body.error || body.message) {
+          errorMsg = body.error || body.message;
+        }
+        const bodyStr = JSON.stringify(body);
+        responseSummary = bodyStr.length > 200 ? bodyStr.substring(0, 200) + '...' : bodyStr;
+      }
+
+      const entry: GatewayLogEntry = {
+        id: `gw_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: new Date().toISOString(),
+        deviceName,
+        method,
+        url,
+        requestBody: requestBodySummary,
+        responseStatus: res.statusCode,
+        responseSummary,
+        durationMs,
+        error: errorMsg,
+      };
+
+      gatewayLog.push(entry);
+      if (gatewayLog.length > GATEWAY_LOG_MAX) {
+        gatewayLog.splice(0, gatewayLog.length - GATEWAY_LOG_MAX);
+      }
+
+      return originalJson(body);
+    };
+
+    next();
+  });
+
+  router.get('/caps/gateway-log', (req, res) => {
+    const limit = parseInt(req.query.limit as string) || 100;
+    const deviceFilter = req.query.device as string | undefined;
+    const methodFilter = req.query.method as string | undefined;
+    const errorsOnly = req.query.errorsOnly === 'true';
+
+    let entries = gatewayLog.slice(-limit).reverse();
+
+    if (deviceFilter) {
+      entries = entries.filter(e => e.deviceName.toLowerCase().includes(deviceFilter.toLowerCase()));
+    }
+    if (methodFilter) {
+      entries = entries.filter(e => e.method === methodFilter.toUpperCase());
+    }
+    if (errorsOnly) {
+      entries = entries.filter(e => e.error || e.responseStatus >= 400);
+    }
+
+    res.json({
+      total: gatewayLog.length,
+      showing: entries.length,
+      entries,
+    });
+  });
   
   // ============================================================================
   // CAPS - Check & Posting Service
@@ -53,6 +160,70 @@ export function createApiRoutes(
     }
   });
   
+  router.get('/caps/checks/orders', (req, res) => {
+    try {
+      const rvcId = req.query.rvcId as string | undefined;
+      const orderType = req.query.orderType as string | undefined;
+      const statusFilter = req.query.statusFilter as string | undefined;
+
+      if (!rvcId) {
+        return res.status(400).json({ message: 'rvcId is required' });
+      }
+
+      let allChecks: any[];
+      if (statusFilter === 'completed') {
+        const closedRows = db ? db.all<any>(
+          `SELECT id FROM checks WHERE rvc_id = ? AND status = 'closed' ORDER BY closed_at DESC LIMIT 50`,
+          [rvcId]
+        ) : [];
+        allChecks = closedRows.map((r: any) => caps.getCheck(r.id)).filter(Boolean);
+      } else {
+        const rows = db ? db.all<any>(
+          `SELECT id FROM checks WHERE rvc_id = ? AND status IN ('open', 'voided') ORDER BY created_at DESC LIMIT 500`,
+          [rvcId]
+        ) : [];
+        allChecks = rows.map((r: any) => caps.getCheck(r.id)).filter(Boolean);
+      }
+
+      if (orderType && orderType !== 'all') {
+        allChecks = allChecks.filter((c: any) => c.orderType === orderType);
+      }
+
+      const enriched = allChecks.map((c: any) => {
+        let employeeName: string | null = null;
+        if (c.employeeId && db) {
+          const emp = db.getEmployee(c.employeeId);
+          if (emp) {
+            employeeName = `${emp.first_name || emp.firstName || ''} ${emp.last_name || emp.lastName || ''}`.trim();
+          }
+        }
+        const activeItems = (c.items || []).filter((i: any) => !i.voided);
+        return {
+          ...c,
+          openedAt: c.createdAt || c.openedAt,
+          employeeName,
+          fulfillmentStatus: c.fulfillmentStatus || null,
+          onlineOrderId: c.onlineOrderId || null,
+          customerName: c.customerName || null,
+          platformSource: c.platformSource || null,
+          itemCount: activeItems.length,
+          unsentCount: activeItems.filter((i: any) => !i.sentToKitchen).length,
+          roundCount: c.currentRound || 0,
+          lastRoundAt: null,
+        };
+      });
+
+      res.json(enriched);
+    } catch (e) {
+      console.error('Get caps/checks/orders error:', e);
+      res.status(400).json({ message: 'Failed to get orders' });
+    }
+  });
+
+  router.get('/caps/checks/locks', (_req, res) => {
+    res.json({});
+  });
+
   // Get specific check
   router.get('/caps/checks/:id', (req, res) => {
     try {
@@ -87,24 +258,27 @@ export function createApiRoutes(
       const { workstationId } = req.body;
       const result = caps.sendToKitchen(req.params.id, workstationId);
       
-      // Also create KDS ticket
-      const check = caps.getCheck(req.params.id);
-      if (check) {
-        const unsentItems = check.items.filter(i => !i.voided);
-        if (unsentItems.length > 0) {
-          kds.createTicket({
-            checkId: check.id,
-            checkNumber: check.checkNumber,
-            roundNumber: result.roundNumber,
-            orderType: check.orderType,
-            items: unsentItems.map(i => ({
-              name: i.name,
-              quantity: i.quantity,
-              modifiers: i.modifiers?.map(m => m.name || m),
-              seatNumber: i.seatNumber,
-            })),
-          });
+      try {
+        const check = caps.getCheck(req.params.id);
+        if (check) {
+          const unsentItems = check.items.filter(i => !i.voided);
+          if (unsentItems.length > 0) {
+            kds.createTicket({
+              checkId: check.id,
+              checkNumber: check.checkNumber || 0,
+              roundNumber: result.roundNumber || 0,
+              orderType: check.orderType,
+              items: unsentItems.map(i => ({
+                name: i.name,
+                quantity: i.quantity,
+                modifiers: i.modifiers?.map(m => m.name || m),
+                seatNumber: i.seatNumber,
+              })),
+            });
+          }
         }
+      } catch (kdsErr) {
+        console.error('[KDS] Failed to create ticket for check', req.params.id, kdsErr);
       }
       
       res.json(result);
@@ -342,7 +516,7 @@ export function createApiRoutes(
         }
       }
       
-      const result = caps.addDiscount(itemRow.check_id, {
+      caps.addDiscount(itemRow.check_id, {
         discountId,
         checkItemId: itemId,
         name: discountName,
@@ -351,7 +525,9 @@ export function createApiRoutes(
         employeeId,
       });
       
-      res.json(result);
+      const updatedCheck = caps.getCheck(itemRow.check_id);
+      const updatedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
+      res.json({ item: updatedItem, check: updatedCheck });
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
     }
@@ -1394,22 +1570,27 @@ export function createApiRoutes(
     try {
       const { workstationId } = req.body;
       const result = caps.sendToKitchen(req.params.id, workstationId);
-      const check = caps.getCheck(req.params.id);
-      if (check) {
-        const unsentItems = check.items.filter((i: any) => !i.voided);
-        if (unsentItems.length > 0) {
-          kds.createTicket({
-            checkId: check.id,
-            checkNumber: check.checkNumber,
-            orderType: check.orderType,
-            items: unsentItems.map((i: any) => ({
-              name: i.name,
-              quantity: i.quantity,
-              modifiers: i.modifiers?.map((m: any) => m.name || m),
-              seatNumber: i.seatNumber,
-            })),
-          });
+      try {
+        const check = caps.getCheck(req.params.id);
+        if (check) {
+          const unsentItems = check.items.filter((i: any) => !i.voided);
+          if (unsentItems.length > 0) {
+            kds.createTicket({
+              checkId: check.id,
+              checkNumber: check.checkNumber || 0,
+              roundNumber: result.roundNumber || 0,
+              orderType: check.orderType,
+              items: unsentItems.map((i: any) => ({
+                name: i.name,
+                quantity: i.quantity,
+                modifiers: i.modifiers?.map((m: any) => m.name || m),
+                seatNumber: i.seatNumber,
+              })),
+            });
+          }
         }
+      } catch (kdsErr) {
+        console.error('[KDS] Failed to create ticket for check', req.params.id, kdsErr);
       }
       const updatedCheck = caps.getCheck(req.params.id);
       res.json({ round: result.roundNumber || result.round || null, updatedItems: updatedCheck?.items || [] });
@@ -2156,6 +2337,31 @@ export function createApiRoutes(
     }
   });
 
+  const DEFAULT_PRIVILEGES = [
+    'fast_transaction', 'send_to_kitchen', 'void_unsent', 'void_sent',
+    'apply_discount', 'admin_access', 'kds_access', 'manager_approval',
+    'transfer_check', 'split_check', 'merge_checks', 'reopen_check', 'modify_price',
+    'open_check', 'close_check', 'add_modifier', 'remove_modifier',
+    'apply_tender', 'split_payment', 'process_refunds',
+  ];
+
+  function resolveEmployeePrivileges(employee: any): string[] {
+    if (employee.privileges && Array.isArray(employee.privileges) && employee.privileges.length > 0) {
+      return employee.privileges;
+    }
+    if (employee.rolePrivileges && Array.isArray(employee.rolePrivileges) && employee.rolePrivileges.length > 0) {
+      return employee.rolePrivileges;
+    }
+    const roleId = employee.roleId || employee.role_id;
+    if (roleId && db) {
+      const rolePrivs = db.getRolePrivileges(roleId);
+      if (rolePrivs && rolePrivs.length > 0) {
+        return rolePrivs;
+      }
+    }
+    return DEFAULT_PRIVILEGES;
+  }
+
   router.post('/auth/login', (req, res) => {
     try {
       const pin = req.body?.pin;
@@ -2177,10 +2383,7 @@ export function createApiRoutes(
           jobTitle: employee.jobTitle || employee.job_title || null,
           enterpriseId: employee.enterpriseId || employee.enterprise_id || null,
         },
-        privileges: employee.privileges || employee.rolePrivileges || [
-          'fast_transaction', 'send_to_kitchen', 'void_unsent', 'void_sent',
-          'apply_discount', 'admin_access', 'kds_access', 'manager_approval'
-        ],
+        privileges: resolveEmployeePrivileges(employee),
         salariedBypass: true,
         bypassJobCode: null,
         device: null,
@@ -2203,10 +2406,7 @@ export function createApiRoutes(
       res.json({
         success: true,
         employee,
-        privileges: employee.privileges || employee.rolePrivileges || [
-          'fast_transaction', 'send_to_kitchen', 'void_unsent', 'void_sent',
-          'apply_discount', 'admin_access', 'kds_access', 'manager_approval'
-        ],
+        privileges: resolveEmployeePrivileges(employee),
         offlineAuth: true,
       });
     } catch (e) {
@@ -2242,7 +2442,7 @@ export function createApiRoutes(
         emp.pinHash === pin || emp.pin_hash === pin || emp.pin === pin || emp.posPin === pin || emp.pos_pin === pin
       );
       if (!manager) return res.status(401).json({ success: false, message: 'Invalid manager PIN' });
-      const privs = manager.privileges || manager.rolePrivileges || [];
+      const privs = resolveEmployeePrivileges(manager);
       const hasAdmin = privs.includes('admin_access');
       const hasManager = privs.includes('manager_approval');
       const hasSpecific = requiredPrivilege ? privs.includes(requiredPrivilege) : true;
