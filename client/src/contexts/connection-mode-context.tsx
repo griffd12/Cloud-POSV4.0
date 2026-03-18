@@ -94,7 +94,8 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
   const applyConnectionMode = useCallback((mode: ConnectionMode) => {
     const isOffline = mode !== 'green';
     setElectronOfflineLock(isOffline);
-    setStatus({
+    setStatus(prev => ({
+      ...prev,
       mode,
       cloudReachable: mode === 'green',
       serviceHostReachable: mode === 'yellow',
@@ -102,7 +103,7 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
       paymentAppAvailable: false,
       lastChecked: new Date(),
       isChecking: false,
-    });
+    }));
     localStorage.setItem('connectionMode', mode);
   }, []);
 
