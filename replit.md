@@ -30,27 +30,23 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 
 #### Non-Negotiable Rules:
 
-**A) LOCAL-FIRST COMMIT** — All live POS and KDS actions must commit to CAPS local SQLite FIRST. Only after local commit succeeds can background sync happen. This includes: sign in, open check, add item, modifiers, discounts, send to kitchen, pickup check, transfer check, reopen closed check, payments, close check, KDS create/bump/recall/priority. If local commit fails, the UI must FAIL the action and show an error. Do not fake success. Do not require cloud to complete a sale.
-
+**A) LOCAL-FIRST COMMIT** — All live POS and KDS actions must commit to CAPS local SQLite FIRST. Only after local commit succeeds can background sync happen.
 **B) CLOUD NEVER IN BLOCKING WRITE PATH** — Correct: WS → CAPS → local SQLite commit → success returned to UI → background sync to cloud. NEVER: WS → cloud → maybe local later.
-
 **C) MODE DEFINITIONS** — Based on REAL operational health, not just a ping:
 - **GREEN**: CAPS reachable + local SQLite healthy + cloud sync probe succeeds
 - **YELLOW**: CAPS reachable + local SQLite healthy + cloud sync unavailable/degraded. Store still fully operates locally.
 - **RED**: CAPS unreachable OR local SQLite unhealthy. Workstation cannot trust store authority.
-- Do NOT show GREEN just because /health returns 200. Mode detection must verify real read/write capability.
-
-**D) PILOT FEATURE MATRIX** — When cloud is unavailable but CAPS is alive, these MUST still work: sign in, menu ordering, modifiers, check functions, payments, KDS, offline daily reporting. Gift/loyalty can remain online-only for pilot.
+**D) PILOT FEATURE MATRIX** — When cloud is unavailable but CAPS is alive, these MUST still work: sign in, menu ordering, modifiers, check functions, payments, KDS, offline daily reporting.
 
 #### CRITICAL PILOT DESIGN DECISION:
-**For pilot, CAPS is the store authority. If a workstation cannot reach CAPS, the workstation should HARD FAIL and not continue normal operation.** Do NOT build true standalone-per-workstation databases right now unless explicitly asked. We are not doing split-brain WS databases for pilot.
+For pilot, CAPS is the store authority. If a workstation cannot reach CAPS, the workstation should HARD FAIL and not continue normal operation.
 
 #### Data Flow (ALWAYS follow this order):
 1. **WS → CAPS (local network)**: ALL transaction data goes to CAPS first via LAN. CAPS is the on-prem authority.
 2. **CAPS → Cloud (internet)**: CAPS syncs data upstream to the cloud when internet is available. This is background/async.
 3. **Cloud → CAPS → WS (config only)**: Configuration changes flow DOWN from cloud through CAPS to workstations.
 
-#### Connectivity Status (what the colors mean):
+#### Connectivity Status:
 - **GREEN**: WS can reach CAPS AND CAPS can reach Cloud. Full connectivity.
 - **YELLOW**: WS can reach CAPS but CAPS cannot reach Cloud. Store operates normally — cloud sync is deferred.
 - **RED**: WS cannot reach CAPS. HARD FAIL — workstation cannot operate (pilot).
@@ -60,30 +56,12 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - A device is **OFFLINE** if CAPS cannot reach it (or it cannot reach CAPS).
 - This is a LOCAL NETWORK status — it has NOTHING to do with cloud connectivity.
 - The CAPS service host tracks which devices are connected to it via WebSocket/heartbeat on the LAN.
-- The cloud DB is updated when CAPS syncs upstream, but the source of truth for device status is CAPS, not the cloud.
 
-#### CAPS-Only API Routing (v3.1.82+ — electron/main.cjs interceptor):
+#### CAPS-Only API Routing:
 - **ALL** `/api/` requests route exclusively to CAPS. No cloud fallback for any API call.
 - Electron is a terminal UI only — it does not make routing decisions or fall back to cloud.
-- Path mapping for CAPS:
-  - `/api/checks/*` → `/api/caps/checks/*`
-  - `/api/check-items/*` → `/api/caps/check-items/*`
-  - `/api/check-payments/*` → `/api/caps/check-payments/*`
-  - `/api/check-discounts/*` → `/api/caps/check-discounts/*`
-  - `/api/check-service-charges/*` → `/api/caps/check-service-charges/*`
-  - `/api/payments/*` → `/api/caps/payments/*`
-  - `/api/refunds/*` → `/api/caps/refunds/*`
-  - All other `/api/*` routes pass through to CAPS at the same path
-- CAPS unreachable = 503 returned to UI, no silent fallback
-- Print agent connects to CAPS WebSocket (not cloud) for print jobs
-- Non-API assets (HTML/JS/CSS) served from bundled files or cloud (UI resources only)
-
-#### When building ANY feature, ask in this order:
-1. **Does CAPS handle this operation?** (CAPS is the authority)
-2. **How does it work with CAPS on the LAN?** (YELLOW mode — store still operates)
-3. **How does it work when cloud is also available?** (GREEN mode — adds sync)
-4. **What happens if CAPS is unreachable?** (RED mode — HARD FAIL for pilot)
-5. NEVER build cloud-first and retrofit offline. ALWAYS build CAPS-first.
+- CAPS unreachable = 503 returned to UI, no silent fallback.
+- Print agent connects to CAPS WebSocket (not cloud) for print jobs.
 
 - **Multi-Property Hierarchy**: Enterprise → Property → Revenue Center management.
 - **Simphony-Class Configuration**: Configuration inheritance with override capabilities.
@@ -112,7 +90,7 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - **Multi-Enterprise Architecture**: Server-side data isolation.
 - **Native Application Capabilities (Windows Electron)**: Embedded print agent, SQLite/SQLCipher, local reporting, store-and-forward, EMV terminal communication, auto-launch, kiosk mode, terminal setup wizard.
 - **Configuration Inheritance & Override**: Items inherit with override capabilities via OptionBits system.
-- **Concurrency-Safe Check Numbering**: Atomic, unique, sequential check numbers with configurable per-workstation offline check number ranges (EMC → WS config → Electron offline DB).
+- **Concurrency-Safe Check Numbering**: Atomic, unique, sequential check numbers with configurable per-workstation offline check number ranges.
 - **CAPS Connectivity Diagnostics**: System Diagnostics page shows real-time CAPS/Service Host status including online/offline, connected workstations, pending sync, last heartbeat, and version.
 - **Reporting**: Canonical Data Access Layer with 7 query functions.
 - **Customer Onboarding**: Excel-based bulk data import.
@@ -123,16 +101,12 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - **Device Tracker**: Unified tracking for WS and KDS Electron devices.
 - **CAPS Service Host Resilience**: Ensures critical tables and token management.
 - **Real-time Sync Push Notifications**: Critical sync events trigger WebSocket notifications and UI updates.
-- **Bootstrap Watchdog (v3.1.75)**: 10s timer after page load auto-reloads if renderer doesn't signal React bootstrap (max 2 retries). Cleared by `renderer-log` or `renderer-bootstrap-ready` IPC.
-- **Bundled Asset Priority (v3.1.75)**: Protocol interceptor always serves bundled production assets for non-API requests when available — never falls through to cloud Vite dev server for UI content.
-- **CAPS Response Key Normalization (v3.1.87)**: Global `mapKeys()` middleware in `service-host/src/routes/api.ts` converts all `res.json()` responses from SQLite snake_case to frontend camelCase. Exception: `/config/workstation-options` keys preserved as snake_case (semantic option-bit IDs). `build-service-host.cjs` stamps `CAPS_VERSION` from `build-info.json` into the bundle — verify via `/health/build-version`.
-- **Sync Early-Abort (v3.1.75)**: `syncFromCloud()` aborts after 3 consecutive network failures instead of attempting all 56+ table endpoints.
-- **5xx Cloud Fallback (v3.1.76)**: Protocol interceptor treats 502/503/504 as network failures — triggers CAPS/offline fallback + immediate `checkConnectivity()`. All check-mutation endpoints in `LOCAL_FIRST_WRITE_PATTERNS`.
-- **CalSync Log Suppression (v3.1.76)**: `CalSync.checkPendingDeployments()` uses `lastCloudDisconnectLogged` flag to suppress repeated disconnect logs (matches TransactionSync pattern).
-- **CAPS-Required GREEN Mode (v3.1.77)**: `checkConnectivity()` and startup probe now verify CAPS health alongside cloud — GREEN requires CAPS reachable + healthy when configured. Cloud UP + CAPS DOWN = RED.
-- **Auth Write Blocking (v3.1.77)**: Auth POSTs (login, PIN, manager-approval) always return CAPS response, never fall through to cloud. Auth excluded from RED mode exception — ALL writes blocked in RED.
-- **Manager Approval CAPS-First (v3.1.77)**: `/api/auth/manager-approval` added to `isCapsAuthRoute` for direct CAPS routing.
-- **CAPS-Only Authority (v3.1.82)**: Complete architecture rewrite — ALL API routes go to CAPS exclusively. Removed: cloud fallback routing, warm-sync, split-brain offline interceptor, GREEN→cloud paths, YELLOW→CAPS failover cascades. Non-blocking startup (window opens immediately, CAPS check async). Print agent connects to CAPS WebSocket (not cloud). API client simplified — uses relative URLs, no cloud URL routing.
+- **Bundled Asset Priority**: Protocol interceptor always serves bundled production assets for non-API requests when available.
+- **CAPS Response Key Normalization**: Global `mapKeys()` middleware converts all `res.json()` responses from SQLite snake_case to frontend camelCase.
+- **Sync Early-Abort**: `syncFromCloud()` aborts after 3 consecutive network failures.
+- **Auth Write Blocking**: Auth POSTs (login, PIN, manager-approval) always return CAPS response, never fall through to cloud.
+- **Manager Approval CAPS-First**: `/api/auth/manager-approval` added to `isCapsAuthRoute` for direct CAPS routing.
+- **CAPS-Only Authority**: Complete architecture rewrite – ALL API routes go to CAPS exclusively.
 
 ## External Dependencies
 
