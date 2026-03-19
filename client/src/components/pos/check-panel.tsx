@@ -663,13 +663,13 @@ export function CheckPanel({
               size="lg"
               className="aspect-square min-h-20 text-base font-semibold flex flex-col items-center justify-center gap-1"
               onClick={onSend}
-              disabled={isSending || (isPendingReopen && hasUnvoidedPriorPayments)}
+              disabled={isSending}
               data-testid="button-send-order"
             >
               {isPendingReopen ? (
                 <>
                   <XCircle className="w-6 h-6" />
-                  <span>{hasUnvoidedPriorPayments ? "Void Payment First" : "Exit"}</span>
+                  <span>Exit</span>
                 </>
               ) : (
                 <>
