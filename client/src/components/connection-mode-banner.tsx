@@ -15,7 +15,7 @@ interface SyncStatus {
   mode: string;
 }
 
-type CapsBootStage = 'connecting' | 'loading-config' | 'ready' | 'unreachable' | 'no-caps-url' | null;
+type CapsBootStage = 'starting' | 'connecting' | 'loading-config' | 'ready' | 'failed' | 'unreachable' | 'no-caps-url' | null;
 
 const modeConfig: Record<Exclude<ConnectionMode, 'orange'>, {
   bgColor: string;
@@ -112,12 +112,57 @@ export function ConnectionModeBanner({ className = "" }: ConnectionModeBannerPro
     );
   }
 
-  const isBooting = capsBootStage === 'connecting' || capsBootStage === 'loading-config';
+  const isBooting = capsBootStage === 'starting' || capsBootStage === 'connecting' || capsBootStage === 'loading-config';
+  const isFailed = capsBootStage === 'failed';
+
+  const handleRetryBoot = () => {
+    const w = window as any;
+    if (w.electronAPI?.retryCapsBoot) {
+      w.electronAPI.retryCapsBoot().catch(() => {});
+    }
+  };
+
+  if (isFailed) {
+    return (
+      <>
+        <div
+          data-testid="caps-boot-failed-overlay"
+          className="fixed inset-0 z-[9998] bg-red-900/95 flex items-center justify-center"
+        >
+          <div className="text-center text-white p-8 max-w-lg">
+            <AlertTriangle className="h-16 w-16 mx-auto mb-4 text-yellow-300" />
+            <h1 className="text-3xl font-bold mb-4" data-testid="text-caps-boot-failed-title">Store Server Not Ready</h1>
+            <p className="text-lg opacity-90 mb-2" data-testid="text-caps-boot-failed-message">
+              The store server (CAPS) did not become ready within 30 seconds.
+            </p>
+            <p className="text-base opacity-80 mt-2">POS cannot operate without the store server.</p>
+            <button
+              data-testid="button-retry-caps-boot"
+              onClick={handleRetryBoot}
+              className="mt-8 px-8 py-3 bg-white text-red-900 font-bold rounded-lg text-lg hover:bg-gray-100 transition-colors"
+            >
+              Retry Connection
+            </button>
+            <p className="mt-4 text-sm opacity-60">Contact a manager if this persists.</p>
+          </div>
+        </div>
+        <div
+          data-testid="connection-mode-banner"
+          className={`h-6 w-full flex items-center justify-center gap-2 bg-red-500 text-white text-xs font-medium select-none cursor-default ${className}`}
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span>CAPS FAILED</span>
+        </div>
+      </>
+    );
+  }
 
   if (isBooting) {
     const bootMessage = capsBootStage === 'connecting' 
       ? 'Connecting to store server...' 
-      : 'Loading configuration...';
+      : capsBootStage === 'loading-config'
+        ? 'Loading configuration...'
+        : 'Starting up...';
     return (
       <>
         <div

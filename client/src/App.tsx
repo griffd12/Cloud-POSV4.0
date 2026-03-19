@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -25,6 +25,34 @@ import OfflineTestPage from "@/pages/offline-test";
 import { OfflineStatusBanner } from "@/components/offline-status-banner";
 import { UpdateStatusBanner } from "@/components/update-status-banner";
 import { ErrorBoundary } from "@/components/error-boundary";
+
+type CapsBootStage = 'starting' | 'connecting' | 'loading-config' | 'ready' | 'failed' | 'unreachable' | 'no-caps-url' | null;
+
+function useCapsBootGate(): { capsReady: boolean; capsBootStage: CapsBootStage } {
+  const isElectron = !!(window as any).electronAPI?.isElectron;
+  const [stage, setStage] = useState<CapsBootStage>(isElectron ? 'starting' : 'ready');
+
+  useEffect(() => {
+    const w = window as any;
+    if (!w.electronAPI?.isElectron) {
+      setStage('ready');
+      return;
+    }
+    if (w.electronAPI?.getCapsBootStatus) {
+      w.electronAPI.getCapsBootStatus().then((s: { stage: string }) => {
+        setStage((s?.stage as CapsBootStage) || 'starting');
+      }).catch(() => {});
+    }
+    if (w.electronAPI?.onCapsBootStatus) {
+      const unsub = w.electronAPI.onCapsBootStatus((s: { stage: string }) => {
+        setStage((s?.stage as CapsBootStage) || 'starting');
+      });
+      return unsub;
+    }
+  }, []);
+
+  return { capsReady: stage === 'ready', capsBootStage: stage };
+}
 
 function GlobalWebSocket() {
   usePosWebSocket();
@@ -57,6 +85,12 @@ function DeviceGuardedRoute({
   }
   
   return <Redirect to="/login" />;
+}
+
+function CapsBootGate({ children }: { children: React.ReactNode }) {
+  const { capsReady } = useCapsBootGate();
+  if (!capsReady) return null;
+  return <>{children}</>;
 }
 
 function Router() {
@@ -140,21 +174,20 @@ function Router() {
       <Route path="/kds-device-select" component={KdsDeviceSelectPage} />
       <Route path="/setup" component={DeviceSetupPage} />
       <Route path="/kds">
-        {() => <DeviceGuardedRoute component={KdsPage} allowedTypes={["pos", "kds"]} />}
+        {() => <CapsBootGate><DeviceGuardedRoute component={KdsPage} allowedTypes={["pos", "kds"]} /></CapsBootGate>}
       </Route>
       <Route path="/">
-        {() => <DeviceGuardedRoute component={LoginPage} allowedTypes={["pos"]} />}
+        {() => <CapsBootGate><DeviceGuardedRoute component={LoginPage} allowedTypes={["pos"]} /></CapsBootGate>}
       </Route>
       <Route path="/login">
-        {() => <DeviceGuardedRoute component={LoginPage} allowedTypes={["pos"]} />}
+        {() => <CapsBootGate><DeviceGuardedRoute component={LoginPage} allowedTypes={["pos"]} /></CapsBootGate>}
       </Route>
       <Route path="/pos">
-        {() => <DeviceGuardedRoute component={PosPage} allowedTypes={["pos"]} />}
+        {() => <CapsBootGate><DeviceGuardedRoute component={PosPage} allowedTypes={["pos"]} /></CapsBootGate>}
       </Route>
       <Route path="/pos/pizza-builder/:menuItemId">
-        {() => <DeviceGuardedRoute component={PizzaBuilderPage} allowedTypes={["pos"]} />}
+        {() => <CapsBootGate><DeviceGuardedRoute component={PizzaBuilderPage} allowedTypes={["pos"]} /></CapsBootGate>}
       </Route>
-      {/* Admin routes are not available on POS/KDS devices - use EMC instead */}
       <Route path="/admin">
         {() => <Redirect to="/login" />}
       </Route>

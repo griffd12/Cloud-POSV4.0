@@ -9,7 +9,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import { setElectronOfflineLock } from '@/lib/queryClient';
 
 export type ConnectionMode = 'green' | 'yellow' | 'orange' | 'red';
-export type CapsBootStage = 'connecting' | 'loading-config' | 'ready' | 'unreachable' | 'no-caps-url' | null;
+export type CapsBootStage = 'starting' | 'connecting' | 'loading-config' | 'ready' | 'failed' | 'unreachable' | 'no-caps-url' | null;
 
 interface ConnectionModeStatus {
   mode: ConnectionMode;

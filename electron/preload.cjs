@@ -116,6 +116,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getConnectionMode: () => ipcRenderer.invoke('get-connection-mode'),
   getConnectionModeDetail: () => ipcRenderer.invoke('get-connection-mode-detail'),
   getCapsBootStatus: () => ipcRenderer.invoke('get-caps-boot-status'),
+  retryCapsBoot: () => ipcRenderer.invoke('retry-caps-boot'),
 
   // === Event Listeners ===
   onOnlineStatus: (callback) => {

@@ -41,7 +41,7 @@ let protocolConsecutiveFailCount = 0;
 const PROTOCOL_STARTUP_GRACE_MS = 2000;
 const PROTOCOL_FAIL_THRESHOLD = 3;
 let firstBootConnectivityChecked = false;
-let capsBootStage = null;
+let capsBootStage = 'starting';
 let bootstrapWatchdogTimer = null;
 let bootstrapWatchdogCleared = false;
 let bootstrapReloadCount = 0;
@@ -1255,6 +1255,52 @@ function setupIpcHandlers() {
   ipcMain.handle('get-connection-mode', () => connectionMode);
   ipcMain.handle('get-caps-boot-status', () => ({ stage: capsBootStage }));
 
+  ipcMain.handle('retry-caps-boot', async () => {
+    appLogger.info('App', 'Retry CAPS boot requested by renderer');
+    const config = loadConfig();
+    const serviceHostUrl = config.serviceHostUrl;
+    if (!serviceHostUrl) {
+      capsBootStage = 'no-caps-url';
+      if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+      return { success: false, error: 'No CAPS URL configured' };
+    }
+    capsBootStage = 'connecting';
+    if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+    const POLL_INTERVAL_MS = 500;
+    const POLL_TIMEOUT_MS = 30000;
+    const startTime = Date.now();
+    let attempt = 0;
+    while (true) {
+      attempt++;
+      if (Date.now() - startTime > POLL_TIMEOUT_MS) {
+        capsBootStage = 'failed';
+        if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: 'failed', error: 'CAPS did not become ready within 30 seconds' });
+        appLogger.error('App', `Retry CAPS boot timed out after ${POLL_TIMEOUT_MS / 1000}s`);
+        return { success: false, error: 'Timeout' };
+      }
+      try {
+        const resp = await fetch(`${serviceHostUrl}/health/ready`, { signal: AbortSignal.timeout(3000) });
+        if (resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          if (data.status === 'ready') {
+            capsBootStage = 'ready';
+            firstBootConnectivityChecked = true;
+            setConnectionMode('yellow');
+            if (offlineInterceptor) offlineInterceptor.setConnectionMode('yellow');
+            if (mainWindow) mainWindow.webContents.send('connection-mode', 'yellow');
+            if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: 'ready' });
+            appLogger.info('App', 'Retry CAPS boot succeeded — YELLOW mode set');
+            checkConnectivity().catch(() => {});
+            return { success: true };
+          }
+          capsBootStage = 'loading-config';
+          if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+        }
+      } catch {}
+      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    }
+  });
+
   ipcMain.handle('clear-offline-sales-data', () => {
     appLogger.info('App', 'Clearing offline sales data (sales_data_cleared event received)');
     try {
@@ -2236,10 +2282,19 @@ function setupIpcHandlers() {
 
     appLogger.info('Wizard', `Step 4: pollCapsReady against ${startupServiceHostUrl}`);
 
+    const POLL_INTERVAL_MS = 500;
+    const POLL_TIMEOUT_MS = 30000;
     const pollCapsReadyPostWizard = async () => {
+      const startTime = Date.now();
       let attempt = 0;
       while (true) {
         attempt++;
+        if (Date.now() - startTime > POLL_TIMEOUT_MS) {
+          capsBootStage = 'failed';
+          if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: 'failed', error: 'CAPS did not become ready within 30 seconds' });
+          appLogger.error('Wizard', `Post-wizard CAPS readiness timed out after ${POLL_TIMEOUT_MS / 1000}s (${attempt} attempts)`);
+          return false;
+        }
         try {
           const capsReadyCheck = await fetch(`${startupServiceHostUrl}/health/ready`, {
             signal: AbortSignal.timeout(3000),
@@ -2254,7 +2309,7 @@ function setupIpcHandlers() {
             if (readyData.status === 'ready') {
               return true;
             }
-            if (attempt % 5 === 0) {
+            if (attempt % 10 === 0) {
               appLogger.info('Wizard', `Post-wizard CAPS readiness: ${readyData.status} (attempt ${attempt})`);
             }
           } else {
@@ -2265,12 +2320,12 @@ function setupIpcHandlers() {
           capsBootStage = 'connecting';
           if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
         }
-        const delay = attempt <= 10 ? 1000 : (attempt <= 30 ? 2000 : 5000);
-        await new Promise(r => setTimeout(r, delay));
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
       }
     };
 
-    pollCapsReadyPostWizard().then(() => {
+    pollCapsReadyPostWizard().then((ready) => {
+      if (!ready) return;
       capsBootStage = 'ready';
       firstBootConnectivityChecked = true;
       setConnectionMode('yellow');
@@ -2281,6 +2336,8 @@ function setupIpcHandlers() {
       checkConnectivity().catch(() => {});
     }).catch((e) => {
       appLogger.error('Wizard', `Post-wizard CAPS readiness poll unexpected error: ${e.message}`);
+      capsBootStage = 'failed';
+      if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: 'failed', error: e.message });
     });
 
     initOfflineDbEarly().catch(err => {
@@ -3429,10 +3486,19 @@ app.whenReady().then(async () => {
 
       if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
 
+      const POLL_INTERVAL_MS = 500;
+      const POLL_TIMEOUT_MS = 30000;
       const pollCapsReady = async () => {
+        const startTime = Date.now();
         let attempt = 0;
         while (true) {
           attempt++;
+          if (Date.now() - startTime > POLL_TIMEOUT_MS) {
+            capsBootStage = 'failed';
+            if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: 'failed', error: 'CAPS did not become ready within 30 seconds' });
+            appLogger.error('App', `Startup CAPS readiness timed out after ${POLL_TIMEOUT_MS / 1000}s (${attempt} attempts)`);
+            return false;
+          }
           try {
             const capsReadyCheck = await fetch(`${startupServiceHostUrl}/health/ready`, {
               signal: AbortSignal.timeout(3000),
@@ -3447,7 +3513,7 @@ app.whenReady().then(async () => {
               if (readyData.status === 'ready') {
                 return true;
               }
-              if (attempt % 5 === 0) {
+              if (attempt % 10 === 0) {
                 appLogger.info('App', `Startup CAPS readiness: ${readyData.status} (attempt ${attempt})`);
               }
             } else {
@@ -3458,12 +3524,12 @@ app.whenReady().then(async () => {
             capsBootStage = 'connecting';
             if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
           }
-          const delay = attempt <= 10 ? 1000 : (attempt <= 30 ? 2000 : 5000);
-          await new Promise(r => setTimeout(r, delay));
+          await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
         }
       };
 
-      pollCapsReady().then(() => {
+      pollCapsReady().then((ready) => {
+        if (!ready) return;
         capsBootStage = 'ready';
         firstBootConnectivityChecked = true;
         setConnectionMode('yellow');
@@ -3474,6 +3540,8 @@ app.whenReady().then(async () => {
         checkConnectivity().catch(() => {});
       }).catch((e) => {
         appLogger.error('App', `Startup CAPS readiness poll unexpected error: ${e.message}`);
+        capsBootStage = 'failed';
+        if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: 'failed', error: e.message });
       });
     })();
 
