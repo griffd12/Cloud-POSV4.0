@@ -663,14 +663,14 @@ export function createApiRoutes(
         if (discount) {
           discountName = discount.name;
           discountType = discount.discount_type;
-          const itemTotal = itemRow.unit_price * itemRow.quantity;
+          const itemTotalCents = itemRow.unit_price * itemRow.quantity;
+          const itemTotalDollars = itemTotalCents / 100;
           const discountVal = parseFloat(discount.amount || '0');
           if (discount.discount_type === 'percent') {
-            discountAmount = itemTotal * (discountVal / 100);
+            discountAmount = itemTotalDollars * (discountVal / 100);
           } else {
-            discountAmount = discountVal;
+            discountAmount = Math.min(discountVal, itemTotalDollars);
           }
-          discountAmount = Math.min(discountAmount, itemTotal);
         }
       }
       
@@ -792,7 +792,9 @@ export function createApiRoutes(
     if (req.url.startsWith('/caps/') &&
         !req.url.startsWith('/caps/sync/') &&
         !req.url.startsWith('/caps/reports/') &&
-        !req.url.startsWith('/caps/workstation/')) {
+        !req.url.startsWith('/caps/workstation/') &&
+        !req.url.startsWith('/caps/diagnostic/') &&
+        !req.url.startsWith('/caps/gateway-log')) {
       req.url = req.url.replace(/^\/caps\//, '/');
     }
     next();
@@ -2357,20 +2359,23 @@ export function createApiRoutes(
       if (!item) return res.status(404).json({ error: 'Item not found' });
       const discount = caps.db.getDiscount(discountId);
       if (!discount) return res.status(404).json({ error: 'Discount not found' });
-      let discountAmount = 0;
+      let discountAmountDollars = 0;
       const discType = discount.discount_type || discount.type || 'percent';
+      const itemTotalDollars = (item.unit_price * item.quantity) / 100;
+      const discountVal = parseFloat(discount.amount || discount.value || '0');
       if (discType === 'percent') {
-        discountAmount = parseFloat(((item.unit_price * item.quantity) * (parseFloat(discount.amount || discount.value || '0') / 100)).toFixed(2));
+        discountAmountDollars = parseFloat((itemTotalDollars * (discountVal / 100)).toFixed(2));
       } else {
-        discountAmount = parseFloat(discount.amount || discount.value || '0');
+        discountAmountDollars = Math.min(discountVal, itemTotalDollars);
       }
+      const discountAmountCents = Math.round(discountAmountDollars * 100);
       caps.db.run(
         `UPDATE check_items SET discount_id = ?, discount_name = ?, discount_amount = ?, discount_type = ? WHERE id = ?`,
-        [discountId, discount.name, discountAmount, discType, itemId]
+        [discountId, discount.name, discountAmountCents, discType, itemId]
       );
       caps.recalculateTotals(item.check_id);
       const txnGroupId = caps.getTxnGroupId(item.check_id);
-      caps.writeJournal(item.check_id, txnGroupId, '', 'apply_item_discount', { itemId, discountId, discountAmount });
+      caps.writeJournal(item.check_id, txnGroupId, '', 'apply_item_discount', { itemId, discountId, discountAmount: discountAmountDollars });
       caps.transactionSync.queueCheck(item.check_id, 'update', caps.getCheck(item.check_id));
       const updatedCheck = caps.getCheck(item.check_id);
       const updatedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
@@ -2568,8 +2573,8 @@ export function createApiRoutes(
           name: mg.name,
           code: mg.code || null,
           required: mg.required ? true : false,
-          minSelect: mimg.min_required ?? mg.min_select ?? 0,
-          maxSelect: mimg.max_allowed ?? mg.max_select ?? 0,
+          minSelect: (mimg.min_required > 0 ? mimg.min_required : null) ?? mg.min_select ?? 0,
+          maxSelect: (mimg.max_allowed > 0 ? mimg.max_allowed : null) ?? mg.max_select ?? 99,
           displayOrder: mimg.sort_order ?? mimg.display_order ?? 0,
           active: mg.active !== 0,
           modifiers: groupMods
@@ -2676,6 +2681,54 @@ export function createApiRoutes(
         return res.json(session);
       }
       res.status(404).json({ error: 'Terminal session not found' });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/terminal-sessions/:id/cancel', async (req, res) => {
+    try {
+      const row = caps.db.get<any>('SELECT data FROM terminal_sessions WHERE id = ?', [req.params.id]);
+      if (!row) return res.status(404).json({ error: 'Terminal session not found' });
+      let session: any;
+      try { session = JSON.parse(row.data); } catch { session = { id: req.params.id }; }
+      session.status = 'cancelled';
+      session.statusMessage = req.body?.reason || 'Cancelled by cashier';
+      session.updatedAt = new Date().toISOString();
+      caps.db.run(
+        `UPDATE terminal_sessions SET data = ?, status = 'cancelled', updated_at = ? WHERE id = ?`,
+        [JSON.stringify(session), session.updatedAt, req.params.id]
+      );
+      console.log(`[CAPS] Terminal session cancelled: ${req.params.id}`);
+      res.json(session);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/terminal-sessions/:id/simulate-callback', async (req, res) => {
+    try {
+      const row = caps.db.get<any>('SELECT data FROM terminal_sessions WHERE id = ?', [req.params.id]);
+      if (!row) return res.status(404).json({ error: 'Terminal session not found' });
+      let session: any;
+      try { session = JSON.parse(row.data); } catch { session = { id: req.params.id }; }
+      const action = req.body?.action || 'approve';
+      if (action === 'approve') {
+        session.status = 'approved';
+        session.paymentTransactionId = `sim_txn_${Date.now()}`;
+        session.approvalCode = `SIM${Math.floor(Math.random() * 100000).toString().padStart(6, '0')}`;
+        session.tipAmount = 0;
+      } else {
+        session.status = 'declined';
+        session.statusMessage = 'Card declined (simulated)';
+      }
+      session.updatedAt = new Date().toISOString();
+      caps.db.run(
+        `UPDATE terminal_sessions SET data = ?, status = ?, updated_at = ? WHERE id = ?`,
+        [JSON.stringify(session), session.status, session.updatedAt, req.params.id]
+      );
+      console.log(`[CAPS] Terminal session simulated ${action}: ${req.params.id}`);
+      res.json(session);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
@@ -3359,11 +3412,128 @@ export function createApiRoutes(
   router.post('/gift-cards/:action', (_req, res) => {
     res.status(503).json({ error: 'Gift card operations require cloud connection' });
   });
-  router.get('/time-punches/status/:id', (_req, res) => {
-    res.json({ status: 'clocked_in', isClockedIn: true, lastPunch: null, activeBreak: null });
+  router.get('/time-punches/status/:id', (req, res) => {
+    try {
+      const employeeId = req.params.id;
+      const openEntry = db?.get<any>(
+        `SELECT * FROM time_entries WHERE employee_id = ? AND clock_out IS NULL AND status = 'active' ORDER BY clock_in DESC LIMIT 1`,
+        [employeeId]
+      );
+      if (openEntry) {
+        res.json({
+          status: 'clocked_in',
+          isClockedIn: true,
+          lastPunch: { type: 'clock_in', time: openEntry.clock_in, entryId: openEntry.id },
+          activeBreak: null,
+          clockInTime: openEntry.clock_in,
+          jobCode: openEntry.job_code || null,
+        });
+      } else {
+        const lastEntry = db?.get<any>(
+          `SELECT * FROM time_entries WHERE employee_id = ? ORDER BY created_at DESC LIMIT 1`,
+          [employeeId]
+        );
+        res.json({
+          status: 'clocked_out',
+          isClockedIn: false,
+          lastPunch: lastEntry ? { type: 'clock_out', time: lastEntry.clock_out, entryId: lastEntry.id } : null,
+          activeBreak: null,
+        });
+      }
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
   });
-  router.get('/time-punches/status', (_req, res) => {
-    res.json({ status: 'clocked_in', isClockedIn: true, lastPunch: null, activeBreak: null });
+  router.get('/time-punches/status', (req, res) => {
+    const employeeId = req.query.employeeId as string;
+    if (!employeeId) return res.json({ status: 'clocked_out', isClockedIn: false, lastPunch: null, activeBreak: null });
+    try {
+      const openEntry = db?.get<any>(
+        `SELECT * FROM time_entries WHERE employee_id = ? AND clock_out IS NULL AND status = 'active' ORDER BY clock_in DESC LIMIT 1`,
+        [employeeId]
+      );
+      res.json({
+        status: openEntry ? 'clocked_in' : 'clocked_out',
+        isClockedIn: !!openEntry,
+        lastPunch: openEntry ? { type: 'clock_in', time: openEntry.clock_in, entryId: openEntry.id } : null,
+        activeBreak: null,
+        clockInTime: openEntry?.clock_in || null,
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/time-punches/clock-in', (req, res) => {
+    try {
+      const { employeeId, jobCodeId, workstationId, propertyId, rvcId } = req.body;
+      if (!employeeId) return res.status(400).json({ error: 'employeeId is required' });
+
+      const existing = db?.get<any>(
+        `SELECT id FROM time_entries WHERE employee_id = ? AND clock_out IS NULL AND status = 'active'`,
+        [employeeId]
+      );
+      if (existing) return res.status(409).json({ error: 'Employee is already clocked in', entryId: existing.id });
+
+      const id = `caps_te_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+      const now = new Date().toISOString();
+      const businessDate = now.split('T')[0];
+      const jobCode = jobCodeId && db ? db.get<any>('SELECT name FROM job_codes WHERE id = ?', [jobCodeId]) : null;
+
+      db?.run(
+        `INSERT INTO time_entries (id, employee_id, workstation_id, clock_in, job_code, job_code_id, punch_type, punch_time, business_date, status, cloud_synced)
+         VALUES (?, ?, ?, ?, ?, ?, 'clock_in', ?, ?, 'active', 0)`,
+        [id, employeeId, workstationId || null, now, jobCode?.name || null, jobCodeId || null, now, businessDate]
+      );
+
+      res.json({
+        id,
+        employeeId,
+        punchType: 'clock_in',
+        clockInTime: now,
+        businessDate,
+        jobCodeId,
+        success: true,
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post('/time-punches/clock-out', (req, res) => {
+    try {
+      const { employeeId, workstationId, propertyId, rvcId, tipsDeclared } = req.body;
+      if (!employeeId) return res.status(400).json({ error: 'employeeId is required' });
+
+      const openEntry = db?.get<any>(
+        `SELECT * FROM time_entries WHERE employee_id = ? AND clock_out IS NULL AND status = 'active' ORDER BY clock_in DESC LIMIT 1`,
+        [employeeId]
+      );
+      if (!openEntry) return res.status(404).json({ error: 'No active clock-in found for this employee' });
+
+      const now = new Date().toISOString();
+      const clockInTime = new Date(openEntry.clock_in);
+      const clockOutTime = new Date(now);
+      const shiftMinutes = Math.round((clockOutTime.getTime() - clockInTime.getTime()) / 60000);
+
+      db?.run(
+        `UPDATE time_entries SET clock_out = ?, tips_declared = ?, cloud_synced = 0 WHERE id = ?`,
+        [now, tipsDeclared || 0, openEntry.id]
+      );
+
+      res.json({
+        id: openEntry.id,
+        employeeId,
+        punchType: 'clock_out',
+        clockInTime: openEntry.clock_in,
+        clockOutTime: now,
+        shiftMinutes,
+        tipsDeclared: tipsDeclared || 0,
+        success: true,
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
   });
 
   // ============================================================================
@@ -3513,7 +3683,29 @@ export function createApiRoutes(
   });
 
   router.get('/pos/system-status', (_req, res) => {
-    res.json({ status: 'caps', offline: true });
+    const dbHealthy = !!db;
+    res.json({
+      timestamp: new Date().toISOString(),
+      overallStatus: dbHealthy ? 'healthy' : 'critical',
+      mode: 'caps',
+      services: {
+        database: {
+          status: dbHealthy ? 'online' : 'offline',
+          message: dbHealthy ? 'Local SQLite database operational' : 'Database not available',
+        },
+        emc: {
+          status: 'offline',
+          message: 'Running in CAPS mode — EMC not available locally',
+        },
+        printAgent: {
+          status: 'no_agents',
+          message: 'Print agent status not tracked in CAPS mode',
+          connectedCount: 0,
+          totalCount: 0,
+          agents: [],
+        },
+      },
+    });
   });
 
   router.get('/pos/reports/:reportType', (req, res) => {

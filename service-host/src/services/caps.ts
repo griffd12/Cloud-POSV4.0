@@ -192,9 +192,9 @@ export class CapsService {
       tableNumber: row.table_number || undefined,
       guestCount: row.guest_count,
       status: row.status as 'open' | 'closed' | 'voided',
-      subtotal: row.subtotal,
-      tax: row.tax,
-      total: row.total,
+      subtotal: row.subtotal || 0,
+      tax: row.tax || 0,
+      total: row.total || 0,
       discountTotal: row.discount_total || 0,
       serviceChargeTotal: row.service_charge_total || 0,
       amountDue: row.amount_due || 0,
@@ -594,7 +594,7 @@ export class CapsService {
     }));
   }
   
-  private getCheckPayments(checkId: string): Payment[] {
+  private getCheckPayments(checkId: string): any[] {
     const rows = this.db.all<PaymentRow>(
       'SELECT * FROM check_payments WHERE check_id = ? ORDER BY created_at',
       [checkId]
@@ -602,18 +602,24 @@ export class CapsService {
     
     return rows.map(row => {
       const tender = this.db.getTender(row.tender_id);
+      const rawStatus = row.status as string;
+      const paymentStatus = rawStatus === 'voided' ? 'voided' : 'completed';
       return {
         id: row.id,
         checkId: row.check_id,
         tenderId: row.tender_id,
+        tenderName: tender?.name || row.tender_type || 'Payment',
         tenderType: row.tender_type,
         isCashMedia: tender?.is_cash_media === 1,
         isCardMedia: tender?.is_card_media === 1,
         isGiftMedia: tender?.is_gift_media === 1,
-        amount: row.amount,
+        amount: String(row.amount || 0),
+        tipAmount: String(row.tip_amount || 0),
         tip: row.tip_amount || 0,
+        changeAmount: String(row.change_amount || 0),
         reference: row.reference_number || undefined,
-        status: row.status as 'authorized' | 'captured' | 'voided',
+        status: rawStatus,
+        paymentStatus,
       };
     });
   }

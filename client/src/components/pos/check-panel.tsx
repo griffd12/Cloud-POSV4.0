@@ -45,6 +45,7 @@ interface CheckPanelProps {
   onVoidServiceCharge?: () => void;
   isEditingClosedCheck?: boolean;
   onCancelEditClosedCheck?: () => void;
+  isPendingReopen?: boolean;
 }
 
 const ORDER_TYPE_LABELS: Record<string, string> = {
@@ -347,6 +348,7 @@ export function CheckPanel({
   onVoidServiceCharge,
   isEditingClosedCheck = false,
   onCancelEditClosedCheck,
+  isPendingReopen = false,
 }: CheckPanelProps) {
   const formatPrice = (price: string | number | null) => {
     const numPrice = typeof price === "string" ? parseFloat(price) : (price || 0);
@@ -654,15 +656,24 @@ export function CheckPanel({
             </Button>
           ) : (
             <Button
-              variant={unsentItems.length > 0 ? "default" : "secondary"}
+              variant={isPendingReopen ? "secondary" : (unsentItems.length > 0 ? "default" : "secondary")}
               size="lg"
               className="aspect-square min-h-20 text-base font-semibold flex flex-col items-center justify-center gap-1"
               onClick={onSend}
-              disabled={isSending}
+              disabled={isSending || (isPendingReopen && unsentItems.length > 0)}
               data-testid="button-send-order"
             >
-              <Send className="w-6 h-6" />
-              <span>{unsentItems.length > 0 ? `Send (${unsentItems.length})` : balanceDue > 0 ? "Send" : "Exit"}</span>
+              {isPendingReopen && unsentItems.length === 0 ? (
+                <>
+                  <XCircle className="w-6 h-6" />
+                  <span>Exit</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-6 h-6" />
+                  <span>{unsentItems.length > 0 ? `Send (${unsentItems.length})` : balanceDue > 0 ? "Send" : "Exit"}</span>
+                </>
+              )}
             </Button>
           )}
           <Button

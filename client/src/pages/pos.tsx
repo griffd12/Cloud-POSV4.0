@@ -2356,6 +2356,7 @@ export default function PosPage() {
             onVoidServiceCharge={currentCheck?.status === "open" && serviceChargeTotal > 0 ? () => voidServiceChargeMutation.mutate() : undefined}
             isEditingClosedCheck={!!editingClosedCheckId}
             onCancelEditClosedCheck={handleCancelEditClosedCheck}
+            isPendingReopen={!!pendingReopenCheckId}
           />
         </div>
       </div>
