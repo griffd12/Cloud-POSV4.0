@@ -3406,8 +3406,14 @@ export function createApiRoutes(
   };
   router.post('/refunds', postRefundHandler);
   router.post('/caps/refunds', postRefundHandler);
-  router.get('/gift-cards/:id', (_req, res) => {
-    res.status(503).json({ error: 'Gift card operations require cloud connection' });
+  router.get('/gift-cards/:id', (req, res) => {
+    try {
+      const gc = db?.getGiftCard(req.params.id);
+      if (!gc) return res.status(404).json({ error: 'Gift card not found' });
+      res.json(gc);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
   });
   router.post('/gift-cards/:action', (_req, res) => {
     res.status(503).json({ error: 'Gift card operations require cloud connection' });
@@ -3675,11 +3681,487 @@ export function createApiRoutes(
   });
 
   router.post('/pos/loyalty/enroll', (req, res) => {
-    res.json({ success: true, message: 'Loyalty enrollment queued for cloud sync' });
+    try {
+      const { firstName, lastName, phone, email, enterpriseId, propertyId } = req.body;
+      if (!firstName || !lastName) {
+        return res.status(400).json({ message: 'First name and last name are required' });
+      }
+      if (phone) {
+        const existing = db?.getLoyaltyMemberByPhone(phone);
+        if (existing) return res.status(400).json({ message: 'Customer already enrolled', existingMember: existing });
+      }
+      if (email) {
+        const existing = db?.getLoyaltyMemberByEmail(email);
+        if (existing) return res.status(400).json({ message: 'Customer already enrolled', existingMember: existing });
+      }
+      const memberId = randomUUID();
+      const memberNumber = `LM${Date.now().toString(36).toUpperCase()}`;
+      db?.upsertLoyaltyMember({
+        id: memberId,
+        enterpriseId: enterpriseId || null,
+        propertyId: propertyId || null,
+        phone: phone || null,
+        email: email || null,
+        firstName,
+        lastName,
+        externalId: null,
+        birthday: null,
+        notes: null,
+        smsOptIn: false,
+        emailOptIn: false,
+        marketingOptIn: false,
+      });
+      const enrolledPrograms: string[] = [];
+      if (propertyId) {
+        try {
+          const programs = db?.getLoyaltyProgramsByProperty(propertyId) || [];
+          for (const prog of programs) {
+            const enrollId = randomUUID();
+            db?.upsertLoyaltyMemberEnrollment({
+              id: enrollId,
+              memberId,
+              programId: prog.id,
+              pointsBalance: 0,
+              lifetimePoints: 0,
+              visitCount: 0,
+              totalSpend: '0',
+              currentTier: null,
+              lastActivityAt: null,
+              active: true,
+            });
+            enrolledPrograms.push(prog.name);
+          }
+        } catch (enrollErr) {
+          console.error('[CAPS] Auto-enrollment error:', enrollErr);
+        }
+      }
+      const createdMember = db?.getLoyaltyMember(memberId);
+      const enrollments = db?.getMemberEnrollments(memberId) || [];
+      const memberWithEnrollments = createdMember ? { ...createdMember, enrollments } : null;
+      res.status(201).json({
+        success: true,
+        member: memberWithEnrollments || { id: memberId, firstName, lastName, phone, email, memberNumber },
+        enrolledPrograms,
+        message: enrolledPrograms.length > 0
+          ? `Member added and enrolled in ${enrolledPrograms.join(', ')}`
+          : 'Member added successfully',
+      });
+    } catch (e) {
+      console.error('[CAPS] Loyalty enroll error:', e);
+      res.status(500).json({ message: (e as Error).message || 'Failed to enroll member' });
+    }
   });
 
   router.get('/pos/checks/:id/reorder/:customerId', (req, res) => {
     res.json([]);
+  });
+
+  // ============================================================================
+  // BUSINESS DATE
+  // ============================================================================
+  router.get('/properties/:id/business-date', (req, res) => {
+    try {
+      const property = db?.getProperty(req.params.id);
+      if (!property) return res.status(404).json({ message: 'Property not found' });
+      const tz = property.timezone || 'America/New_York';
+      const currentBusinessDate = property.current_business_date || new Date().toISOString().split('T')[0];
+      const localDate = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+      res.json({ currentBusinessDate, localDate, timezone: tz });
+    } catch (e) {
+      res.status(500).json({ message: (e as Error).message });
+    }
+  });
+
+  // ============================================================================
+  // REPORTS — computed from local SQLite data
+  // ============================================================================
+
+  router.get('/reports/sales-summary', (req, res) => {
+    try {
+      const { rvcId, businessDate, startDate, endDate } = req.query;
+      const useSingleDay = businessDate && typeof businessDate === 'string';
+      const fromDate = useSingleDay ? businessDate as string : (startDate as string || new Date().toISOString().split('T')[0]);
+      const toDate = useSingleDay ? businessDate as string : (endDate as string || fromDate);
+      const checks: any[] = db?.all(
+        `SELECT * FROM checks WHERE rvc_id = ? AND business_date >= ? AND business_date <= ?`,
+        [rvcId, fromDate, toDate]
+      ) || [];
+      const closedChecks = checks.filter(c => c.status === 'closed');
+      const openChecks = checks.filter(c => c.status === 'open');
+      let grossSales = 0, taxTotal = 0, discountTotal = 0, totalPayments = 0, totalTips = 0;
+      let totalRefunds = 0, refundCount = 0, refundedTax = 0, refundedSales = 0;
+      for (const c of closedChecks) {
+        grossSales += parseFloat(c.subtotal || '0');
+        taxTotal += parseFloat(c.tax || '0');
+        discountTotal += parseFloat(c.discount_total || '0');
+        totalPayments += parseFloat(c.total || '0');
+      }
+      const payments: any[] = db?.all(
+        `SELECT cp.*, cp.tip_amount FROM check_payments cp JOIN checks c ON cp.check_id = c.id WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND cp.voided = 0`,
+        [rvcId, fromDate, toDate]
+      ) || [];
+      totalTips = payments.reduce((sum, p) => sum + parseFloat(p.tip_amount || '0'), 0);
+      totalPayments = payments.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+      const refunds: any[] = db?.all(
+        `SELECT * FROM refunds WHERE rvc_id = ? AND business_date >= ? AND business_date <= ? AND status = 'completed'`,
+        [rvcId, fromDate, toDate]
+      ) || [];
+      refundCount = refunds.length;
+      for (const r of refunds) {
+        totalRefunds += parseFloat(r.total || '0');
+        refundedTax += parseFloat(r.tax || '0');
+        refundedSales += parseFloat(r.subtotal || '0');
+      }
+      const netSales = grossSales - discountTotal;
+      res.json({
+        grossSales,
+        netSales,
+        netSalesAfterRefunds: netSales - refundedSales,
+        grossSalesAfterRefunds: grossSales - refundedSales,
+        taxTotal,
+        taxAfterRefunds: taxTotal - refundedTax,
+        refundedTax,
+        refundedSales,
+        totalWithTax: netSales + taxTotal,
+        totalPayments,
+        totalTips,
+        totalRefunds,
+        refundCount,
+        discountTotal,
+        checksStarted: checks.length,
+        checksClosed: closedChecks.length,
+        checksOutstanding: openChecks.length,
+        avgCheck: closedChecks.length > 0 ? (grossSales / closedChecks.length) : 0,
+      });
+    } catch (e) {
+      console.error('[CAPS] sales-summary error:', e);
+      res.status(500).json({ message: (e as Error).message });
+    }
+  });
+
+  router.get('/reports/tender-mix', (req, res) => {
+    try {
+      const { rvcId, businessDate, startDate, endDate } = req.query;
+      const useSingleDay = businessDate && typeof businessDate === 'string';
+      const fromDate = useSingleDay ? businessDate as string : (startDate as string || new Date().toISOString().split('T')[0]);
+      const toDate = useSingleDay ? businessDate as string : (endDate as string || fromDate);
+      const rows: any[] = db?.all(
+        `SELECT t.name, COUNT(cp.id) as count, COALESCE(SUM(cp.amount), 0) as amount
+         FROM check_payments cp
+         JOIN tenders t ON cp.tender_id = t.id
+         JOIN checks c ON cp.check_id = c.id
+         WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND cp.voided = 0
+         GROUP BY t.name ORDER BY amount DESC`,
+        [rvcId, fromDate, toDate]
+      ) || [];
+      res.json(rows);
+    } catch (e) {
+      res.status(500).json({ message: (e as Error).message });
+    }
+  });
+
+  router.get('/reports/employee-balance', (req, res) => {
+    try {
+      const { rvcId, businessDate, startDate, endDate } = req.query;
+      const useSingleDay = businessDate && typeof businessDate === 'string';
+      const fromDate = useSingleDay ? businessDate as string : (startDate as string || new Date().toISOString().split('T')[0]);
+      const toDate = useSingleDay ? businessDate as string : (endDate as string || fromDate);
+      const checks: any[] = db?.all(
+        `SELECT c.*, e.first_name, e.last_name FROM checks c LEFT JOIN employees e ON c.employee_id = e.id WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND c.status = 'closed'`,
+        [rvcId, fromDate, toDate]
+      ) || [];
+      const empMap: Record<string, any> = {};
+      for (const c of checks) {
+        const eid = c.employee_id || 'unknown';
+        if (!empMap[eid]) {
+          empMap[eid] = {
+            employeeId: eid,
+            employeeName: `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown',
+            checkCount: 0, itemCount: 0, grossSales: 0, discounts: 0, netSales: 0,
+            subtotal: 0, tax: 0, total: 0, totalCollected: 0,
+            cashCollected: 0, creditCollected: 0, otherCollected: 0, tips: 0,
+          };
+        }
+        const emp = empMap[eid];
+        emp.checkCount++;
+        emp.grossSales += parseFloat(c.subtotal || '0');
+        emp.discounts += parseFloat(c.discount_total || '0');
+        emp.tax += parseFloat(c.tax || '0');
+        emp.total += parseFloat(c.total || '0');
+        emp.subtotal += parseFloat(c.subtotal || '0');
+        emp.netSales += parseFloat(c.subtotal || '0') - parseFloat(c.discount_total || '0');
+      }
+      const payments: any[] = db?.all(
+        `SELECT cp.*, t.is_cash_media, t.is_card_media FROM check_payments cp JOIN tenders t ON cp.tender_id = t.id JOIN checks c ON cp.check_id = c.id WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND cp.voided = 0`,
+        [rvcId, fromDate, toDate]
+      ) || [];
+      for (const p of payments) {
+        const chk: any = db?.get('SELECT employee_id FROM checks WHERE id = ?', [p.check_id]);
+        const eid = chk?.employee_id || 'unknown';
+        if (empMap[eid]) {
+          const amt = parseFloat(p.amount || '0');
+          empMap[eid].totalCollected += amt;
+          empMap[eid].tips += parseFloat(p.tip_amount || '0');
+          if (p.is_cash_media) empMap[eid].cashCollected += amt;
+          else if (p.is_card_media) empMap[eid].creditCollected += amt;
+          else empMap[eid].otherCollected += amt;
+        }
+      }
+      const itemRows: any[] = db?.all(
+        `SELECT ci.check_id, COUNT(*) as cnt FROM check_items ci JOIN checks c ON ci.check_id = c.id WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND ci.voided = 0 GROUP BY ci.check_id`,
+        [rvcId, fromDate, toDate]
+      ) || [];
+      for (const row of itemRows) {
+        const chk: any = db?.get('SELECT employee_id FROM checks WHERE id = ?', [row.check_id]);
+        const eid = chk?.employee_id || 'unknown';
+        if (empMap[eid]) empMap[eid].itemCount += row.cnt;
+      }
+      res.json({ employees: Object.values(empMap) });
+    } catch (e) {
+      res.status(500).json({ message: (e as Error).message });
+    }
+  });
+
+  router.get('/reports/open-checks', (req, res) => {
+    try {
+      const { rvcId } = req.query;
+      const rows: any[] = db?.all(
+        `SELECT c.id, c.check_number, c.total, c.table_number, c.opened_at, c.employee_id,
+                e.first_name, e.last_name
+         FROM checks c LEFT JOIN employees e ON c.employee_id = e.id
+         WHERE c.rvc_id = ? AND c.status = 'open' ORDER BY c.opened_at DESC`,
+        [rvcId]
+      ) || [];
+      const checks = rows.map(r => ({
+        id: r.id,
+        checkNumber: r.check_number,
+        total: r.total || '0',
+        tableNumber: r.table_number,
+        openedAt: r.opened_at,
+        employeeName: `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Unknown',
+      }));
+      res.json({ checks });
+    } catch (e) {
+      res.status(500).json({ message: (e as Error).message });
+    }
+  });
+
+  router.get('/reports/closed-checks', (req, res) => {
+    try {
+      const { rvcId, businessDate, startDate, endDate } = req.query;
+      const useSingleDay = businessDate && typeof businessDate === 'string';
+      const fromDate = useSingleDay ? businessDate as string : (startDate as string || new Date().toISOString().split('T')[0]);
+      const toDate = useSingleDay ? businessDate as string : (endDate as string || fromDate);
+      const rows: any[] = db?.all(
+        `SELECT c.id, c.check_number, c.total, c.closed_at, c.opened_at, c.employee_id,
+                e.first_name, e.last_name
+         FROM checks c LEFT JOIN employees e ON c.employee_id = e.id
+         WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND c.status = 'closed'
+         ORDER BY c.closed_at DESC`,
+        [rvcId, fromDate, toDate]
+      ) || [];
+      const totalPaidMap: Record<string, number> = {};
+      const paidRows: any[] = db?.all(
+        `SELECT cp.check_id, SUM(cp.amount) as total_paid FROM check_payments cp JOIN checks c ON cp.check_id = c.id WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND cp.voided = 0 GROUP BY cp.check_id`,
+        [rvcId, fromDate, toDate]
+      ) || [];
+      for (const pr of paidRows) totalPaidMap[pr.check_id] = pr.total_paid || 0;
+      const checks = rows.map(r => {
+        const openedMs = r.opened_at ? new Date(r.opened_at).getTime() : 0;
+        const closedMs = r.closed_at ? new Date(r.closed_at).getTime() : 0;
+        const durationMinutes = openedMs && closedMs ? Math.round((closedMs - openedMs) / 60000) : 0;
+        return {
+          id: r.id,
+          checkNumber: r.check_number,
+          total: parseFloat(r.total || '0'),
+          totalPaid: totalPaidMap[r.id] || 0,
+          closedAt: r.closed_at,
+          employeeName: `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Unknown',
+          durationMinutes,
+        };
+      });
+      res.json({ checks });
+    } catch (e) {
+      res.status(500).json({ message: (e as Error).message });
+    }
+  });
+
+  router.get('/reports/menu-item-sales', (req, res) => {
+    try {
+      const { rvcId, businessDate, startDate, endDate } = req.query;
+      const useSingleDay = businessDate && typeof businessDate === 'string';
+      const fromDate = useSingleDay ? businessDate as string : (startDate as string || new Date().toISOString().split('T')[0]);
+      const toDate = useSingleDay ? businessDate as string : (endDate as string || fromDate);
+      const rows: any[] = db?.all(
+        `SELECT ci.menu_item_id, mi.name as menu_item_name,
+                SUM(ci.quantity) as quantity,
+                SUM(ci.unit_price * ci.quantity) / 100.0 as gross_sales,
+                SUM((ci.unit_price * ci.quantity) - COALESCE(ci.discount_amount, 0)) / 100.0 as net_sales
+         FROM check_items ci
+         JOIN checks c ON ci.check_id = c.id
+         LEFT JOIN menu_items mi ON ci.menu_item_id = mi.id
+         WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND ci.voided = 0
+         GROUP BY ci.menu_item_id ORDER BY quantity DESC`,
+        [rvcId, fromDate, toDate]
+      ) || [];
+      const items = rows.map(r => ({
+        menuItemId: r.menu_item_id,
+        menuItemName: r.menu_item_name || 'Unknown Item',
+        quantity: r.quantity || 0,
+        grossSales: r.gross_sales || 0,
+        netSales: r.net_sales || 0,
+      }));
+      res.json({ items });
+    } catch (e) {
+      res.status(500).json({ message: (e as Error).message });
+    }
+  });
+
+  // ============================================================================
+  // GIFT CARD — sell, balance, reload (CAPS local)
+  // ============================================================================
+
+  router.get('/pos/gift-cards/balance/:cardNumber', (req, res) => {
+    try {
+      const gc = db?.getGiftCardByNumber(req.params.cardNumber);
+      if (!gc) return res.status(404).json({ message: 'Gift card not found' });
+      const transactions = db?.getGiftCardTransactions(gc.id) || [];
+      res.json({
+        cardNumber: gc.card_number,
+        currentBalance: gc.balance || '0',
+        status: gc.status,
+        activatedAt: gc.activated_at || null,
+        expiresAt: gc.expires_at || null,
+        recentTransactions: transactions.slice(0, 5),
+      });
+    } catch (e) {
+      res.status(500).json({ message: 'Failed to check balance' });
+    }
+  });
+
+  router.post('/pos/gift-cards/sell', (req, res) => {
+    try {
+      const { cardNumber, initialBalance, propertyId, employeeId, checkId, rvcId } = req.body;
+      const parsedBalance = parseFloat(initialBalance);
+      if (isNaN(parsedBalance) || parsedBalance <= 0) {
+        return res.status(400).json({ message: 'Invalid initial balance amount' });
+      }
+      if (!cardNumber) return res.status(400).json({ message: 'Card number is required' });
+      const existing = db?.getGiftCardByNumber(cardNumber);
+      if (existing) return res.status(400).json({ message: 'Gift card number already exists' });
+      const gcId = randomUUID();
+      const balanceStr = parsedBalance.toFixed(2);
+      db?.upsertGiftCard({
+        id: gcId,
+        propertyId: propertyId || null,
+        cardNumber,
+        pin: null,
+        balance: 0,
+        initialBalance: balanceStr,
+        status: 'pending',
+        activatedAt: null,
+        activatedByEmployeeId: null,
+        expiresAt: null,
+        lastUsedAt: null,
+        customerName: null,
+        customerPhone: null,
+        customerEmail: null,
+      });
+      let workingCheckId = checkId;
+      let createdCheck = null;
+      if (!workingCheckId) {
+        const rvc = rvcId ? config.getRvc(rvcId) : null;
+        if (!rvc) return res.status(400).json({ message: 'Revenue center required to create a check' });
+        const property = db?.getProperty(rvc.property_id || rvc.propertyId);
+        const businessDate = property?.current_business_date || new Date().toISOString().split('T')[0];
+        const countRow = db?.get<{ cnt: number }>('SELECT COUNT(*) as cnt FROM checks WHERE rvc_id = ?', [rvcId]);
+        const checkNumber = (countRow?.cnt || 0) + 1;
+        workingCheckId = randomUUID();
+        db?.run(
+          `INSERT INTO checks (id, rvc_id, employee_id, check_number, order_type, status, subtotal, tax, discount_total, service_charge_total, total, business_date, opened_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+          [workingCheckId, rvcId, employeeId, checkNumber, 'take_out', 'open', '0', '0', '0', '0', '0', businessDate]
+        );
+        createdCheck = db?.get('SELECT * FROM checks WHERE id = ?', [workingCheckId]);
+      }
+      const itemId = randomUUID();
+      const unitPriceCents = Math.round(parsedBalance * 100);
+      const now = new Date().toISOString();
+      const check = db?.get<any>('SELECT current_round FROM checks WHERE id = ?', [workingCheckId]);
+      const roundNumber = check?.current_round ?? 1;
+      db?.run(
+        `INSERT INTO check_items (id, check_id, round_number, menu_item_id, name, quantity, unit_price, total_price, seat_number, sent_to_kitchen, sent, voided, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?)`,
+        [itemId, workingCheckId, roundNumber, 'gift-card-sale', `Gift Card ${cardNumber} ($${balanceStr})`, 1, unitPriceCents, unitPriceCents, 1, now]
+      );
+      caps.recalculateTotals(workingCheckId);
+      const checkItem = db?.get('SELECT * FROM check_items WHERE id = ?', [itemId]);
+      if (checkItem) checkItem.unit_price = (checkItem.unit_price || 0) / 100;
+      res.json({
+        success: true,
+        giftCard: { id: gcId, cardNumber, initialBalance: balanceStr, status: 'pending' },
+        checkItem,
+        check: createdCheck,
+        message: `Gift card added to check. Complete payment to activate.`,
+      });
+    } catch (e) {
+      console.error('[CAPS] Gift card sell error:', e);
+      res.status(500).json({ message: (e as Error).message || 'Failed to sell gift card' });
+    }
+  });
+
+  router.post('/pos/gift-cards/reload', (req, res) => {
+    try {
+      const { cardNumber, amount, propertyId, employeeId, checkId, rvcId } = req.body;
+      const parsedAmount = parseFloat(amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        return res.status(400).json({ message: 'Invalid reload amount' });
+      }
+      if (!cardNumber) return res.status(400).json({ message: 'Card number is required' });
+      const gc = db?.getGiftCardByNumber(cardNumber);
+      if (!gc) return res.status(404).json({ message: 'Gift card not found' });
+      const amountStr = parsedAmount.toFixed(2);
+      let workingCheckId = checkId;
+      let createdCheck = null;
+      if (!workingCheckId) {
+        const rvc = rvcId ? config.getRvc(rvcId) : null;
+        if (!rvc) return res.status(400).json({ message: 'Revenue center required to create a check' });
+        const property = db?.getProperty(rvc.property_id || rvc.propertyId);
+        const businessDate = property?.current_business_date || new Date().toISOString().split('T')[0];
+        const countRow = db?.get<{ cnt: number }>('SELECT COUNT(*) as cnt FROM checks WHERE rvc_id = ?', [rvcId]);
+        const checkNumber = (countRow?.cnt || 0) + 1;
+        workingCheckId = randomUUID();
+        db?.run(
+          `INSERT INTO checks (id, rvc_id, employee_id, check_number, order_type, status, subtotal, tax, discount_total, service_charge_total, total, business_date, opened_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+          [workingCheckId, rvcId, employeeId, checkNumber, 'take_out', 'open', '0', '0', '0', '0', '0', businessDate]
+        );
+        createdCheck = db?.get('SELECT * FROM checks WHERE id = ?', [workingCheckId]);
+      }
+      const itemId = randomUUID();
+      const unitPriceCents = Math.round(parsedAmount * 100);
+      const now = new Date().toISOString();
+      const check = db?.get<any>('SELECT current_round FROM checks WHERE id = ?', [workingCheckId]);
+      const roundNumber = check?.current_round ?? 1;
+      db?.run(
+        `INSERT INTO check_items (id, check_id, round_number, menu_item_id, name, quantity, unit_price, total_price, seat_number, sent_to_kitchen, sent, voided, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?)`,
+        [itemId, workingCheckId, roundNumber, 'gift-card-reload', `Gift Card Reload ${cardNumber} ($${amountStr})`, 1, unitPriceCents, unitPriceCents, 1, now]
+      );
+      caps.recalculateTotals(workingCheckId);
+      const checkItem = db?.get('SELECT * FROM check_items WHERE id = ?', [itemId]);
+      if (checkItem) checkItem.unit_price = (checkItem.unit_price || 0) / 100;
+      res.json({
+        success: true,
+        giftCard: { id: gc.id, cardNumber, currentBalance: gc.balance || '0' },
+        checkItem,
+        check: createdCheck,
+        message: `Reload added to check. Complete payment to apply funds.`,
+      });
+    } catch (e) {
+      console.error('[CAPS] Gift card reload error:', e);
+      res.status(500).json({ message: (e as Error).message || 'Failed to reload gift card' });
+    }
   });
 
   router.get('/pos/system-status', (_req, res) => {

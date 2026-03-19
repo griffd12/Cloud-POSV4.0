@@ -1326,9 +1326,9 @@ export class Database {
         min_select, max_select, display_order, active, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
-        mg.id, mg.enterpriseId, mg.propertyId, mg.name, mg.code,
-        mg.required ? 1 : 0, mg.minSelect || mg.minSelections || 0, mg.maxSelect || mg.maxSelections || 99,
-        mg.displayOrder || 0, mg.active !== false ? 1 : 0
+        mg.id, mg.enterpriseId ?? mg.enterprise_id, mg.propertyId ?? mg.property_id, mg.name, mg.code,
+        mg.required ? 1 : 0, mg.minSelect ?? mg.min_select ?? mg.minSelections ?? mg.min_selections ?? 0, mg.maxSelect ?? mg.max_select ?? mg.maxSelections ?? mg.max_selections ?? 99,
+        mg.displayOrder ?? mg.display_order ?? 0, mg.active !== false ? 1 : 0
       ]
     );
   }
@@ -1398,13 +1398,14 @@ export class Database {
       `INSERT OR REPLACE INTO menu_item_modifier_groups (
         id, menu_item_id, modifier_group_id, display_order, sort_order, min_required, max_allowed, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-      [link.id, link.menuItemId, link.modifierGroupId, link.displayOrder || 0, link.sortOrder || link.displayOrder || 0, link.minRequired || 0, link.maxAllowed || 0]
+      [link.id, link.menuItemId ?? link.menu_item_id, link.modifierGroupId ?? link.modifier_group_id, link.displayOrder ?? link.display_order ?? 0, link.sortOrder ?? link.sort_order ?? link.displayOrder ?? link.display_order ?? 0, link.minRequired ?? link.min_required ?? 0, link.maxAllowed ?? link.max_allowed ?? 0]
     );
   }
   
   getModifierGroupsForMenuItem(menuItemId: string): any[] {
     return this.all(
-      `SELECT mg.*, mimg.display_order as assignment_order
+      `SELECT mg.*, mimg.display_order as assignment_order,
+              mimg.min_required, mimg.max_allowed
        FROM modifier_groups mg
        JOIN menu_item_modifier_groups mimg ON mg.id = mimg.modifier_group_id
        WHERE mimg.menu_item_id = ? AND mg.active = 1
