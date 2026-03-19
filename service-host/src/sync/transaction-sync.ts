@@ -296,7 +296,7 @@ export class TransactionSync {
         (result.skipped.includes(entityId) || (payload?.localId && result.skipped.includes(payload.localId)));
       if (wasSkipped || result?.success) {
         this.db.run(
-          'UPDATE payments SET cloud_synced = 1 WHERE id = ?',
+          'UPDATE check_payments SET cloud_synced = 1 WHERE id = ?',
           [entityId]
         );
         logger.debug(`Payment synced${wasSkipped ? ' (skipped by cloud)' : ''}: ${entityId}`);

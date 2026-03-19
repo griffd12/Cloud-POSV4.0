@@ -399,7 +399,9 @@ export function createApiRoutes(
         return res.status(403).json(privCheck.error);
       }
       caps.voidItem(req.params.id, req.params.itemId, reason, workstationId);
-      res.json({ success: true });
+      const updatedCheck = caps.getCheck(req.params.id);
+      const voidedItem = updatedCheck?.items?.find((i: any) => i.id === req.params.itemId);
+      res.json(voidedItem || { id: req.params.itemId, voided: true, success: true });
     } catch (e) {
       const error = e as Error;
       if (error.message.includes('locked by another')) {
@@ -431,7 +433,14 @@ export function createApiRoutes(
         paymentParams.amount = parseFloat(paymentParams.amount) || 0;
       }
       const payment = caps.addPayment(req.params.id, paymentParams, workstationId);
-      res.json(payment);
+      const updatedCheck = caps.getCheck(req.params.id);
+      res.json({
+        ...updatedCheck,
+        popDrawer: payment.popDrawer,
+        printCheck: payment.printCheck,
+        changeAmount: payment.changeAmount || 0,
+        appliedTenderId: payment.tenderId,
+      });
     } catch (e) {
       const error = e as Error;
       if (error.message.includes('locked by another')) {
@@ -603,7 +612,9 @@ export function createApiRoutes(
       }
       
       caps.voidItem(itemRow.check_id, itemId, reason, workstationId);
-      res.json({ success: true });
+      const updatedCheck = caps.getCheck(itemRow.check_id);
+      const voidedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
+      res.json(voidedItem || { id: itemId, voided: true, success: true });
     } catch (e) {
       const error = e as Error;
       if (error.message.includes('locked by another')) {
@@ -2405,8 +2416,9 @@ export function createApiRoutes(
       if (!item) return res.status(404).json({ error: 'Item not found' });
       const modifiers = JSON.parse(item.modifiers || '[]');
       const modSum = modifiers.reduce((s: number, m: any) => s + (parseFloat(m.priceDelta) || 0), 0);
-      const totalPrice = (parseFloat(newPrice) + modSum) * item.quantity;
-      caps.db.run('UPDATE check_items SET unit_price = ?, total_price = ? WHERE id = ?', [parseFloat(newPrice), totalPrice, itemId]);
+      const newPriceCents = Math.round(parseFloat(newPrice) * 100);
+      const totalPrice = (newPriceCents + modSum) * item.quantity;
+      caps.db.run('UPDATE check_items SET unit_price = ?, total_price = ? WHERE id = ?', [newPriceCents, totalPrice, itemId]);
       caps.recalculateTotals(item.check_id);
       const txnGroupId = caps.getTxnGroupId(item.check_id);
       caps.writeJournal(item.check_id, txnGroupId, '', 'price_override', { itemId, oldPrice: item.unit_price, newPrice, reason });

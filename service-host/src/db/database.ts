@@ -1564,7 +1564,7 @@ export class Database {
   // ==========================================================================
   
   upsertDiscount(discount: any): void {
-    const amountStr = String(discount.amount || '0');
+    const amountStr = String(discount.value || discount.amount || '0');
     this.run(
       `INSERT OR REPLACE INTO discounts (
         id, enterprise_id, property_id, rvc_id, name, code,
@@ -1572,7 +1572,7 @@ export class Database {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         discount.id, discount.enterpriseId, discount.propertyId, discount.rvcId,
-        discount.name, discount.code, discount.discountType || 'percent',
+        discount.name, discount.code, discount.type || discount.discountType || 'percent',
         amountStr, discount.requiresManagerApproval ? 1 : 0,
         discount.active !== false ? 1 : 0,
       ]
@@ -2219,7 +2219,7 @@ export class Database {
         active, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM payment_processors WHERE id = ?), datetime('now')), datetime('now'))`,
       [
-        proc.id, proc.propertyId, proc.name, proc.processorType,
+        proc.id, proc.propertyId, proc.name, proc.processorType || proc.type || 'unknown',
         proc.isPrimary ? 1 : 0, configStr, proc.configVersion || 1,
         credentialsStr, proc.settlementCutoffTime,
         proc.supportsTipAdjust !== false ? 1 : 0,

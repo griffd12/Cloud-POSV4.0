@@ -38,7 +38,7 @@ export class PaymentController {
     
     // Store authorization
     this.db.run(
-      `INSERT INTO payments (id, check_id, tender_id, tender_type, amount, tip, reference, status)
+      `INSERT INTO check_payments (id, check_id, tender_id, tender_type, amount, tip_amount, reference_number, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'authorized')`,
       [
         transactionId,
@@ -83,7 +83,7 @@ export class PaymentController {
     
     // Update status
     this.db.run(
-      `UPDATE payments SET status = 'captured' WHERE id = ?`,
+      `UPDATE check_payments SET status = 'captured' WHERE id = ?`,
       [transactionId]
     );
     
@@ -107,7 +107,7 @@ export class PaymentController {
     
     // Update status
     this.db.run(
-      `UPDATE payments SET status = 'voided' WHERE id = ?`,
+      `UPDATE check_payments SET status = 'voided' WHERE id = ?`,
       [transactionId]
     );
     
@@ -148,13 +148,13 @@ export class PaymentController {
   // Get payment by ID
   getPayment(transactionId: string): PaymentRecord | null {
     const row = this.db.get<PaymentRow>(
-      'SELECT * FROM payments WHERE id = ?',
+      'SELECT * FROM check_payments WHERE id = ?',
       [transactionId]
     );
     
     if (!row) return null;
     
-    const reference = row.reference ? JSON.parse(row.reference) : {};
+    const reference = (row.reference_number || row.reference) ? JSON.parse(row.reference_number || row.reference) : {};
     const tender = this.db.getTender(row.tender_id);
     
     return {
@@ -166,10 +166,10 @@ export class PaymentController {
       isCardMedia: tender?.is_card_media === 1,
       isGiftMedia: tender?.is_gift_media === 1,
       amount: row.amount,
-      tip: row.tip,
+      tip: row.tip_amount || row.tip || 0,
       authCode: reference.authCode,
-      cardLast4: reference.cardLast4,
-      cardBrand: reference.cardBrand,
+      cardLast4: reference.cardLast4 || row.card_last4,
+      cardBrand: reference.cardBrand || row.card_brand,
       status: row.status as PaymentRecord['status'],
       createdAt: row.created_at,
     };
@@ -178,12 +178,12 @@ export class PaymentController {
   // Get payments for a check
   getPaymentsForCheck(checkId: string): PaymentRecord[] {
     const rows = this.db.all<PaymentRow>(
-      'SELECT * FROM payments WHERE check_id = ? ORDER BY created_at',
+      'SELECT * FROM check_payments WHERE check_id = ? ORDER BY created_at',
       [checkId]
     );
     
     return rows.map(row => {
-      const reference = row.reference ? JSON.parse(row.reference) : {};
+      const reference = (row.reference_number || row.reference) ? JSON.parse(row.reference_number || row.reference) : {};
       const tender = this.db.getTender(row.tender_id);
       return {
         id: row.id,
@@ -194,10 +194,10 @@ export class PaymentController {
         isCardMedia: tender?.is_card_media === 1,
         isGiftMedia: tender?.is_gift_media === 1,
         amount: row.amount,
-        tip: row.tip,
+        tip: row.tip_amount || row.tip || 0,
         authCode: reference.authCode,
-        cardLast4: reference.cardLast4,
-        cardBrand: reference.cardBrand,
+        cardLast4: reference.cardLast4 || row.card_last4,
+        cardBrand: reference.cardBrand || row.card_brand,
         status: row.status as PaymentRecord['status'],
         createdAt: row.created_at,
       };
@@ -223,7 +223,7 @@ export class PaymentController {
     
     // Store with offline flag
     this.db.run(
-      `INSERT INTO payments (id, check_id, tender_id, tender_type, amount, tip, reference, status)
+      `INSERT INTO check_payments (id, check_id, tender_id, tender_type, amount, tip_amount, reference_number, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'offline_authorized')`,
       [
         transactionId,
