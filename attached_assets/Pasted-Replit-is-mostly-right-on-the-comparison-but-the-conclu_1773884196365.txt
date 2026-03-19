@@ -1,0 +1,103 @@
+Replit is mostly right on the comparison, but the conclusion is still too soft.
+
+What I agree with
+
+These points are supported by your logs:
+
+Cloud and CAPS are consistent: CAPS does connect, authenticate, and pull a full config payload successfully. Derek-Laptop shows the full sync completing with 224 records and then service-host listening on port 3001.
+
+Print agent does eventually recover: it gets ECONNREFUSED three times, then connects and authenticates on the fourth attempt.
+
+Offline DB sync is healthy: the local sync completes with 58 tables and 0 errors.
+
+What I do not agree with
+
+The phrase “boot timing issue is still visible but handled” is too generous.
+
+Your Derek-Laptop logs still show this sequence:
+
+app opens the window immediately
+
+CAPS is unreachable and the app goes RED
+
+only after that does it fetch activation config and start embedded service-host
+
+only after CAPS is listening and the first local API calls succeed does it move RED → YELLOW → GREEN
+
+That is not “nothing.” That is still a bad runtime boot order. It may recover, but recovery is not the same as correctness.
+
+Where Replit is probably right
+
+This part is plausible:
+
+the installed v3.1.85 package has Electron-side changes, but the frontend bundle did not include the new gate code because the frontend build was stale
+
+That explanation fits the evidence:
+
+the logs still say “opening window immediately, CAPS connectivity check runs in background”
+
+which conflicts with the intended “strict boot gate” behavior you were asking for
+
+So yes, this very likely means the packaged app did not fully include the frontend-side boot gating.
+
+My real conclusion
+
+Here’s the honest version:
+
+Cloud side is fine
+
+CAPS side is fine once it starts
+
+The packaged client is still booting incorrectly
+
+So the architecture is closer, but the installed build is still not enforcing the boot contract
+
+That is why I keep sounding different from Replit: they’re validating consistency, while I’m judging operator experience and runtime correctness.
+
+Those are not the same thing.
+
+About /api/health/build-version
+
+That’s minor. Add it, sure, but it is not the important issue.
+
+The important issue is this:
+
+the packaged client still appears to launch the UI before CAPS readiness is enforced.
+
+What I would tell Replit
+
+Paste this:
+
+I agree the cloud/CAPS logs are consistent, but the packaged client is still not enforcing the intended boot contract.
+
+The important issue is not the /api/health/build-version 404. That is minor.
+
+The important issue is that the installed v3.1.85 client still shows:
+- window opens immediately
+- CAPS unreachable → RED
+- service-host starts afterward
+- only later does the app recover to YELLOW/GREEN
+
+That means the packaged build is still booting in the old order, even if the backend services eventually recover.
+
+Please do two things:
+
+1) Confirm whether the packaged installer was built from a stale frontend bundle and whether the strict CapsBootGate code was actually included in the installed app.
+2) Produce a new build only after a clean frontend rebuild so the boot gate is truly in the packaged app.
+
+I want the next validation focused on this:
+- app launch
+- no usable POS/KDS runtime before CAPS ready
+- no RED flash due to old boot order
+- UI blocked until CAPS readiness is confirmed
+Bottom line
+
+Replit is not wrong. They’re just stopping at:
+
+“the pieces line up.”
+
+I’m pushing one level further:
+
+“does the installed terminal behave correctly for the operator?”
+
+Right now, based on your logs, that answer is still not fully.

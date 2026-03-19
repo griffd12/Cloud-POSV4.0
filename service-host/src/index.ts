@@ -333,6 +333,13 @@ class ServiceHost {
         ...this.readiness,
       });
     });
+
+    this.app.get('/health/build-version', (_req, res) => {
+      res.json({ version: process.env.CAPS_VERSION || '1.0.0', buildDate: process.env.CAPS_BUILD_DATE || null });
+    });
+    this.app.get('/api/health/build-version', (_req, res) => {
+      res.json({ version: process.env.CAPS_VERSION || '1.0.0', buildDate: process.env.CAPS_BUILD_DATE || null });
+    });
     
     // CAPS connected devices endpoint (unauthenticated for local network visibility)
     this.app.get('/api/caps/connected-devices', (req, res) => {
