@@ -19,14 +19,21 @@ import { ConfigSync } from '../sync/config-sync.js';
 import { Database } from '../db/database.js';
 
 function snakeToCamel(str: string): string {
-  return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+  return str.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
 }
 function mapKeys(obj: any): any {
-  if (!obj || typeof obj !== 'object') return obj;
+  if (obj === null || obj === undefined) return obj;
   if (Array.isArray(obj)) return obj.map(mapKeys);
+  if (typeof obj !== 'object') return obj;
+  if (obj instanceof Date) return obj;
   const out: any = {};
   for (const [k, v] of Object.entries(obj)) {
-    out[snakeToCamel(k)] = v;
+    const camelKey = snakeToCamel(k);
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v === null || v === undefined) {
+      out[camelKey] = v;
+    } else {
+      out[camelKey] = mapKeys(v);
+    }
   }
   return out;
 }
@@ -87,15 +94,17 @@ export function createApiRoutes(
 
     const originalJson = res.json.bind(res);
     res.json = (body: any) => {
+      const camelBody = (typeof body === 'object' && body !== null) ? mapKeys(body) : body;
+      
       const durationMs = Date.now() - start;
       let responseSummary: string | null = null;
       let errorMsg: string | null = null;
 
-      if (body) {
-        if (body.error || body.message) {
-          errorMsg = body.error || body.message;
+      if (camelBody) {
+        if (camelBody.error || camelBody.message) {
+          errorMsg = camelBody.error || camelBody.message;
         }
-        const sanitizedResp = typeof body === 'object' && body !== null ? { ...body } : body;
+        const sanitizedResp = typeof camelBody === 'object' && camelBody !== null ? { ...camelBody } : camelBody;
         if (typeof sanitizedResp === 'object' && sanitizedResp !== null) {
           for (const field of REDACTED_FIELDS) {
             if (field in sanitizedResp) sanitizedResp[field] = '[REDACTED]';
@@ -130,7 +139,7 @@ export function createApiRoutes(
         gatewayLog.splice(0, gatewayLog.length - GATEWAY_LOG_MAX);
       }
 
-      return originalJson(body);
+      return originalJson(camelBody);
     };
 
     next();
@@ -2980,10 +2989,10 @@ export function createApiRoutes(
       const discountCount = config.getDiscounts().length;
 
       res.json({
-        workstation: mapKeys(ws) || { id: req.params.id, name: 'CAPS Workstation' },
-        rvcs: (rvcs || []).map(mapKeys),
-        property: mapKeys(prop) || null,
-        enterprise: mapKeys(enterprise) || null,
+        workstation: ws || { id: req.params.id, name: 'CAPS Workstation' },
+        rvcs: rvcs || [],
+        property: prop || null,
+        enterprise: enterprise || null,
         defaultLayout,
         configSummary: {
           menuItems: menuItemCount,
