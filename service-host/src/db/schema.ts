@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS employee_assignments (
   enterprise_id TEXT REFERENCES enterprises(id),
   property_id TEXT REFERENCES properties(id),
   rvc_id TEXT REFERENCES rvcs(id),
+  role_id TEXT REFERENCES roles(id),
   is_primary INTEGER DEFAULT 0,
   updated_at TEXT DEFAULT (datetime('now'))
 );

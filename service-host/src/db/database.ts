@@ -175,6 +175,10 @@ export class Database {
       this.migrateToV12();
     }
     
+    if (fromVersion < 14) {
+      this.migrateToV14();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -505,6 +509,404 @@ export class Database {
     console.log('[DB] v12 migration complete');
   }
   
+  private migrateToV14(): void {
+    console.log('[DB] Running v14 migration: employee_assignments.role_id + 18 missing tables');
+    
+    try {
+      this.run('ALTER TABLE employee_assignments ADD COLUMN role_id TEXT REFERENCES roles(id)');
+      console.log('[DB] Added employee_assignments.role_id');
+    } catch (e: any) {
+      if (!e.message?.includes('duplicate column')) console.log(`[DB] employee_assignments.role_id skipped: ${e.message}`);
+    }
+    
+    this.run(`CREATE TABLE IF NOT EXISTS terminal_devices (
+      id TEXT PRIMARY KEY,
+      property_id TEXT NOT NULL REFERENCES properties(id),
+      name TEXT NOT NULL,
+      device_type TEXT NOT NULL,
+      serial_number TEXT,
+      ip_address TEXT,
+      port INTEGER,
+      payment_processor_id TEXT REFERENCES payment_processors(id),
+      is_online INTEGER DEFAULT 0,
+      last_seen_at TEXT,
+      firmware_version TEXT,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS cash_drawers (
+      id TEXT PRIMARY KEY,
+      property_id TEXT NOT NULL REFERENCES properties(id),
+      name TEXT NOT NULL,
+      workstation_id TEXT REFERENCES workstations(id),
+      starting_balance INTEGER DEFAULT 0,
+      current_balance INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'closed',
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS drawer_assignments (
+      id TEXT PRIMARY KEY,
+      cash_drawer_id TEXT NOT NULL REFERENCES cash_drawers(id),
+      employee_id TEXT NOT NULL REFERENCES employees(id),
+      workstation_id TEXT REFERENCES workstations(id),
+      assigned_at TEXT DEFAULT (datetime('now')),
+      unassigned_at TEXT,
+      opening_balance INTEGER NOT NULL,
+      closing_balance INTEGER,
+      expected_balance INTEGER,
+      over_short INTEGER,
+      status TEXT DEFAULT 'open',
+      business_date TEXT,
+      manager_employee_id TEXT REFERENCES employees(id),
+      cloud_synced INTEGER DEFAULT 0
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS cash_transactions (
+      id TEXT PRIMARY KEY,
+      cash_drawer_id TEXT NOT NULL REFERENCES cash_drawers(id),
+      drawer_assignment_id TEXT REFERENCES drawer_assignments(id),
+      transaction_type TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      balance_before INTEGER NOT NULL,
+      balance_after INTEGER NOT NULL,
+      check_id TEXT REFERENCES checks(id),
+      employee_id TEXT NOT NULL REFERENCES employees(id),
+      manager_employee_id TEXT REFERENCES employees(id),
+      reason TEXT,
+      notes TEXT,
+      reference_number TEXT,
+      cloud_synced INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS safe_counts (
+      id TEXT PRIMARY KEY,
+      property_id TEXT NOT NULL REFERENCES properties(id),
+      count_type TEXT NOT NULL,
+      employee_id TEXT NOT NULL REFERENCES employees(id),
+      manager_employee_id TEXT REFERENCES employees(id),
+      business_date TEXT NOT NULL,
+      expected_amount INTEGER,
+      actual_amount INTEGER NOT NULL,
+      variance INTEGER,
+      denominations TEXT,
+      notes TEXT,
+      status TEXT DEFAULT 'pending',
+      cloud_synced INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS job_codes (
+      id TEXT PRIMARY KEY,
+      enterprise_id TEXT REFERENCES enterprises(id),
+      property_id TEXT REFERENCES properties(id),
+      name TEXT NOT NULL,
+      code TEXT NOT NULL,
+      hourly_rate TEXT,
+      overtime_eligible INTEGER DEFAULT 1,
+      tipped INTEGER DEFAULT 0,
+      default_tip_rate TEXT,
+      color TEXT,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS employee_job_codes (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL REFERENCES employees(id),
+      job_code_id TEXT NOT NULL REFERENCES job_codes(id),
+      hourly_rate_override TEXT,
+      is_primary INTEGER DEFAULT 0,
+      effective_from TEXT,
+      effective_until TEXT,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS fiscal_periods (
+      id TEXT PRIMARY KEY,
+      property_id TEXT NOT NULL REFERENCES properties(id),
+      period_type TEXT NOT NULL,
+      business_date TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      opened_by_employee_id TEXT REFERENCES employees(id),
+      closed_by_employee_id TEXT REFERENCES employees(id),
+      gross_sales INTEGER DEFAULT 0,
+      net_sales INTEGER DEFAULT 0,
+      tax_collected INTEGER DEFAULT 0,
+      discounts_given INTEGER DEFAULT 0,
+      refunds_given INTEGER DEFAULT 0,
+      check_count INTEGER DEFAULT 0,
+      guest_count INTEGER DEFAULT 0,
+      void_count INTEGER DEFAULT 0,
+      void_amount INTEGER DEFAULT 0,
+      cash_over_short INTEGER DEFAULT 0,
+      notes TEXT,
+      cloud_synced INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      closed_at TEXT
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS online_order_sources (
+      id TEXT PRIMARY KEY,
+      property_id TEXT NOT NULL REFERENCES properties(id),
+      name TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      api_key TEXT,
+      webhook_url TEXT,
+      auto_accept INTEGER DEFAULT 0,
+      default_prep_time INTEGER DEFAULT 15,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS overtime_rules (
+      id TEXT PRIMARY KEY,
+      property_id TEXT NOT NULL REFERENCES properties(id),
+      name TEXT NOT NULL,
+      description TEXT,
+      daily_regular_hours TEXT DEFAULT '8.00',
+      daily_overtime_threshold TEXT DEFAULT '8.00',
+      daily_double_time_threshold TEXT,
+      weekly_overtime_threshold TEXT DEFAULT '40.00',
+      weekly_double_time_threshold TEXT,
+      overtime_multiplier TEXT DEFAULT '1.50',
+      double_time_multiplier TEXT DEFAULT '2.00',
+      enable_daily_overtime INTEGER DEFAULT 1,
+      enable_daily_double_time INTEGER DEFAULT 0,
+      enable_weekly_overtime INTEGER DEFAULT 1,
+      enable_weekly_double_time INTEGER DEFAULT 0,
+      week_start_day INTEGER DEFAULT 0,
+      effective_date TEXT,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS break_rules (
+      id TEXT PRIMARY KEY,
+      property_id TEXT NOT NULL REFERENCES properties(id),
+      name TEXT NOT NULL DEFAULT 'California Break Rules',
+      state_code TEXT NOT NULL DEFAULT 'CA',
+      enable_meal_break_enforcement INTEGER DEFAULT 1,
+      meal_break_minutes INTEGER DEFAULT 30,
+      meal_break_threshold_hours TEXT DEFAULT '5.00',
+      second_meal_break_threshold_hours TEXT DEFAULT '10.00',
+      allow_meal_break_waiver INTEGER DEFAULT 1,
+      meal_waiver_max_shift_hours TEXT DEFAULT '6.00',
+      enable_rest_break_enforcement INTEGER DEFAULT 1,
+      rest_break_minutes INTEGER DEFAULT 10,
+      rest_break_interval_hours TEXT DEFAULT '4.00',
+      rest_break_is_paid INTEGER DEFAULT 1,
+      enable_premium_pay INTEGER DEFAULT 1,
+      meal_break_premium_hours TEXT DEFAULT '1.00',
+      rest_break_premium_hours TEXT DEFAULT '1.00',
+      require_clock_out_attestation INTEGER DEFAULT 1,
+      attestation_message TEXT,
+      enable_break_alerts INTEGER DEFAULT 1,
+      alert_minutes_before_deadline INTEGER DEFAULT 15,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS tip_rules (
+      id TEXT PRIMARY KEY,
+      enterprise_id TEXT REFERENCES enterprises(id),
+      property_id TEXT REFERENCES properties(id),
+      rvc_id TEXT REFERENCES rvcs(id),
+      name TEXT NOT NULL DEFAULT 'Default Tip Rules',
+      distribution_method TEXT NOT NULL DEFAULT 'tip_directly',
+      timeframe TEXT DEFAULT 'daily',
+      applies_to_all_locations INTEGER DEFAULT 0,
+      declare_cash_tips INTEGER DEFAULT 0,
+      declare_cash_tips_all_locations INTEGER DEFAULT 0,
+      exclude_managers INTEGER DEFAULT 1,
+      minimum_hours_for_pool TEXT DEFAULT '0',
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS tip_rule_job_percentages (
+      id TEXT PRIMARY KEY,
+      tip_rule_id TEXT NOT NULL REFERENCES tip_rules(id),
+      job_code_id TEXT NOT NULL REFERENCES job_codes(id),
+      percentage TEXT NOT NULL DEFAULT '0',
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS minor_labor_rules (
+      id TEXT PRIMARY KEY,
+      property_id TEXT NOT NULL REFERENCES properties(id),
+      state_code TEXT NOT NULL DEFAULT 'CA',
+      minor_age_threshold INTEGER DEFAULT 18,
+      young_minor_age_threshold INTEGER DEFAULT 16,
+      school_day_max_hours TEXT DEFAULT '4.00',
+      school_week_max_hours TEXT DEFAULT '18.00',
+      school_day_start_time TEXT DEFAULT '07:00',
+      school_day_end_time TEXT DEFAULT '19:00',
+      non_school_day_max_hours TEXT DEFAULT '8.00',
+      non_school_week_max_hours TEXT DEFAULT '40.00',
+      non_school_day_start_time TEXT DEFAULT '07:00',
+      non_school_day_end_time TEXT DEFAULT '21:00',
+      require_work_permit INTEGER DEFAULT 1,
+      work_permit_expiration_alert_days INTEGER DEFAULT 30,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS payment_gateway_config (
+      id TEXT PRIMARY KEY,
+      config_level TEXT NOT NULL,
+      enterprise_id TEXT REFERENCES enterprises(id),
+      property_id TEXT REFERENCES properties(id),
+      workstation_id TEXT,
+      gateway_type TEXT,
+      integration_model TEXT,
+      environment TEXT,
+      credential_key_prefix TEXT,
+      merchant_id TEXT,
+      terminal_id TEXT,
+      site_id TEXT,
+      device_id TEXT,
+      license_id TEXT,
+      terminal_ip_address TEXT,
+      terminal_port TEXT,
+      terminal_connection_type TEXT,
+      enable_sale INTEGER DEFAULT 0,
+      enable_void INTEGER DEFAULT 0,
+      enable_refund INTEGER DEFAULT 0,
+      enable_auth_capture INTEGER DEFAULT 0,
+      enable_manual_entry INTEGER DEFAULT 0,
+      enable_debit INTEGER DEFAULT 0,
+      enable_ebt INTEGER DEFAULT 0,
+      enable_healthcare INTEGER DEFAULT 0,
+      enable_contactless INTEGER DEFAULT 0,
+      enable_emv INTEGER DEFAULT 0,
+      enable_msr INTEGER DEFAULT 0,
+      enable_partial_approval INTEGER DEFAULT 0,
+      enable_tokenization INTEGER DEFAULT 0,
+      enable_store_and_forward INTEGER DEFAULT 0,
+      enable_surcharge INTEGER DEFAULT 0,
+      enable_tip_adjust INTEGER DEFAULT 0,
+      enable_incremental_auth INTEGER DEFAULT 0,
+      enable_cashback INTEGER DEFAULT 0,
+      surcharge_percent TEXT,
+      saf_floor_limit TEXT,
+      saf_max_transactions INTEGER,
+      auth_hold_minutes INTEGER,
+      enable_auto_batch_close INTEGER DEFAULT 0,
+      batch_close_time TEXT,
+      enable_manual_batch_close INTEGER DEFAULT 0,
+      receipt_show_emv_fields INTEGER DEFAULT 0,
+      receipt_show_aid INTEGER DEFAULT 0,
+      receipt_show_tvr INTEGER DEFAULT 0,
+      receipt_show_tsi INTEGER DEFAULT 0,
+      receipt_show_app_label INTEGER DEFAULT 0,
+      receipt_show_entry_method INTEGER DEFAULT 0,
+      receipt_print_merchant_copy INTEGER DEFAULT 0,
+      receipt_print_customer_copy INTEGER DEFAULT 0,
+      enable_debug_logging INTEGER DEFAULT 0,
+      log_raw_requests INTEGER DEFAULT 0,
+      log_raw_responses INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS descriptor_sets (
+      id TEXT PRIMARY KEY,
+      scope_type TEXT NOT NULL,
+      scope_id TEXT NOT NULL,
+      enterprise_id TEXT NOT NULL REFERENCES enterprises(id),
+      header_lines TEXT DEFAULT '[]',
+      trailer_lines TEXT DEFAULT '[]',
+      logo_enabled INTEGER DEFAULT 0,
+      logo_asset_id TEXT REFERENCES descriptor_logo_assets(id),
+      override_header INTEGER DEFAULT 0,
+      override_trailer INTEGER DEFAULT 0,
+      override_logo INTEGER DEFAULT 0,
+      updated_at TEXT DEFAULT (datetime('now')),
+      updated_by_id TEXT
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS descriptor_logo_assets (
+      id TEXT PRIMARY KEY,
+      enterprise_id TEXT NOT NULL REFERENCES enterprises(id),
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      storage_path TEXT NOT NULL,
+      checksum TEXT,
+      escpos_data TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      created_by_id TEXT
+    )`);
+    
+    this.run(`CREATE TABLE IF NOT EXISTS print_agents (
+      id TEXT PRIMARY KEY,
+      property_id TEXT REFERENCES properties(id),
+      workstation_id TEXT REFERENCES workstations(id),
+      name TEXT NOT NULL,
+      description TEXT,
+      agent_token TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'offline',
+      last_heartbeat TEXT,
+      last_connected_at TEXT,
+      last_disconnected_at TEXT,
+      agent_version TEXT,
+      hostname TEXT,
+      ip_address TEXT,
+      os_info TEXT,
+      auto_reconnect INTEGER DEFAULT 1,
+      heartbeat_interval_ms INTEGER DEFAULT 30000,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
+    
+    const newIndexes = [
+      'CREATE INDEX IF NOT EXISTS idx_terminal_devices_property ON terminal_devices(property_id)',
+      'CREATE INDEX IF NOT EXISTS idx_cash_drawers_property ON cash_drawers(property_id)',
+      'CREATE INDEX IF NOT EXISTS idx_drawer_assignments_drawer ON drawer_assignments(cash_drawer_id)',
+      'CREATE INDEX IF NOT EXISTS idx_drawer_assignments_employee ON drawer_assignments(employee_id)',
+      'CREATE INDEX IF NOT EXISTS idx_drawer_assignments_date ON drawer_assignments(business_date)',
+      'CREATE INDEX IF NOT EXISTS idx_cash_transactions_drawer ON cash_transactions(cash_drawer_id)',
+      'CREATE INDEX IF NOT EXISTS idx_safe_counts_property ON safe_counts(property_id)',
+      'CREATE INDEX IF NOT EXISTS idx_safe_counts_date ON safe_counts(business_date)',
+      'CREATE INDEX IF NOT EXISTS idx_job_codes_property ON job_codes(property_id)',
+      'CREATE INDEX IF NOT EXISTS idx_employee_job_codes_employee ON employee_job_codes(employee_id)',
+      'CREATE INDEX IF NOT EXISTS idx_fiscal_periods_property ON fiscal_periods(property_id)',
+      'CREATE INDEX IF NOT EXISTS idx_fiscal_periods_date ON fiscal_periods(business_date)',
+      'CREATE INDEX IF NOT EXISTS idx_fiscal_periods_status ON fiscal_periods(status)',
+      'CREATE INDEX IF NOT EXISTS idx_overtime_rules_property ON overtime_rules(property_id)',
+      'CREATE INDEX IF NOT EXISTS idx_break_rules_property ON break_rules(property_id)',
+      'CREATE INDEX IF NOT EXISTS idx_tip_rules_property ON tip_rules(property_id)',
+      'CREATE INDEX IF NOT EXISTS idx_tip_rule_job_pct_rule ON tip_rule_job_percentages(tip_rule_id)',
+      'CREATE INDEX IF NOT EXISTS idx_minor_labor_rules_property ON minor_labor_rules(property_id)',
+      'CREATE INDEX IF NOT EXISTS idx_payment_gateway_config_enterprise ON payment_gateway_config(enterprise_id)',
+      'CREATE INDEX IF NOT EXISTS idx_payment_gateway_config_property ON payment_gateway_config(property_id)',
+      'CREATE INDEX IF NOT EXISTS idx_descriptor_sets_enterprise ON descriptor_sets(enterprise_id)',
+      'CREATE INDEX IF NOT EXISTS idx_descriptor_logo_assets_enterprise ON descriptor_logo_assets(enterprise_id)',
+      'CREATE INDEX IF NOT EXISTS idx_print_agents_property ON print_agents(property_id)',
+    ];
+    for (const idx of newIndexes) {
+      try { this.run(idx); } catch (e) { /* index may already exist */ }
+    }
+    
+    console.log('[DB] v14 migration complete — employee_assignments.role_id added, 18 tables created');
+  }
+  
   // ==========================================================================
   // Generic query methods
   // ==========================================================================
@@ -736,7 +1138,7 @@ export class Database {
   }
   
   getEmployeesByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM employees WHERE property_id = ? AND active = 1', [propertyId]);
+    return this.all('SELECT * FROM employees WHERE (property_id = ? OR property_id IS NULL) AND active = 1', [propertyId]);
   }
   
   getEmployeeByPin(pinHash: string): any | null {
