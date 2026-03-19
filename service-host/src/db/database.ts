@@ -1202,7 +1202,7 @@ export class Database {
   }
   
   getRolesByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM roles WHERE property_id = ? AND active = 1', [propertyId]);
+    return this.all('SELECT * FROM roles WHERE (property_id = ? OR property_id IS NULL) AND active = 1', [propertyId]);
   }
   
   // ==========================================================================
@@ -1298,7 +1298,7 @@ export class Database {
   
   getSlusByProperty(propertyId: string): any[] {
     return this.all(
-      'SELECT * FROM slus WHERE property_id = ? AND active = 1 ORDER BY display_order',
+      'SELECT * FROM slus WHERE (property_id = ? OR property_id IS NULL) AND active = 1 ORDER BY display_order',
       [propertyId]
     );
   }
@@ -1338,7 +1338,7 @@ export class Database {
   }
   
   getModifierGroupsByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM modifier_groups WHERE property_id = ? AND active = 1 ORDER BY display_order', [propertyId]);
+    return this.all('SELECT * FROM modifier_groups WHERE (property_id = ? OR property_id IS NULL) AND active = 1 ORDER BY display_order', [propertyId]);
   }
   
   // ==========================================================================
@@ -1362,7 +1362,7 @@ export class Database {
   }
   
   getModifiersByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM modifiers WHERE property_id = ? AND active = 1', [propertyId]);
+    return this.all('SELECT * FROM modifiers WHERE (property_id = ? OR property_id IS NULL) AND active = 1', [propertyId]);
   }
   
   // ==========================================================================
@@ -1448,7 +1448,7 @@ export class Database {
   }
   
   getTaxGroupsByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM tax_groups WHERE property_id = ? AND active = 1', [propertyId]);
+    return this.all('SELECT * FROM tax_groups WHERE (property_id = ? OR property_id IS NULL) AND active = 1', [propertyId]);
   }
   
   getTaxGroupsByRvc(rvcId: string): any[] {
@@ -1493,7 +1493,7 @@ export class Database {
   }
   
   getTendersByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM tenders WHERE property_id = ? AND active = 1', [propertyId]);
+    return this.all('SELECT * FROM tenders WHERE (property_id = ? OR property_id IS NULL) AND active = 1', [propertyId]);
   }
   
   getTendersByRvc(rvcId: string): any[] {
@@ -1584,7 +1584,7 @@ export class Database {
   }
   
   getDiscountsByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM discounts WHERE property_id = ? AND active = 1', [propertyId]);
+    return this.all('SELECT * FROM discounts WHERE (property_id = ? OR property_id IS NULL) AND active = 1', [propertyId]);
   }
   
   getDiscountsByRvc(rvcId: string): any[] {
@@ -1618,7 +1618,7 @@ export class Database {
   }
   
   getServiceChargesByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM service_charges WHERE property_id = ? AND active = 1', [propertyId]);
+    return this.all('SELECT * FROM service_charges WHERE (property_id = ? OR property_id IS NULL) AND active = 1', [propertyId]);
   }
   
   getServiceChargesByRvc(rvcId: string): any[] {
@@ -2387,7 +2387,7 @@ export class Database {
   }
 
   getOvertimeRulesByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM overtime_rules WHERE property_id = ? AND active = 1', [propertyId]);
+    return this.all('SELECT * FROM overtime_rules WHERE (property_id = ? OR property_id IS NULL) AND active = 1', [propertyId]);
   }
 
   // ==========================================================================
@@ -2421,7 +2421,7 @@ export class Database {
   }
 
   getBreakRulesByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM break_rules WHERE property_id = ? AND active = 1', [propertyId]);
+    return this.all('SELECT * FROM break_rules WHERE (property_id = ? OR property_id IS NULL) AND active = 1', [propertyId]);
   }
 
   // ==========================================================================
@@ -2489,7 +2489,7 @@ export class Database {
   }
 
   getMinorLaborRulesByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM minor_labor_rules WHERE property_id = ? AND active = 1', [propertyId]);
+    return this.all('SELECT * FROM minor_labor_rules WHERE (property_id = ? OR property_id IS NULL) AND active = 1', [propertyId]);
   }
 
   // ==========================================================================
@@ -3135,8 +3135,8 @@ export class Database {
         payment_processor_id, is_online, last_seen_at, firmware_version, active, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
-        device.id, device.propertyId, device.name, device.deviceType, device.serialNumber,
-        device.ipAddress, device.port, device.paymentProcessorId,
+        device.id, device.propertyId, device.name, device.model || device.deviceType || 'unknown', device.serialNumber,
+        device.ipAddress || device.networkAddress, device.port, device.paymentProcessorId,
         device.isOnline ? 1 : 0, device.lastSeenAt, device.firmwareVersion,
         device.active !== false ? 1 : 0
       ]
@@ -3294,7 +3294,7 @@ export class Database {
   }
   
   getJobCodesByProperty(propertyId: string): any[] {
-    return this.all('SELECT * FROM job_codes WHERE property_id = ? AND active = 1', [propertyId]);
+    return this.all('SELECT * FROM job_codes WHERE (property_id = ? OR property_id IS NULL) AND active = 1', [propertyId]);
   }
   
   // ==========================================================================

@@ -2509,22 +2509,24 @@ export function createApiRoutes(
       const modGroupMods = caps.db.all<any>(
         'SELECT mgm.modifier_group_id, mgm.modifier_id, mgm.display_order, mgm.is_default FROM modifier_group_modifiers mgm'
       );
-      const modifiers = caps.db.all<any>('SELECT * FROM modifiers');
+      const allModifiers = caps.db.all<any>('SELECT * FROM modifiers');
 
       const modGroupMap: Record<string, any> = {};
       for (const mg of modGroups) {
         modGroupMap[mg.id] = mg;
       }
       const modMap: Record<string, any> = {};
-      for (const m of modifiers) {
+      for (const m of allModifiers) {
         modMap[m.id] = m;
       }
 
-      const result: Record<string, any> = {};
+      const result: Record<string, any[]> = {};
+      const groupCache: Record<string, Record<string, any>> = {};
       for (const mimg of menuItemModGroups) {
-        if (!result[mimg.menu_item_id]) result[mimg.menu_item_id] = {};
+        if (!groupCache[mimg.menu_item_id]) groupCache[mimg.menu_item_id] = {};
         const mg = modGroupMap[mimg.modifier_group_id];
         if (!mg) continue;
+        if (groupCache[mimg.menu_item_id][mimg.modifier_group_id]) continue;
         const groupMods = modGroupMods
           .filter((mgm: any) => mgm.modifier_group_id === mimg.modifier_group_id)
           .map((mgm: any) => {
@@ -2533,24 +2535,32 @@ export function createApiRoutes(
             return {
               id: mod.id,
               name: mod.name,
-              price: mod.price || mod.additional_price || 0,
-              sortOrder: mgm.display_order || 0,
+              priceDelta: mod.price_delta || mod.price || mod.additional_price || 0,
+              active: mod.active !== 0,
               isDefault: mgm.is_default ? true : false,
-              active: mod.active !== 0
+              displayOrder: mgm.display_order || 0,
             };
           })
           .filter(Boolean)
-          .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+          .sort((a: any, b: any) => (a.displayOrder || 0) - (b.displayOrder || 0));
 
-        result[mimg.menu_item_id][mimg.modifier_group_id] = {
+        groupCache[mimg.menu_item_id][mimg.modifier_group_id] = {
           id: mg.id,
           name: mg.name,
           code: mg.code || null,
-          minRequired: mimg.min_required ?? mg.min_required ?? 0,
-          maxAllowed: mimg.max_allowed ?? mg.max_allowed ?? 0,
-          sortOrder: mimg.sort_order ?? mimg.display_order ?? 0,
+          required: mg.required ? true : false,
+          minSelect: mimg.min_required ?? mg.min_select ?? 0,
+          maxSelect: mimg.max_allowed ?? mg.max_select ?? 0,
+          displayOrder: mimg.sort_order ?? mimg.display_order ?? 0,
+          active: mg.active !== 0,
           modifiers: groupMods
         };
+      }
+      for (const [menuItemId, groups] of Object.entries(groupCache)) {
+        const arr = Object.values(groups).sort((a: any, b: any) => (a.displayOrder || 0) - (b.displayOrder || 0));
+        if (arr.length > 0) {
+          result[menuItemId] = arr;
+        }
       }
       res.json(result);
     } catch (e) {

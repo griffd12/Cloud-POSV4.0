@@ -24990,8 +24990,8 @@ connect();
         allEmcOptionFlags,
       ] = await Promise.all([
         storage.getRvcs().then(all => all.filter(r => r.propertyId === propertyId)),
-        storage.getEmployees().then(all => all.filter(e => e.propertyId === propertyId)),
-        storage.getRoles().then(all => all.filter(r => r.propertyId === propertyId)),
+        storage.getEmployees().then(all => all.filter(e => !e.propertyId || e.propertyId === propertyId)),
+        storage.getRoles().then(all => all.filter(r => !r.propertyId || r.propertyId === propertyId)),
         storage.getMenuItems(),
         storage.getModifierGroups(),
         storage.getModifiers(),

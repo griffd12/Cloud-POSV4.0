@@ -484,77 +484,118 @@ export class ConfigSync {
   
   private syncDevices(config: FullConfigResponse): number {
     let count = 0;
+    const errors: string[] = [];
     
     if (config.workstations) {
-      for (const ws of config.workstations) {
-        this.db.upsertWorkstation(ws);
-        count++;
+      try {
+        for (const ws of config.workstations) {
+          this.db.upsertWorkstation(ws);
+          count++;
+        }
+        console.log(`  Synced ${config.workstations.length} workstations`);
+      } catch (e) {
+        errors.push(`workstations: ${(e as Error).message}`);
       }
-      console.log(`  Synced ${config.workstations.length} workstations`);
     }
     
     if (config.printers) {
-      for (const printer of config.printers) {
-        this.db.upsertPrinter(printer);
-        count++;
+      try {
+        for (const printer of config.printers) {
+          this.db.upsertPrinter(printer);
+          count++;
+        }
+        console.log(`  Synced ${config.printers.length} printers`);
+      } catch (e) {
+        errors.push(`printers: ${(e as Error).message}`);
       }
-      console.log(`  Synced ${config.printers.length} printers`);
     }
     
     if (config.kdsDevices) {
-      for (const kds of config.kdsDevices) {
-        this.db.upsertKdsDevice(kds);
-        count++;
+      try {
+        for (const kds of config.kdsDevices) {
+          this.db.upsertKdsDevice(kds);
+          count++;
+        }
+        console.log(`  Synced ${config.kdsDevices.length} KDS devices`);
+      } catch (e) {
+        errors.push(`kdsDevices: ${(e as Error).message}`);
       }
-      console.log(`  Synced ${config.kdsDevices.length} KDS devices`);
     }
     
     if (config.orderDevices) {
-      for (const od of config.orderDevices) {
-        this.db.upsertOrderDevice(od);
-        count++;
+      try {
+        for (const od of config.orderDevices) {
+          this.db.upsertOrderDevice(od);
+          count++;
+        }
+        console.log(`  Synced ${config.orderDevices.length} order devices`);
+      } catch (e) {
+        errors.push(`orderDevices: ${(e as Error).message}`);
       }
-      console.log(`  Synced ${config.orderDevices.length} order devices`);
     }
     
     if (config.orderDevicePrinters) {
-      for (const odp of config.orderDevicePrinters) {
-        this.db.upsertOrderDevicePrinter(odp);
-        count++;
+      try {
+        for (const odp of config.orderDevicePrinters) {
+          this.db.upsertOrderDevicePrinter(odp);
+          count++;
+        }
+        console.log(`  Synced ${config.orderDevicePrinters.length} order device printers`);
+      } catch (e) {
+        errors.push(`orderDevicePrinters: ${(e as Error).message}`);
       }
-      console.log(`  Synced ${config.orderDevicePrinters.length} order device printers`);
     }
     
     if (config.orderDeviceKds) {
-      for (const odk of config.orderDeviceKds) {
-        this.db.upsertOrderDeviceKds(odk);
-        count++;
+      try {
+        for (const odk of config.orderDeviceKds) {
+          this.db.upsertOrderDeviceKds(odk);
+          count++;
+        }
+        console.log(`  Synced ${config.orderDeviceKds.length} order device KDS`);
+      } catch (e) {
+        errors.push(`orderDeviceKds: ${(e as Error).message}`);
       }
-      console.log(`  Synced ${config.orderDeviceKds.length} order device KDS`);
     }
     
     if (config.printClassRouting) {
-      for (const pcr of config.printClassRouting) {
-        this.db.upsertPrintClassRouting(pcr);
-        count++;
+      try {
+        for (const pcr of config.printClassRouting) {
+          this.db.upsertPrintClassRouting(pcr);
+          count++;
+        }
+        console.log(`  Synced ${config.printClassRouting.length} print class routings`);
+      } catch (e) {
+        errors.push(`printClassRouting: ${(e as Error).message}`);
       }
-      console.log(`  Synced ${config.printClassRouting.length} print class routings`);
     }
     
     if (config.terminalDevices) {
-      for (const td of config.terminalDevices) {
-        this.db.upsertTerminalDevice(td);
-        count++;
+      try {
+        for (const td of config.terminalDevices) {
+          this.db.upsertTerminalDevice(td);
+          count++;
+        }
+        console.log(`  Synced ${config.terminalDevices.length} terminal devices`);
+      } catch (e) {
+        errors.push(`terminalDevices: ${(e as Error).message}`);
       }
-      console.log(`  Synced ${config.terminalDevices.length} terminal devices`);
     }
     
     if (config.printAgents) {
-      for (const pa of config.printAgents) {
-        this.db.upsertPrintAgent(pa);
-        count++;
+      try {
+        for (const pa of config.printAgents) {
+          this.db.upsertPrintAgent(pa);
+          count++;
+        }
+        console.log(`  Synced ${config.printAgents.length} print agents`);
+      } catch (e) {
+        errors.push(`printAgents: ${(e as Error).message}`);
       }
-      console.log(`  Synced ${config.printAgents.length} print agents`);
+    }
+    
+    if (errors.length > 0) {
+      console.error(`  [syncDevices] ${errors.length} category error(s):\n    ${errors.join('\n    ')}`);
     }
     
     return count;

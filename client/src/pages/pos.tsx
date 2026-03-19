@@ -759,7 +759,7 @@ export default function PosPage() {
       return response.json();
     },
     onSuccess: (voidedItem: CheckItem) => {
-      setCheckItems(checkItems.map((item) => (item.id === voidedItem.id ? voidedItem : item)));
+      setCheckItems((prev) => prev.map((item) => (item.id === voidedItem.id ? voidedItem : item)));
       setShowManagerApproval(false);
       setPendingVoidItem(null);
       queryClient.invalidateQueries({ queryKey: ["/api/checks", currentCheck?.id] });
@@ -795,7 +795,7 @@ export default function PosPage() {
       return response.json();
     },
     onSuccess: (data: { item: CheckItem; check: Check }) => {
-      setCheckItems(checkItems.map((item) => (item.id === data.item.id ? data.item : item)));
+      setCheckItems((prev) => prev.map((item) => (item.id === data.item.id ? data.item : item)));
       setShowDiscountModal(false);
       setDiscountItem(null);
       queryClient.invalidateQueries({ queryKey: ["/api/checks", currentCheck?.id] });
@@ -821,7 +821,7 @@ export default function PosPage() {
       return response.json();
     },
     onSuccess: (data: { item: CheckItem; check: Check }) => {
-      setCheckItems(checkItems.map((item) => (item.id === data.item.id ? data.item : item)));
+      setCheckItems((prev) => prev.map((item) => (item.id === data.item.id ? data.item : item)));
       queryClient.invalidateQueries({ queryKey: ["/api/checks", currentCheck?.id] });
       toast({ title: "Discount removed" });
     },

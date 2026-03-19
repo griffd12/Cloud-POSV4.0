@@ -288,6 +288,7 @@ export class CapsService {
         checkId,
         roundNumber: check.currentRound,
         menuItemId: item.menuItemId,
+        menuItemName: menuItem.name,
         name: menuItem.name,
         quantity: qty,
         unitPrice: parseFloat((unitPrice / 100).toFixed(2)),
@@ -741,14 +742,24 @@ interface CheckItem {
   checkId: string;
   roundNumber: number;
   menuItemId: string;
+  menuItemName?: string;
   name: string;
   quantity: number;
   unitPrice: number;
+  totalPrice?: number;
   modifiers: any[];
+  printClassId?: string | null;
   seatNumber?: number;
+  taxGroupId?: string | null;
+  sent?: boolean;
   sentToKitchen: boolean;
   voided: boolean;
   voidReason?: string;
+  discountId?: string | null;
+  discountName?: string | null;
+  discountAmount?: number;
+  discountType?: string | null;
+  itemStatus?: string;
 }
 
 interface Payment {
