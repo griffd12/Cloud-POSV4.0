@@ -451,21 +451,24 @@ export class CapsService {
       [id, checkId, params.tenderId, params.tenderType, params.amount, params.tip || 0, changeAmount, params.reference, check.businessDate || null]
     );
     
-    const payment: Payment & { popDrawer?: boolean; printCheck?: boolean; changeAmount?: number } = {
+    const payment: Payment & { popDrawer?: boolean; printCheck?: boolean } = {
       id,
       checkId,
       tenderId: params.tenderId,
+      tenderName: tender?.name || params.tenderType,
       tenderType: params.tenderType,
       isCashMedia: tender?.is_cash_media === 1,
       isCardMedia: tender?.is_card_media === 1,
       isGiftMedia: tender?.is_gift_media === 1,
       amount: params.amount,
+      tipAmount: String(params.tip || 0),
       tip: params.tip || 0,
+      changeAmount: String(changeAmount),
       reference: params.reference,
       status: 'authorized',
+      paymentStatus: 'completed',
       popDrawer: tender?.pop_drawer === 1,
       printCheck: tender?.print_check_on_payment === 1,
-      changeAmount,
     };
     
     this.writeJournal(checkId, check.txnGroupId, check.rvcId, 'payment_added', {
@@ -594,7 +597,7 @@ export class CapsService {
     }));
   }
   
-  private getCheckPayments(checkId: string): any[] {
+  private getCheckPayments(checkId: string): Payment[] {
     const rows = this.db.all<PaymentRow>(
       'SELECT * FROM check_payments WHERE check_id = ? ORDER BY created_at',
       [checkId]
@@ -772,14 +775,18 @@ interface Payment {
   id: string;
   checkId: string;
   tenderId: string;
-  tenderType: string; // display/label only, not used for behavioral logic
+  tenderName?: string;
+  tenderType: string;
   isCashMedia?: boolean;
   isCardMedia?: boolean;
   isGiftMedia?: boolean;
-  amount: number;
+  amount: number | string;
+  tipAmount?: string;
   tip: number;
+  changeAmount?: string;
   reference?: string;
-  status: 'authorized' | 'captured' | 'voided';
+  status: string;
+  paymentStatus: 'completed' | 'voided';
 }
 
 interface CheckRow {

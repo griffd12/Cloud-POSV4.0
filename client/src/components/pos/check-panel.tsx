@@ -358,6 +358,9 @@ export function CheckPanel({
   const activeItems = items.filter(item => !item.voided);
   const unsentItems = activeItems.filter(item => !item.sent);
   const sentItems = activeItems.filter(item => item.sent);
+  const hasUnvoidedPriorPayments = isPendingReopen && payments.some(
+    (p) => p.paymentStatus === "completed" || (p.paymentStatus !== "voided" && !p.paymentStatus)
+  );
   
   const subtotal = propSubtotal ?? 0;
   const tax = propTax ?? 0;
@@ -660,13 +663,13 @@ export function CheckPanel({
               size="lg"
               className="aspect-square min-h-20 text-base font-semibold flex flex-col items-center justify-center gap-1"
               onClick={onSend}
-              disabled={isSending || (isPendingReopen && unsentItems.length > 0)}
+              disabled={isSending || (isPendingReopen && hasUnvoidedPriorPayments)}
               data-testid="button-send-order"
             >
-              {isPendingReopen && unsentItems.length === 0 ? (
+              {isPendingReopen ? (
                 <>
                   <XCircle className="w-6 h-6" />
-                  <span>Exit</span>
+                  <span>{hasUnvoidedPriorPayments ? "Void Payment First" : "Exit"}</span>
                 </>
               ) : (
                 <>
