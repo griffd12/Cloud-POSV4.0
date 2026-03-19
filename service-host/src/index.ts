@@ -364,7 +364,8 @@ class ServiceHost {
       this.kdsController,
       this.paymentController,
       this.configSync,
-      this.db
+      this.db,
+      this.config.dataDir
     );
     this.app.use('/api', authMiddleware, propertyScopeMiddleware, apiRouter);
     

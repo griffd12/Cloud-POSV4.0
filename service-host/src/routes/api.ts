@@ -17,6 +17,7 @@ import { KdsController } from '../services/kds-controller.js';
 import { PaymentController } from '../services/payment-controller.js';
 import { ConfigSync } from '../sync/config-sync.js';
 import { Database } from '../db/database.js';
+import { initGatewayLogger, writeGatewayEntry } from '../gateway-logger.js';
 
 function snakeToCamel(str: string): string {
   return str.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
@@ -44,12 +45,18 @@ export function createApiRoutes(
   kds: KdsController,
   payment: PaymentController,
   config: ConfigSync,
-  db?: Database
+  db?: Database,
+  dataDir?: string
 ): Router {
   const router = Router();
 
+  if (dataDir) {
+    initGatewayLogger(dataDir);
+  }
+
   // ============================================================================
   // GATEWAY LOG — structured request/response logging for all CAPS traffic
+  // In-memory ring buffer (500 entries) + file-based gateway.log (5MB rotation)
   // ============================================================================
 
   interface GatewayLogEntry {
@@ -77,7 +84,7 @@ export function createApiRoutes(
     const method = req.method;
     const url = req.originalUrl || req.url;
 
-    if (url.startsWith('/api/caps/gateway-log') || req.method === 'OPTIONS') {
+    if (url.startsWith('/api/caps/gateway-log') || url.startsWith('/api/caps/diagnostic') || req.method === 'OPTIONS') {
       return next();
     }
 
@@ -89,7 +96,7 @@ export function createApiRoutes(
         if (field in sanitized) sanitized[field] = '[REDACTED]';
       }
       const bodyStr = JSON.stringify(sanitized);
-      requestBodySummary = bodyStr.length > 200 ? bodyStr.substring(0, 200) + '...' : bodyStr;
+      requestBodySummary = bodyStr.length > 500 ? bodyStr.substring(0, 500) + '...' : bodyStr;
     }
 
     const originalJson = res.json.bind(res);
@@ -119,7 +126,7 @@ export function createApiRoutes(
           }
         }
         const bodyStr = JSON.stringify(sanitizedResp);
-        responseSummary = bodyStr.length > 200 ? bodyStr.substring(0, 200) + '...' : bodyStr;
+        responseSummary = bodyStr.length > 500 ? bodyStr.substring(0, 500) + '...' : bodyStr;
       }
 
       const entry: GatewayLogEntry = {
@@ -139,6 +146,18 @@ export function createApiRoutes(
       if (gatewayLog.length > GATEWAY_LOG_MAX) {
         gatewayLog.splice(0, gatewayLog.length - GATEWAY_LOG_MAX);
       }
+
+      writeGatewayEntry({
+        ts: entry.timestamp,
+        device: deviceName,
+        method,
+        url,
+        status: res.statusCode,
+        ms: durationMs,
+        reqBody: requestBodySummary,
+        resBody: responseSummary,
+        err: errorMsg,
+      });
 
       return originalJson(camelBody);
     };
