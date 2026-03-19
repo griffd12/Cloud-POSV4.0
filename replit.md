@@ -125,6 +125,7 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 - **Real-time Sync Push Notifications**: Critical sync events trigger WebSocket notifications and UI updates.
 - **Bootstrap Watchdog (v3.1.75)**: 10s timer after page load auto-reloads if renderer doesn't signal React bootstrap (max 2 retries). Cleared by `renderer-log` or `renderer-bootstrap-ready` IPC.
 - **Bundled Asset Priority (v3.1.75)**: Protocol interceptor always serves bundled production assets for non-API requests when available — never falls through to cloud Vite dev server for UI content.
+- **CAPS Response Key Normalization (v3.1.87)**: Global `mapKeys()` middleware in `service-host/src/routes/api.ts` converts all `res.json()` responses from SQLite snake_case to frontend camelCase. Exception: `/config/workstation-options` keys preserved as snake_case (semantic option-bit IDs). `build-service-host.cjs` stamps `CAPS_VERSION` from `build-info.json` into the bundle — verify via `/health/build-version`.
 - **Sync Early-Abort (v3.1.75)**: `syncFromCloud()` aborts after 3 consecutive network failures instead of attempting all 56+ table endpoints.
 - **5xx Cloud Fallback (v3.1.76)**: Protocol interceptor treats 502/503/504 as network failures — triggers CAPS/offline fallback + immediate `checkConnectivity()`. All check-mutation endpoints in `LOCAL_FIRST_WRITE_PATTERNS`.
 - **CalSync Log Suppression (v3.1.76)**: `CalSync.checkPendingDeployments()` uses `lastCloudDisconnectLogged` flag to suppress repeated disconnect logs (matches TransactionSync pattern).
