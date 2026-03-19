@@ -1,0 +1,247 @@
+Alright—strip the frustration out for a second. What you’re seeing is actually one single root problem showing up in multiple ways, not a bunch of random failures.
+
+💥 What’s REALLY happening
+
+All of these symptoms point to the same thing:
+
+❌ No POS layout
+
+❌ No logo
+
+❌ Roles/permissions not applying
+
+❌ Check functions locked
+
+❌ Stress test not working
+
+👉 Your POS is not fully initialized against CAPS context
+
+Not partially… not delayed… it’s running without a valid workstation + user context
+
+🔍 The smoking gun (from your logs)
+
+You DO successfully sync config:
+
+Menu items ✅
+
+Layouts ✅
+
+Roles ✅
+
+Employees ✅
+
+But that’s not what the POS uses at runtime
+
+👉 POS uses:
+
+/api/workstations/{id}/context
+
+And that happens here:
+
+:40.843  Workstation context loaded
+
+Problem:
+By the time this loads, your POS UI has already initialized incorrectly.
+
+🧠 Why everything looks broken
+1. No POS Layout
+
+Layout exists in DB:
+
+Synced 1 POS layouts
+Synced 26 POS layout cells
+
+But:
+👉 UI already mounted BEFORE context + layout binding
+
+Result:
+
+blank layout
+
+2. No Logo
+
+Logo is tied to:
+
+enterprise
+
+property
+
+OR workstation context
+
+👉 If context isn’t bound → no branding
+
+3. No Privileges (this is the big one)
+
+You’re saying:
+
+“I have permissions in EMC but POS says I don’t”
+
+That means:
+
+👉 POS is NOT using your role correctly
+👉 OR using NO role at all
+
+That only happens if:
+
+employee not resolved
+
+role not bound
+
+OR context not loaded
+
+4. Check functions locked
+
+This is 100% role-driven
+
+If POS thinks you're:
+
+role = null
+
+or
+
+role = default minimal
+
+👉 everything locks
+
+5. Stress test fails
+
+Because:
+
+no context
+
+no valid workstation state
+
+no check state initialized
+
+🎯 Root Cause (no fluff)
+
+POS initialized BEFORE CAPS context was ready and never recovered
+
+Everything flows from that.
+
+⚠️ Why this is worse than it looks
+
+Even though CAPS eventually becomes GREEN:
+
+👉 Your UI is already in a corrupted runtime state
+
+And since:
+
+retry: false
+
+👉 nothing refetches
+👉 nothing rebinds
+👉 nothing fixes itself
+
+🔥 This is NOT a config problem
+
+You do NOT have:
+
+bad data ❌
+
+missing layouts ❌
+
+broken roles ❌
+
+You have:
+
+bad boot + no recovery logic
+
+🛠 What needs to happen immediately
+1. HARD RESET TEST (prove it)
+
+Do this right now:
+
+Close app completely
+
+Wait 10 seconds
+
+Reopen
+
+DO NOT touch anything for 10 seconds
+
+👉 If things suddenly appear after waiting:
+= confirms race condition
+
+2. Force reload after CAPS ready
+
+You need this implemented ASAP:
+
+if (capsReady becomes true)
+  queryClient.invalidateQueries()
+  refetch:
+    - workstation context
+    - employee
+    - roles
+    - layouts
+    - menu
+3. Add debug (this will expose everything)
+
+Tell them to log this in UI:
+
+console.log({
+  capsBootStage,
+  workstationContext,
+  employee,
+  role,
+  posLayoutCount,
+})
+
+You’ll instantly see:
+👉 what’s missing
+
+4. TEMP FIX (to keep you working today)
+
+Until they fix boot:
+
+👉 Add a manual reload button OR hotkey:
+
+CTRL + R (force full reload)
+
+After CAPS turns GREEN
+
+This will likely:
+
+load layout
+
+fix permissions
+
+restore POS
+
+🧠 What you should tell Replit (no BS version)
+
+Paste this:
+
+This is not a cloud or sync issue.
+
+The POS is initializing before CAPS context is ready and never recovering.
+
+Symptoms:
+- No POS layout
+- No logo
+- Roles not applied
+- Check functions locked
+
+Logs confirm:
+- config sync completes
+- workstation context loads AFTER UI already mounted
+
+This means:
+- POS is running without valid context
+- role = null or incorrect
+- layout binding never occurs
+
+I need:
+
+1) UI blocked until CAPS context is ready
+OR
+2) automatic refetch of:
+   - workstation context
+   - employee
+   - roles
+   - layouts
+   - menu
+
+Right now the app reaches GREEN but UI is already broken.
+
+This is a boot + state management issue, not config.
