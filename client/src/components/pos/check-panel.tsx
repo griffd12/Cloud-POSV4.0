@@ -358,10 +358,6 @@ export function CheckPanel({
   const activeItems = items.filter(item => !item.voided);
   const unsentItems = activeItems.filter(item => !item.sent);
   const sentItems = activeItems.filter(item => item.sent);
-  const hasUnvoidedPriorPayments = isPendingReopen && payments.some(
-    (p) => p.paymentStatus === "completed" || (p.paymentStatus !== "voided" && !p.paymentStatus)
-  );
-  
   const subtotal = propSubtotal ?? 0;
   const tax = propTax ?? 0;
   const discountTotal = propDiscountTotal ?? 0;
