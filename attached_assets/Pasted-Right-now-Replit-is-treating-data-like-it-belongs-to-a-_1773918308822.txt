@@ -1,0 +1,71 @@
+Right now Replit is treating data like it belongs to a single level, when your system needs to behave like Oracle / real enterprise POS:
+
+Enterprise → Property → RVC (Revenue Center) with overrides
+
+And yes — if they’re querying only by property_id or rvc_id, they are guaranteed to miss data that lives at enterprise level.
+
+🎯 What you need to communicate (clean + direct)
+
+Send this — don’t over-explain, keep it structured:
+
+🔧 MESSAGE TO REPLIT
+The issue is not sync volume or missing tables — it's how configuration is scoped and resolved across the enterprise hierarchy.
+
+Our system is NOT flat. It must follow enterprise POS architecture:
+
+Enterprise → Property → RVC (Revenue Center)
+
+Data is configured at different levels:
+- Enterprise level: global configuration (menu items, major groups, tax groups, tenders, base roles, etc.)
+- Property level: overrides or additions specific to a location
+- RVC level: final operational overrides (layouts, routing, pricing, etc.)
+
+Current behavior appears to be filtering or resolving data only at the property_id or rvc_id level, which is incorrect.
+
+Expected behavior:
+
+1) On initial device setup (Enterprise selected):
+   - Pull ALL enterprise-level configuration
+   - Pull property-level configuration for the assigned property
+   - Pull RVC-level configuration for the assigned RVC
+
+2) At runtime, configuration must be resolved using override precedence:
+
+   RVC override → Property override → Enterprise default
+
+3) No data should be excluded simply because it does not match property_id or rvc_id
+   - Enterprise-level records must always be included
+   - Overrides must replace, not duplicate or conflict
+
+4) Examples of where this matters:
+   - Menu items and pricing
+   - POS layouts and layout cells
+   - Role and privilege definitions
+   - Tenders and discounts
+   - Tax groups and routing
+
+5) Likely current issue:
+   - Queries or API filters are scoped incorrectly (e.g. WHERE property_id = X)
+   - This causes missing or partial data in runtime
+   - Which explains broken layouts, incorrect pricing, and missing privileges
+
+What I need:
+
+A) Show how config queries are currently scoped for:
+   - menu_items
+   - pos_layouts / pos_layout_cells
+   - roles / privileges
+   - tenders / discounts
+
+B) Implement proper hierarchical resolution logic:
+   - Include enterprise-level data
+   - Merge with property-level overrides
+   - Apply RVC-level overrides last
+
+C) Provide the final resolved dataset for a single RVC:
+   - Show raw enterprise data
+   - Show property overrides
+   - Show RVC overrides
+   - Show final merged result used by POS
+
+This system must behave like an enterprise POS (Oracle-style), not a single-location POS.
