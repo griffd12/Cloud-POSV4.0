@@ -94,16 +94,20 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
   const applyConnectionMode = useCallback((mode: ConnectionMode) => {
     const capsReachable = mode === 'green' || mode === 'yellow';
     setElectronOfflineLock(!capsReachable);
-    setStatus(prev => ({
-      ...prev,
-      mode,
-      cloudReachable: mode === 'green',
-      serviceHostReachable: capsReachable,
-      printAgentAvailable: mode === 'orange',
-      paymentAppAvailable: false,
-      lastChecked: new Date(),
-      isChecking: false,
-    }));
+    setStatus(prev => {
+      const capsBootStage = prev.capsBootStage;
+      return {
+        ...prev,
+        mode,
+        cloudReachable: mode === 'green',
+        serviceHostReachable: capsReachable,
+        printAgentAvailable: mode === 'orange',
+        paymentAppAvailable: false,
+        lastChecked: new Date(),
+        isChecking: false,
+        capsBootStage,
+      };
+    });
     localStorage.setItem('connectionMode', mode);
   }, []);
 
