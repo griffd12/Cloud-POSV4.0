@@ -927,7 +927,11 @@ export function createApiRoutes(
   router.get('/config/menu-items', (req, res) => {
     try {
       const items = config.getMenuItems();
-      res.json(items);
+      const itemsWithDollarPrices = items.map((item: any) => ({
+        ...item,
+        price: typeof item.price === 'number' ? parseFloat((item.price / 100).toFixed(2)) : item.price,
+      }));
+      res.json(itemsWithDollarPrices);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
@@ -1084,7 +1088,11 @@ export function createApiRoutes(
       if (!item) {
         return res.status(404).json({ error: 'Menu item not found' });
       }
-      res.json(item);
+      const converted = {
+        ...item,
+        price: typeof item.price === 'number' ? parseFloat((item.price / 100).toFixed(2)) : item.price,
+      };
+      res.json(converted);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
@@ -1094,7 +1102,11 @@ export function createApiRoutes(
   router.get('/config/slus/:id/items', (req, res) => {
     try {
       const items = config.getMenuItemsBySlu(req.params.id);
-      res.json(items);
+      const itemsWithDollarPrices = items.map((item: any) => ({
+        ...item,
+        price: typeof item.price === 'number' ? parseFloat((item.price / 100).toFixed(2)) : item.price,
+      }));
+      res.json(itemsWithDollarPrices);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
@@ -2882,21 +2894,25 @@ export function createApiRoutes(
   router.get('/service-charges', (_req, res) => {
     try { res.json(config.getServiceCharges()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
+  const convertMenuItemPriceToDollars = (item: any) => ({
+    ...item,
+    price: typeof item.price === 'number' ? parseFloat((item.price / 100).toFixed(2)) : item.price,
+  });
   router.get('/menu-items', (_req, res) => {
-    try { res.json(config.getMenuItems()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    try { res.json(config.getMenuItems().map(convertMenuItemPriceToDollars)); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
   router.get('/menu-items/:id', (req, res) => {
     try {
       const item = config.getMenuItemWithModifiers(req.params.id);
       if (!item) return res.status(404).json({ error: 'Menu item not found' });
-      res.json(item);
+      res.json(convertMenuItemPriceToDollars(item));
     } catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
   router.get('/slus', (req, res) => {
     try { res.json(config.getSlus()); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
   router.get('/slus/:id/items', (req, res) => {
-    try { res.json(config.getMenuItemsBySlu(req.params.id)); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    try { res.json(config.getMenuItemsBySlu(req.params.id).map(convertMenuItemPriceToDollars)); } catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
   router.get('/modifier-groups', (_req, res) => {
     try {

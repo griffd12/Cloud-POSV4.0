@@ -241,11 +241,17 @@ export class CapsService {
         continue;
       }
       
-      const rawPrice = item.priceOverride != null ? item.priceOverride : (item.unitPrice != null ? item.unitPrice : menuItem.price);
-      const parsedPrice = typeof rawPrice === 'number' ? rawPrice : parseFloat(String(rawPrice));
-      const unitPrice = Number.isFinite(parsedPrice) ? parsedPrice : 0;
+      const rawPriceDollars = item.priceOverride != null ? item.priceOverride : (item.unitPrice != null ? item.unitPrice : null);
+      let unitPrice: number;
+      if (rawPriceDollars != null) {
+        const parsed = typeof rawPriceDollars === 'number' ? rawPriceDollars : parseFloat(String(rawPriceDollars));
+        unitPrice = Number.isFinite(parsed) ? this.db.toCents(parsed) : 0;
+      } else {
+        unitPrice = typeof menuItem.price === 'number' ? menuItem.price : 0;
+      }
+      const parsedPrice = unitPrice;
       if (!Number.isFinite(parsedPrice)) {
-        console.warn(`[CAPS] addItems: unitPrice fallback to 0 for item ${menuItem.name} — rawPrice=${rawPrice} is not a valid number`);
+        console.warn(`[CAPS] addItems: unitPrice fallback to 0 for item ${menuItem.name} — rawPriceDollars=${rawPriceDollars} is not a valid number`);
       }
       const qty = typeof item.quantity === 'number' && Number.isFinite(item.quantity) && item.quantity > 0 ? item.quantity : 1;
       const rawTotal = Math.round(qty * unitPrice);
@@ -569,8 +575,8 @@ export class CapsService {
       menuItemName: row.name,
       name: row.name,
       quantity: row.quantity,
-      unitPrice: row.unit_price,
-      totalPrice: row.total_price,
+      unitPrice: parseFloat((row.unit_price / 100).toFixed(2)),
+      totalPrice: parseFloat((row.total_price / 100).toFixed(2)),
       modifiers: JSON.parse(row.modifiers || '[]'),
       printClassId: row.print_class_id || null,
       seatNumber: row.seat_number || undefined,
@@ -581,7 +587,7 @@ export class CapsService {
       voidReason: row.void_reason || undefined,
       discountId: row.discount_id || null,
       discountName: row.discount_name || null,
-      discountAmount: row.discount_amount || 0,
+      discountAmount: row.discount_amount ? parseFloat((row.discount_amount / 100).toFixed(2)) : 0,
       discountType: row.discount_type || null,
       itemStatus: row.voided ? 'voided' : 'active',
     }));
@@ -629,7 +635,7 @@ export class CapsService {
     let totalTaxCents = 0;
     
     for (const item of items) {
-      const lineTotalCents = this.db.toCents(item.quantity * item.unit_price);
+      const lineTotalCents = Math.round(item.quantity * item.unit_price);
       subtotalCents += lineTotalCents;
       
       if (item.tax_group_id) {
@@ -650,13 +656,13 @@ export class CapsService {
       `SELECT COALESCE(SUM(amount), 0) as total FROM check_discounts WHERE check_id = ? AND voided = 0`,
       [checkId]
     );
-    const discountTotalCents = this.db.toCents(discountResult?.total || 0);
+    const discountTotalCents = Math.round(discountResult?.total || 0);
     
     const serviceChargeResult = this.db.get<{ total: number }>(
       `SELECT COALESCE(SUM(amount), 0) as total FROM check_service_charges WHERE check_id = ? AND voided = 0`,
       [checkId]
     );
-    const serviceChargeTotalCents = this.db.toCents(serviceChargeResult?.total || 0);
+    const serviceChargeTotalCents = Math.round(serviceChargeResult?.total || 0);
     
     const totalCents = Math.max(0, subtotalCents + totalTaxCents - discountTotalCents + serviceChargeTotalCents);
     

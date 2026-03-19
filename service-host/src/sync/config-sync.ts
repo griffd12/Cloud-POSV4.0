@@ -47,6 +47,7 @@ interface FullConfigResponse {
   employees?: any[];
   roles?: any[];
   privileges?: any[];
+  rolePrivileges?: any[];
   employeeAssignments?: any[];
   jobCodes?: any[];
   employeeJobCodes?: any[];
@@ -208,6 +209,7 @@ export class ConfigSync {
         employees: innerData.employees,
         roles: innerData.roles,
         privileges: innerData.privileges,
+        rolePrivileges: innerData.rolePrivileges,
         employeeAssignments: innerData.employeeAssignments,
         jobCodes: innerData.jobCodes,
         employeeJobCodes: innerData.employeeJobCodes,
@@ -404,6 +406,14 @@ export class ConfigSync {
         count++;
       }
       console.log(`  Synced ${config.privileges.length} privileges`);
+    }
+    
+    if (config.rolePrivileges) {
+      for (const rp of config.rolePrivileges) {
+        this.db.upsertRolePrivilege(rp);
+        count++;
+      }
+      console.log(`  Synced ${config.rolePrivileges.length} role privileges`);
     }
     
     if (config.employees) {
@@ -774,6 +784,9 @@ export class ConfigSync {
         break;
       case 'privilege':
         this.db.upsertPrivilege(data);
+        break;
+      case 'rolePrivilege':
+        this.db.upsertRolePrivilege(data);
         break;
       case 'employee':
         this.db.upsertEmployee(data);

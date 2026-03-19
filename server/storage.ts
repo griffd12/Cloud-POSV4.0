@@ -2104,19 +2104,40 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCheckAtomic(rvcId: string, data: Omit<InsertCheck, 'checkNumber'>): Promise<Check> {
-    return await db.transaction(async (tx) => {
-      const counterResult = await tx.execute(sql`
-        INSERT INTO rvc_counters (rvc_id, next_check_number, updated_at)
-        VALUES (${rvcId}, 2, NOW())
-        ON CONFLICT (rvc_id) DO UPDATE
-          SET next_check_number = rvc_counters.next_check_number + 1,
-              updated_at = NOW()
-        RETURNING next_check_number - 1 AS reserved_number
-      `);
-      const checkNumber = (counterResult.rows[0] as any).reserved_number;
-      const [result] = await tx.insert(checks).values(sanitizeDates({ ...data, checkNumber, rvcId })).returning();
-      return result;
-    });
+    const MAX_RETRIES = 3;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        return await db.transaction(async (tx) => {
+          const counterResult = await tx.execute(sql`
+            INSERT INTO rvc_counters (rvc_id, next_check_number, updated_at)
+            VALUES (${rvcId}, 2, NOW())
+            ON CONFLICT (rvc_id) DO UPDATE
+              SET next_check_number = rvc_counters.next_check_number + 1,
+                  updated_at = NOW()
+            RETURNING next_check_number - 1 AS reserved_number
+          `);
+          const checkNumber = (counterResult.rows[0] as any).reserved_number;
+          const [result] = await tx.insert(checks).values(sanitizeDates({ ...data, checkNumber, rvcId })).returning();
+          return result;
+        });
+      } catch (err: any) {
+        const isDuplicateKey = err?.code === '23505' || (err?.message && err.message.includes('duplicate key'));
+        if (isDuplicateKey && attempt < MAX_RETRIES - 1) {
+          console.warn(`[CheckCounter] Duplicate key on attempt ${attempt + 1} for rvc ${rvcId}, resetting counter...`);
+          await db.execute(sql`
+            UPDATE rvc_counters
+            SET next_check_number = COALESCE(
+              (SELECT MAX(check_number) + 1 FROM checks WHERE rvc_id = ${rvcId}), 1
+            ),
+            updated_at = NOW()
+            WHERE rvc_id = ${rvcId}
+          `);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('Failed to create check after max retries');
   }
 
   // Idempotency — INSERT-first transactional pattern

@@ -11,7 +11,7 @@ import archiver from "archiver";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, ne, sql, inArray, and, desc } from "drizzle-orm";
-import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts, workstationOrderDevices, posLayoutCells, posLayoutRvcAssignments } from "@shared/schema";
+import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, rolePrivileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts, workstationOrderDevices, posLayoutCells, posLayoutRvcAssignments } from "@shared/schema";
 import { uberEatsIntegration } from "./integrations/uber-eats";
 import { grubhubIntegration } from "./integrations/grubhub";
 import { doorDashIntegration } from "./integrations/doordash";
@@ -24960,6 +24960,9 @@ connect();
         allPosLayouts,
         allPosLayoutCells,
         allPosLayoutRvcAssignments,
+        allPrivileges,
+        allRolePrivileges,
+        allEmployeeAssignments,
       ] = await Promise.all([
         storage.getRvcs().then(all => all.filter(r => r.propertyId === propertyId)),
         storage.getEmployees().then(all => all.filter(e => e.propertyId === propertyId)),
@@ -24986,6 +24989,9 @@ connect();
         storage.getPosLayouts(),
         db.select().from(posLayoutCells),
         db.select().from(posLayoutRvcAssignments).where(eq(posLayoutRvcAssignments.propertyId, propertyId)),
+        storage.getPrivileges(),
+        db.select().from(rolePrivileges),
+        storage.getAllEmployeeAssignments(),
       ]);
 
       const menuItems = allMenuItems.filter((i: any) => i.enterpriseId === enterpriseId);
@@ -25011,6 +25017,11 @@ connect();
       const orderDeviceKds = allOrderDeviceKds.filter((o: any) => orderDeviceIds.has(o.orderDeviceId));
       const printClassRouting = allPrintClassRouting.filter((r: any) => printClassIds.has(r.printClassId));
 
+      const roleIds = new Set(roles.map((r: any) => r.id));
+      const employeeIds = new Set(employees.map((e: any) => e.id));
+      const filteredRolePrivileges = allRolePrivileges.filter((rp: any) => roleIds.has(rp.roleId));
+      const filteredEmployeeAssignments = allEmployeeAssignments.filter((ea: any) => employeeIds.has(ea.employeeId));
+
       const posLayoutRvcAssignmentIds = new Set(allPosLayoutRvcAssignments.map((a: any) => a.layoutId));
       const posLayouts = allPosLayouts.filter((l: any) =>
         l.enterpriseId === enterpriseId || l.propertyId === propertyId || posLayoutRvcAssignmentIds.has(l.id)
@@ -25018,7 +25029,7 @@ connect();
       const posLayoutIds = new Set(posLayouts.map((l: any) => l.id));
       const posLayoutCellsFiltered = allPosLayoutCells.filter((c: any) => posLayoutIds.has(c.layoutId));
 
-      console.log(`[ConfigSync] Filtered for enterprise ${enterprise?.name}: menuItems=${menuItems.length} (was ${allMenuItems.length}), modifiers=${modifiers.length} (was ${allModifiers.length}), tenders=${tenders.length}, discounts=${discounts.length}, posLayouts=${posLayouts.length}`);
+      console.log(`[ConfigSync] Filtered for enterprise ${enterprise?.name}: menuItems=${menuItems.length} (was ${allMenuItems.length}), modifiers=${modifiers.length} (was ${allModifiers.length}), tenders=${tenders.length}, discounts=${discounts.length}, posLayouts=${posLayouts.length}, rolePrivileges=${filteredRolePrivileges.length}, employeeAssignments=${filteredEmployeeAssignments.length}, privileges=${allPrivileges.length}`);
 
       const configVersion = await storage.getLatestConfigVersion(propertyId);
 
@@ -25031,6 +25042,9 @@ connect();
           revenueCenters,
           employees,
           roles,
+          privileges: allPrivileges,
+          rolePrivileges: filteredRolePrivileges,
+          employeeAssignments: filteredEmployeeAssignments,
           menuItems,
           modifierGroups,
           modifiers,
@@ -25218,6 +25232,15 @@ connect();
                   checkNumber, rvcId, ...checkFields,
                 }).returning();
                 cloudCheck = result;
+                if (rvcId && checkNumber > 0) {
+                  await db.execute(sql`
+                    INSERT INTO rvc_counters (rvc_id, next_check_number, updated_at)
+                    VALUES (${rvcId}, ${checkNumber + 1}, NOW())
+                    ON CONFLICT (rvc_id) DO UPDATE
+                      SET next_check_number = GREATEST(rvc_counters.next_check_number, ${checkNumber + 1}),
+                          updated_at = NOW()
+                  `);
+                }
               }
             }
 
