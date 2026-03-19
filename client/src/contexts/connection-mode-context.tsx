@@ -6,7 +6,7 @@
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
-import { setElectronOfflineLock, queryClient } from '@/lib/queryClient';
+import { setElectronOfflineLock } from '@/lib/queryClient';
 
 export type ConnectionMode = 'green' | 'yellow' | 'orange' | 'red';
 export type CapsBootStage = 'starting' | 'connecting' | 'loading-config' | 'ready' | 'failed' | 'unreachable' | 'no-caps-url' | null;
@@ -145,13 +145,7 @@ export function ConnectionModeProvider({ children, checkInterval = 15000 }: Conn
     if (w.electronAPI?.onCapsBootStatus) {
       const unsub = w.electronAPI.onCapsBootStatus((bootStatus: { stage: string }) => {
         const stage = (bootStatus?.stage as CapsBootStage) || null;
-        setStatus(prev => {
-          if (stage === 'ready' && prev.capsBootStage !== 'ready') {
-            console.log('[ConnectionMode] CAPS transitioned to ready — invalidating all query caches');
-            queryClient.invalidateQueries();
-          }
-          return { ...prev, capsBootStage: stage };
-        });
+        setStatus(prev => ({ ...prev, capsBootStage: stage }));
       });
       return unsub;
     }

@@ -45,7 +45,14 @@ function useCapsBootGate(): { capsReady: boolean; capsBootStage: CapsBootStage }
     }
     if (w.electronAPI?.onCapsBootStatus) {
       const unsub = w.electronAPI.onCapsBootStatus((s: { stage: string }) => {
-        setStage((s?.stage as CapsBootStage) || 'starting');
+        const newStage = (s?.stage as CapsBootStage) || 'starting';
+        setStage(prev => {
+          if (newStage === 'ready' && prev !== 'ready') {
+            console.log('[CapsBootGate] CAPS transitioned to ready — invalidating all query caches');
+            queryClient.invalidateQueries();
+          }
+          return newStage;
+        });
       });
       return unsub;
     }
