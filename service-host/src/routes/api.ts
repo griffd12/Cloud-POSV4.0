@@ -267,7 +267,11 @@ export function createApiRoutes(
       if (!check) {
         return res.status(404).json({ error: 'Check not found' });
       }
-      res.json(check);
+      const { items = [], payments = [], ...checkData } = check;
+      const paidAmount = payments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
+      const total = parseFloat(checkData.total || '0');
+      const changeDue = Math.max(0, paidAmount - total);
+      res.json({ check: { ...checkData, paidAmount, tenderedAmount: paidAmount, changeDue }, items, payments, refunds: [] });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
