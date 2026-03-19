@@ -15,9 +15,11 @@ import {
   FileEdit,
   BarChart3,
   Zap,
-  LockOpen
+  LockOpen,
+  Database,
 } from "lucide-react";
 import { SystemStatusModal } from "./system-status-modal";
+import { CAPSDiagnosticModal } from "./caps-diagnostic-modal";
 
 interface WorkstationInfo {
   name: string;
@@ -111,6 +113,7 @@ export function FunctionsModal({
   workstation,
 }: FunctionsModalProps) {
   const [showSystemStatus, setShowSystemStatus] = useState(false);
+  const [showDiagnostic, setShowDiagnostic] = useState(false);
 
   return (
     <>
@@ -119,6 +122,10 @@ export function FunctionsModal({
       onClose={() => setShowSystemStatus(false)} 
       propertyId={propertyId}
       workstation={workstation}
+    />
+    <CAPSDiagnosticModal
+      open={showDiagnostic}
+      onClose={() => setShowDiagnostic(false)}
     />
     
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -216,6 +223,12 @@ export function FunctionsModal({
                 label="System Status"
                 description="View connectivity status"
                 onClick={() => setShowSystemStatus(true)}
+              />
+              <FunctionButton
+                icon={<Database className="w-5 h-5" />}
+                label="CAPS Diagnostic"
+                description="View sync & data health"
+                onClick={() => setShowDiagnostic(true)}
               />
               <FunctionButton
                 icon={<Zap className="w-5 h-5" />}

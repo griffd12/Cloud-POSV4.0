@@ -81,6 +81,23 @@ interface FullConfigResponse {
   itemAvailability?: any[];
   
   emcOptionFlags?: any[];
+  
+  giftCards?: any[];
+  loyaltyRewards?: any[];
+  
+  overtimeRules?: any[];
+  breakRules?: any[];
+  tipRules?: any[];
+  tipRuleJobPercentages?: any[];
+  minorLaborRules?: any[];
+  
+  descriptorSets?: any[];
+  descriptorLogoAssets?: any[];
+  printAgents?: any[];
+  paymentGatewayConfig?: any[];
+  
+  cashDrawers?: any[];
+  onlineOrderSources?: any[];
 }
 
 interface DeltaConfigResponse {
@@ -235,6 +252,19 @@ export class ConfigSync {
         fiscalPeriods: innerData.fiscalPeriods,
         itemAvailability: innerData.itemAvailability,
         emcOptionFlags: innerData.emcOptionFlags,
+        giftCards: innerData.giftCards,
+        loyaltyRewards: innerData.loyaltyRewards,
+        overtimeRules: innerData.overtimeRules,
+        breakRules: innerData.breakRules,
+        tipRules: innerData.tipRules,
+        tipRuleJobPercentages: innerData.tipRuleJobPercentages,
+        minorLaborRules: innerData.minorLaborRules,
+        descriptorSets: innerData.descriptorSets,
+        descriptorLogoAssets: innerData.descriptorLogoAssets,
+        printAgents: innerData.printAgents,
+        paymentGatewayConfig: innerData.paymentGatewayConfig,
+        cashDrawers: innerData.cashDrawers,
+        onlineOrderSources: innerData.onlineOrderSources,
       };
       
       const arraySizes = Object.entries(config)
@@ -253,6 +283,7 @@ export class ConfigSync {
         totalRecords += this.syncPosLayouts(config);
         totalRecords += this.syncPayments(config);
         totalRecords += this.syncLoyalty(config);
+        totalRecords += this.syncLabor(config);
         totalRecords += this.syncMisc(config);
       } finally {
         this.db.run('PRAGMA foreign_keys = ON');
@@ -518,6 +549,14 @@ export class ConfigSync {
       console.log(`  Synced ${config.terminalDevices.length} terminal devices`);
     }
     
+    if (config.printAgents) {
+      for (const pa of config.printAgents) {
+        this.db.upsertPrintAgent(pa);
+        count++;
+      }
+      console.log(`  Synced ${config.printAgents.length} print agents`);
+    }
+    
     return count;
   }
   
@@ -600,6 +639,14 @@ export class ConfigSync {
       console.log(`  Synced ${config.paymentProcessors.length} payment processors`);
     }
     
+    if (config.paymentGatewayConfig) {
+      for (const pgc of config.paymentGatewayConfig) {
+        this.db.upsertPaymentGatewayConfig(pgc);
+        count++;
+      }
+      console.log(`  Synced ${config.paymentGatewayConfig.length} payment gateway configs`);
+    }
+    
     return count;
   }
   
@@ -630,6 +677,22 @@ export class ConfigSync {
       console.log(`  Synced ${config.loyaltyMemberEnrollments.length} loyalty enrollments`);
     }
     
+    if (config.loyaltyRewards) {
+      for (const lr of config.loyaltyRewards) {
+        this.db.upsertLoyaltyReward(lr);
+        count++;
+      }
+      console.log(`  Synced ${config.loyaltyRewards.length} loyalty rewards`);
+    }
+    
+    if (config.giftCards) {
+      for (const gc of config.giftCards) {
+        this.db.upsertGiftCard(gc);
+        count++;
+      }
+      console.log(`  Synced ${config.giftCards.length} gift cards`);
+    }
+    
     return count;
   }
   
@@ -642,6 +705,22 @@ export class ConfigSync {
         count++;
       }
       console.log(`  Synced ${config.fiscalPeriods.length} fiscal periods`);
+    }
+    
+    if (config.cashDrawers) {
+      for (const cd of config.cashDrawers) {
+        this.db.upsertCashDrawer(cd);
+        count++;
+      }
+      console.log(`  Synced ${config.cashDrawers.length} cash drawers`);
+    }
+    
+    if (config.onlineOrderSources) {
+      for (const oos of config.onlineOrderSources) {
+        this.db.upsertOnlineOrderSource(oos);
+        count++;
+      }
+      console.log(`  Synced ${config.onlineOrderSources.length} online order sources`);
     }
     
     if (config.itemAvailability) {
@@ -658,6 +737,68 @@ export class ConfigSync {
         count++;
       }
       console.log(`  Synced ${config.emcOptionFlags.length} EMC option flags`);
+    }
+    
+    if (config.descriptorSets) {
+      for (const ds of config.descriptorSets) {
+        this.db.upsertDescriptorSet(ds);
+        count++;
+      }
+      console.log(`  Synced ${config.descriptorSets.length} descriptor sets`);
+    }
+    
+    if (config.descriptorLogoAssets) {
+      for (const dla of config.descriptorLogoAssets) {
+        this.db.upsertDescriptorLogoAsset(dla);
+        count++;
+      }
+      console.log(`  Synced ${config.descriptorLogoAssets.length} descriptor logo assets`);
+    }
+    
+    return count;
+  }
+  
+  private syncLabor(config: FullConfigResponse): number {
+    let count = 0;
+    
+    if (config.overtimeRules) {
+      for (const rule of config.overtimeRules) {
+        this.db.upsertOvertimeRule(rule);
+        count++;
+      }
+      console.log(`  Synced ${config.overtimeRules.length} overtime rules`);
+    }
+    
+    if (config.breakRules) {
+      for (const rule of config.breakRules) {
+        this.db.upsertBreakRule(rule);
+        count++;
+      }
+      console.log(`  Synced ${config.breakRules.length} break rules`);
+    }
+    
+    if (config.tipRules) {
+      for (const rule of config.tipRules) {
+        this.db.upsertTipRule(rule);
+        count++;
+      }
+      console.log(`  Synced ${config.tipRules.length} tip rules`);
+    }
+    
+    if (config.tipRuleJobPercentages) {
+      for (const trjp of config.tipRuleJobPercentages) {
+        this.db.upsertTipRuleJobPercentage(trjp);
+        count++;
+      }
+      console.log(`  Synced ${config.tipRuleJobPercentages.length} tip rule job percentages`);
+    }
+    
+    if (config.minorLaborRules) {
+      for (const rule of config.minorLaborRules) {
+        this.db.upsertMinorLaborRule(rule);
+        count++;
+      }
+      console.log(`  Synced ${config.minorLaborRules.length} minor labor rules`);
     }
     
     return count;
@@ -862,6 +1003,12 @@ export class ConfigSync {
       case 'loyaltyMemberEnrollment':
         this.db.upsertLoyaltyMemberEnrollment(data);
         break;
+      case 'loyaltyReward':
+        this.db.upsertLoyaltyReward(data);
+        break;
+      case 'giftCard':
+        this.db.upsertGiftCard(data);
+        break;
         
       case 'fiscalPeriod':
         this.db.upsertFiscalPeriod(data);
@@ -871,6 +1018,41 @@ export class ConfigSync {
         break;
       case 'emcOptionFlag':
         this.db.upsertOptionFlag(data);
+        break;
+      case 'cashDrawer':
+        this.db.upsertCashDrawer(data);
+        break;
+      case 'onlineOrderSource':
+        this.db.upsertOnlineOrderSource(data);
+        break;
+        
+      case 'paymentGatewayConfig':
+        this.db.upsertPaymentGatewayConfig(data);
+        break;
+      case 'descriptorSet':
+        this.db.upsertDescriptorSet(data);
+        break;
+      case 'descriptorLogoAsset':
+        this.db.upsertDescriptorLogoAsset(data);
+        break;
+      case 'printAgent':
+        this.db.upsertPrintAgent(data);
+        break;
+        
+      case 'overtimeRule':
+        this.db.upsertOvertimeRule(data);
+        break;
+      case 'breakRule':
+        this.db.upsertBreakRule(data);
+        break;
+      case 'tipRule':
+        this.db.upsertTipRule(data);
+        break;
+      case 'tipRuleJobPercentage':
+        this.db.upsertTipRuleJobPercentage(data);
+        break;
+      case 'minorLaborRule':
+        this.db.upsertMinorLaborRule(data);
         break;
         
       default:
@@ -908,6 +1090,12 @@ export class ConfigSync {
       loyaltyReward: 'loyalty_rewards',
       giftCard: 'gift_cards',
       onlineOrderSource: 'online_order_sources',
+      overtimeRule: 'overtime_rules',
+      breakRule: 'break_rules',
+      tipRule: 'tip_rules',
+      minorLaborRule: 'minor_labor_rules',
+      printAgent: 'print_agents',
+      paymentGatewayConfig: 'payment_gateway_config',
     };
     
     const hardDeleteTables: Record<string, string> = {
@@ -925,6 +1113,9 @@ export class ConfigSync {
       posLayoutRvcAssignment: 'pos_layout_rvc_assignments',
       terminalDevice: 'terminal_devices',
       loyaltyMemberEnrollment: 'loyalty_member_enrollments',
+      tipRuleJobPercentage: 'tip_rule_job_percentages',
+      descriptorSet: 'descriptor_sets',
+      descriptorLogoAsset: 'descriptor_logo_assets',
       loyaltyTransaction: 'loyalty_transactions',
       loyaltyRedemption: 'loyalty_redemptions',
       giftCardTransaction: 'gift_card_transactions',

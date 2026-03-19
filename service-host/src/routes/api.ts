@@ -3724,6 +3724,141 @@ export function createApiRoutes(
     }
   });
 
+  // ============================================================================
+  // CAPS Diagnostic API
+  // ============================================================================
+
+  router.get('/caps/diagnostic/summary', (_req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: 'Database not available' });
+      
+      const counts = db.getTableRecordCounts();
+      const syncMeta = db.getSyncMetadata('config');
+      const configStatus = config ? config.getStatus() : null;
+      
+      const sections: Record<string, Record<string, number>> = {
+        'Menu Setup': {
+          menu_items: counts.menu_items || 0,
+          menu_item_slus: counts.menu_item_slus || 0,
+          modifier_groups: counts.modifier_groups || 0,
+          modifiers: counts.modifiers || 0,
+          modifier_group_modifiers: counts.modifier_group_modifiers || 0,
+          menu_item_modifier_groups: counts.menu_item_modifier_groups || 0,
+          slus: counts.slus || 0,
+          major_groups: counts.major_groups || 0,
+          family_groups: counts.family_groups || 0,
+          print_classes: counts.print_classes || 0,
+        },
+        'Devices & Routing': {
+          workstations: counts.workstations || 0,
+          printers: counts.printers || 0,
+          kds_devices: counts.kds_devices || 0,
+          order_devices: counts.order_devices || 0,
+          order_device_printers: counts.order_device_printers || 0,
+          order_device_kds: counts.order_device_kds || 0,
+          print_class_routing: counts.print_class_routing || 0,
+          terminal_devices: counts.terminal_devices || 0,
+          print_agents: counts.print_agents || 0,
+          descriptor_sets: counts.descriptor_sets || 0,
+          descriptor_logo_assets: counts.descriptor_logo_assets || 0,
+        },
+        'Financial': {
+          tax_groups: counts.tax_groups || 0,
+          tenders: counts.tenders || 0,
+          discounts: counts.discounts || 0,
+          service_charges: counts.service_charges || 0,
+          payment_processors: counts.payment_processors || 0,
+          payment_gateway_config: counts.payment_gateway_config || 0,
+        },
+        'Customer': {
+          gift_cards: counts.gift_cards || 0,
+          loyalty_programs: counts.loyalty_programs || 0,
+          loyalty_members: counts.loyalty_members || 0,
+          loyalty_member_enrollments: counts.loyalty_member_enrollments || 0,
+          loyalty_rewards: counts.loyalty_rewards || 0,
+        },
+        'Staff': {
+          employees: counts.employees || 0,
+          roles: counts.roles || 0,
+          privileges: counts.privileges || 0,
+          role_privileges: counts.role_privileges || 0,
+          employee_assignments: counts.employee_assignments || 0,
+          employee_job_codes: counts.employee_job_codes || 0,
+          job_codes: counts.job_codes || 0,
+          overtime_rules: counts.overtime_rules || 0,
+          break_rules: counts.break_rules || 0,
+          tip_rules: counts.tip_rules || 0,
+          tip_rule_job_percentages: counts.tip_rule_job_percentages || 0,
+          minor_labor_rules: counts.minor_labor_rules || 0,
+        },
+        'Operations': {
+          enterprises: counts.enterprises || 0,
+          properties: counts.properties || 0,
+          rvcs: counts.rvcs || 0,
+          pos_layouts: counts.pos_layouts || 0,
+          pos_layout_cells: counts.pos_layout_cells || 0,
+          pos_layout_rvc_assignments: counts.pos_layout_rvc_assignments || 0,
+          fiscal_periods: counts.fiscal_periods || 0,
+          cash_drawers: counts.cash_drawers || 0,
+          online_order_sources: counts.online_order_sources || 0,
+          item_availability: counts.item_availability || 0,
+          emc_option_flags: counts.emc_option_flags || 0,
+        },
+      };
+      
+      const totalRecords = Object.values(counts).reduce((sum, c) => sum + (c > 0 ? c : 0), 0);
+      
+      res.json({
+        syncMetadata: {
+          lastSyncAt: syncMeta?.lastSyncAt || null,
+          configVersion: syncMeta?.lastVersion || configStatus?.version || 0,
+          isConnected: configStatus?.isConnected || false,
+          syncInProgress: configStatus?.syncInProgress || false,
+        },
+        totalRecords,
+        sections,
+        rawCounts: counts,
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/caps/diagnostic/table/:tableName', (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: 'Database not available' });
+      
+      const { tableName } = req.params;
+      const limit = parseInt(req.query.limit as string) || 100;
+      const rows = db.getTableRows(tableName, limit);
+      
+      res.json({
+        table: tableName,
+        count: rows.length,
+        rows,
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/caps/diagnostic/employee/:employeeId/privileges', (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: 'Database not available' });
+      
+      const { employeeId } = req.params;
+      const chain = db.resolveEmployeePrivilegeChain(employeeId);
+      
+      if (!chain) {
+        return res.status(404).json({ error: 'Employee not found' });
+      }
+      
+      res.json(chain);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
   payment.startPolling(5000);
   console.log('[CAPS] Payment controller polling started (5s interval)');
 

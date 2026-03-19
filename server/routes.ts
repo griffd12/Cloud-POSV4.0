@@ -11,7 +11,7 @@ import archiver from "archiver";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, ne, sql, inArray, and, desc } from "drizzle-orm";
-import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, rolePrivileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts, workstationOrderDevices, posLayoutCells, posLayoutRvcAssignments } from "@shared/schema";
+import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, rolePrivileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts, workstationOrderDevices, posLayoutCells, posLayoutRvcAssignments, menuItemSlus, terminalDevices, printAgents, descriptorSets, descriptorLogoAssets, paymentGatewayConfig, employeeJobCodes, tipRuleJobPercentages, overtimeRules, breakRules, minorLaborRules, fiscalPeriods, cashDrawers, itemAvailability, emcOptionFlags, giftCards, loyaltyRewards, majorGroups, familyGroups, loyaltyMemberEnrollments } from "@shared/schema";
 import { uberEatsIntegration } from "./integrations/uber-eats";
 import { grubhubIntegration } from "./integrations/grubhub";
 import { doorDashIntegration } from "./integrations/doordash";
@@ -24963,6 +24963,31 @@ connect();
         allPrivileges,
         allRolePrivileges,
         allEmployeeAssignments,
+        allMenuItemSlus,
+        allEmployeeJobCodes,
+        allTerminalDevices,
+        allPrintAgents,
+        allDescriptorSets,
+        allDescriptorLogoAssets,
+        allPaymentProcessors,
+        allPaymentGatewayConfig,
+        allMajorGroups,
+        allFamilyGroups,
+        allGiftCards,
+        allLoyaltyPrograms,
+        allLoyaltyMembers,
+        allLoyaltyMemberEnrollments,
+        allLoyaltyRewards,
+        allOvertimeRules,
+        allBreakRules,
+        allTipRules,
+        allTipRuleJobPercentages,
+        allMinorLaborRules,
+        allFiscalPeriods,
+        allCashDrawers,
+        allOnlineOrderSources,
+        allItemAvailability,
+        allEmcOptionFlags,
       ] = await Promise.all([
         storage.getRvcs().then(all => all.filter(r => r.propertyId === propertyId)),
         storage.getEmployees().then(all => all.filter(e => e.propertyId === propertyId)),
@@ -24992,6 +25017,31 @@ connect();
         storage.getPrivileges(),
         db.select().from(rolePrivileges),
         storage.getAllEmployeeAssignments(),
+        db.select().from(menuItemSlus),
+        db.select().from(employeeJobCodes),
+        storage.getTerminalDevices(propertyId),
+        storage.getPrintAgents(propertyId),
+        storage.getDescriptorSets(enterpriseId),
+        storage.getDescriptorLogoAssets(enterpriseId),
+        storage.getPaymentProcessors(propertyId),
+        storage.getPaymentGatewayConfigs(enterpriseId),
+        storage.getMajorGroups(),
+        storage.getFamilyGroups(),
+        storage.getGiftCards(propertyId),
+        storage.getLoyaltyPrograms(enterpriseId, propertyId),
+        storage.getLoyaltyMembers(undefined, enterpriseId, propertyId),
+        db.select().from(loyaltyMemberEnrollments),
+        storage.getLoyaltyRewards(),
+        storage.getOvertimeRules(propertyId),
+        storage.getBreakRules(propertyId),
+        storage.getTipRules({ enterpriseId, propertyId }),
+        db.select().from(tipRuleJobPercentages),
+        storage.getMinorLaborRules(propertyId),
+        storage.getFiscalPeriods(propertyId),
+        storage.getCashDrawers(propertyId),
+        storage.getOnlineOrderSources(propertyId),
+        storage.getItemAvailability(propertyId),
+        db.select().from(emcOptionFlags).where(eq(emcOptionFlags.enterpriseId, enterpriseId)),
       ]);
 
       const menuItems = allMenuItems.filter((i: any) => i.enterpriseId === enterpriseId);
@@ -25013,6 +25063,7 @@ connect();
 
       const modifierGroupModifiers = allModifierGroupModifiers.filter((m: any) => modifierGroupIds.has(m.modifierGroupId));
       const menuItemModifierGroups = allMenuItemModifierGroups.filter((m: any) => menuItemIds.has(m.menuItemId));
+      const menuItemSlusList = allMenuItemSlus.filter((mis: any) => menuItemIds.has(mis.menuItemId));
       const orderDevicePrinters = allOrderDevicePrinters.filter((o: any) => orderDeviceIds.has(o.orderDeviceId));
       const orderDeviceKds = allOrderDeviceKds.filter((o: any) => orderDeviceIds.has(o.orderDeviceId));
       const printClassRouting = allPrintClassRouting.filter((r: any) => printClassIds.has(r.printClassId));
@@ -25021,6 +25072,19 @@ connect();
       const employeeIds = new Set(employees.map((e: any) => e.id));
       const filteredRolePrivileges = allRolePrivileges.filter((rp: any) => roleIds.has(rp.roleId));
       const filteredEmployeeAssignments = allEmployeeAssignments.filter((ea: any) => employeeIds.has(ea.employeeId));
+      const filteredEmployeeJobCodes = allEmployeeJobCodes.filter((ejc: any) => employeeIds.has(ejc.employeeId));
+
+      const filteredMajorGroups = allMajorGroups.filter((mg: any) => mg.enterpriseId === enterpriseId);
+      const filteredFamilyGroups = allFamilyGroups.filter((fg: any) => fg.enterpriseId === enterpriseId);
+
+      const tipRuleIds = new Set(allTipRules.map((tr: any) => tr.id));
+      const filteredTipRuleJobPercentages = allTipRuleJobPercentages.filter((trjp: any) => tipRuleIds.has(trjp.tipRuleId));
+
+      const loyaltyProgramIds = new Set(allLoyaltyPrograms.map((lp: any) => lp.id));
+      const filteredLoyaltyRewards = allLoyaltyRewards.filter((lr: any) => loyaltyProgramIds.has(lr.programId));
+
+      const loyaltyMemberIds = new Set(allLoyaltyMembers.map((lm: any) => lm.id));
+      const filteredLoyaltyEnrollments = allLoyaltyMemberEnrollments.filter((lme: any) => loyaltyMemberIds.has(lme.memberId));
 
       const posLayoutRvcAssignmentIds = new Set(allPosLayoutRvcAssignments.map((a: any) => a.layoutId));
       const posLayouts = allPosLayouts.filter((l: any) =>
@@ -25045,11 +25109,13 @@ connect();
           privileges: allPrivileges,
           rolePrivileges: filteredRolePrivileges,
           employeeAssignments: filteredEmployeeAssignments,
+          employeeJobCodes: filteredEmployeeJobCodes,
           menuItems,
           modifierGroups,
           modifiers,
           modifierGroupModifiers,
           menuItemModifierGroups,
+          menuItemSlus: menuItemSlusList,
           slus,
           taxGroups,
           tenders,
@@ -25067,6 +25133,29 @@ connect();
           posLayouts,
           posLayoutCells: posLayoutCellsFiltered,
           posLayoutRvcAssignments: allPosLayoutRvcAssignments,
+          terminalDevices: allTerminalDevices,
+          printAgents: allPrintAgents,
+          descriptorSets: allDescriptorSets,
+          descriptorLogoAssets: allDescriptorLogoAssets,
+          paymentProcessors: allPaymentProcessors,
+          paymentGatewayConfig: allPaymentGatewayConfig,
+          majorGroups: filteredMajorGroups,
+          familyGroups: filteredFamilyGroups,
+          giftCards: allGiftCards,
+          loyaltyPrograms: allLoyaltyPrograms,
+          loyaltyMembers: allLoyaltyMembers,
+          loyaltyMemberEnrollments: filteredLoyaltyEnrollments,
+          loyaltyRewards: filteredLoyaltyRewards,
+          overtimeRules: allOvertimeRules,
+          breakRules: allBreakRules,
+          tipRules: allTipRules,
+          tipRuleJobPercentages: filteredTipRuleJobPercentages,
+          minorLaborRules: allMinorLaborRules,
+          fiscalPeriods: allFiscalPeriods,
+          cashDrawers: allCashDrawers,
+          onlineOrderSources: allOnlineOrderSources,
+          itemAvailability: allItemAvailability,
+          emcOptionFlags: allEmcOptionFlags,
         },
       });
     } catch (error: any) {

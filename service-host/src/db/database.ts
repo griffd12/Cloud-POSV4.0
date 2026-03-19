@@ -1839,6 +1839,433 @@ export class Database {
   }
   
   // ==========================================================================
+  // Payment Gateway Config
+  // ==========================================================================
+
+  upsertPaymentGatewayConfig(cfg: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO payment_gateway_config (
+        id, config_level, enterprise_id, property_id, workstation_id,
+        gateway_type, integration_model, environment, credential_key_prefix,
+        merchant_id, terminal_id, site_id, device_id, license_id,
+        terminal_ip_address, terminal_port, terminal_connection_type,
+        enable_sale, enable_void, enable_refund, enable_auth_capture,
+        enable_manual_entry, enable_debit, enable_ebt, enable_healthcare,
+        enable_contactless, enable_emv, enable_msr,
+        enable_partial_approval, enable_tokenization, enable_store_and_forward,
+        enable_surcharge, enable_tip_adjust, enable_incremental_auth, enable_cashback,
+        surcharge_percent, saf_floor_limit, saf_max_transactions, auth_hold_minutes,
+        enable_auto_batch_close, batch_close_time, enable_manual_batch_close,
+        receipt_show_emv_fields, receipt_show_aid, receipt_show_tvr, receipt_show_tsi,
+        receipt_show_app_label, receipt_show_entry_method,
+        receipt_print_merchant_copy, receipt_print_customer_copy,
+        enable_debug_logging, log_raw_requests, log_raw_responses,
+        active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        cfg.id, cfg.configLevel, cfg.enterpriseId, cfg.propertyId, cfg.workstationId,
+        cfg.gatewayType, cfg.integrationModel, cfg.environment, cfg.credentialKeyPrefix,
+        cfg.merchantId, cfg.terminalId, cfg.siteId, cfg.deviceId, cfg.licenseId,
+        cfg.terminalIpAddress, cfg.terminalPort, cfg.terminalConnectionType,
+        cfg.enableSale ? 1 : 0, cfg.enableVoid ? 1 : 0, cfg.enableRefund ? 1 : 0, cfg.enableAuthCapture ? 1 : 0,
+        cfg.enableManualEntry ? 1 : 0, cfg.enableDebit ? 1 : 0, cfg.enableEbt ? 1 : 0, cfg.enableHealthcare ? 1 : 0,
+        cfg.enableContactless ? 1 : 0, cfg.enableEmv ? 1 : 0, cfg.enableMsr ? 1 : 0,
+        cfg.enablePartialApproval ? 1 : 0, cfg.enableTokenization ? 1 : 0, cfg.enableStoreAndForward ? 1 : 0,
+        cfg.enableSurcharge ? 1 : 0, cfg.enableTipAdjust ? 1 : 0, cfg.enableIncrementalAuth ? 1 : 0, cfg.enableCashback ? 1 : 0,
+        cfg.surchargePercent, cfg.safFloorLimit, cfg.safMaxTransactions, cfg.authHoldMinutes,
+        cfg.enableAutoBatchClose ? 1 : 0, cfg.batchCloseTime, cfg.enableManualBatchClose ? 1 : 0,
+        cfg.receiptShowEmvFields ? 1 : 0, cfg.receiptShowAid ? 1 : 0, cfg.receiptShowTvr ? 1 : 0, cfg.receiptShowTsi ? 1 : 0,
+        cfg.receiptShowAppLabel ? 1 : 0, cfg.receiptShowEntryMethod ? 1 : 0,
+        cfg.receiptPrintMerchantCopy ? 1 : 0, cfg.receiptPrintCustomerCopy ? 1 : 0,
+        cfg.enableDebugLogging ? 1 : 0, cfg.logRawRequests ? 1 : 0, cfg.logRawResponses ? 1 : 0,
+        cfg.active !== false ? 1 : 0,
+      ]
+    );
+  }
+
+  getPaymentGatewayConfigByProperty(propertyId: string): any[] {
+    return this.all('SELECT * FROM payment_gateway_config WHERE property_id = ? AND active = 1', [propertyId]);
+  }
+
+  // ==========================================================================
+  // Descriptor Sets & Logo Assets
+  // ==========================================================================
+
+  upsertDescriptorSet(ds: any): void {
+    const headerLines = typeof ds.headerLines === 'string' ? ds.headerLines : JSON.stringify(ds.headerLines || []);
+    const trailerLines = typeof ds.trailerLines === 'string' ? ds.trailerLines : JSON.stringify(ds.trailerLines || []);
+    this.run(
+      `INSERT OR REPLACE INTO descriptor_sets (
+        id, scope_type, scope_id, enterprise_id, header_lines, trailer_lines,
+        logo_enabled, logo_asset_id, override_header, override_trailer, override_logo,
+        updated_at, updated_by_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+      [
+        ds.id, ds.scopeType, ds.scopeId, ds.enterpriseId, headerLines, trailerLines,
+        ds.logoEnabled ? 1 : 0, ds.logoAssetId,
+        ds.overrideHeader ? 1 : 0, ds.overrideTrailer ? 1 : 0, ds.overrideLogo ? 1 : 0,
+        ds.updatedById,
+      ]
+    );
+  }
+
+  getDescriptorSetsByEnterprise(enterpriseId: string): any[] {
+    return this.all('SELECT * FROM descriptor_sets WHERE enterprise_id = ?', [enterpriseId]);
+  }
+
+  upsertDescriptorLogoAsset(asset: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO descriptor_logo_assets (
+        id, enterprise_id, filename, mime_type, size_bytes, storage_path,
+        checksum, escpos_data, created_at, created_by_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM descriptor_logo_assets WHERE id = ?), datetime('now')), ?)`,
+      [
+        asset.id, asset.enterpriseId, asset.filename, asset.mimeType, asset.sizeBytes,
+        asset.storagePath, asset.checksum, asset.escposData, asset.id, asset.createdById,
+      ]
+    );
+  }
+
+  getDescriptorLogoAssetsByEnterprise(enterpriseId: string): any[] {
+    return this.all('SELECT * FROM descriptor_logo_assets WHERE enterprise_id = ?', [enterpriseId]);
+  }
+
+  // ==========================================================================
+  // Print Agents
+  // ==========================================================================
+
+  upsertPrintAgent(agent: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO print_agents (
+        id, property_id, workstation_id, name, description, agent_token,
+        status, last_heartbeat, last_connected_at, last_disconnected_at,
+        agent_version, hostname, ip_address, os_info,
+        auto_reconnect, heartbeat_interval_ms, active, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM print_agents WHERE id = ?), datetime('now')))`,
+      [
+        agent.id, agent.propertyId, agent.workstationId, agent.name, agent.description,
+        agent.agentToken, agent.status || 'offline',
+        agent.lastHeartbeat, agent.lastConnectedAt, agent.lastDisconnectedAt,
+        agent.agentVersion, agent.hostname, agent.ipAddress, agent.osInfo,
+        agent.autoReconnect !== false ? 1 : 0, agent.heartbeatIntervalMs || 30000,
+        agent.active !== false ? 1 : 0, agent.id,
+      ]
+    );
+  }
+
+  getPrintAgentsByProperty(propertyId: string): any[] {
+    return this.all('SELECT * FROM print_agents WHERE property_id = ? AND active = 1', [propertyId]);
+  }
+
+  // ==========================================================================
+  // Overtime Rules
+  // ==========================================================================
+
+  upsertOvertimeRule(rule: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO overtime_rules (
+        id, property_id, name, description,
+        daily_regular_hours, daily_overtime_threshold, daily_double_time_threshold,
+        weekly_overtime_threshold, weekly_double_time_threshold,
+        overtime_multiplier, double_time_multiplier,
+        enable_daily_overtime, enable_daily_double_time,
+        enable_weekly_overtime, enable_weekly_double_time,
+        week_start_day, effective_date, active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        rule.id, rule.propertyId, rule.name, rule.description,
+        rule.dailyRegularHours || '8.00', rule.dailyOvertimeThreshold || '8.00', rule.dailyDoubleTimeThreshold,
+        rule.weeklyOvertimeThreshold || '40.00', rule.weeklyDoubleTimeThreshold,
+        rule.overtimeMultiplier || '1.50', rule.doubleTimeMultiplier || '2.00',
+        rule.enableDailyOvertime !== false ? 1 : 0, rule.enableDailyDoubleTime ? 1 : 0,
+        rule.enableWeeklyOvertime !== false ? 1 : 0, rule.enableWeeklyDoubleTime ? 1 : 0,
+        rule.weekStartDay || 0, rule.effectiveDate, rule.active !== false ? 1 : 0,
+      ]
+    );
+  }
+
+  getOvertimeRulesByProperty(propertyId: string): any[] {
+    return this.all('SELECT * FROM overtime_rules WHERE property_id = ? AND active = 1', [propertyId]);
+  }
+
+  // ==========================================================================
+  // Break Rules
+  // ==========================================================================
+
+  upsertBreakRule(rule: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO break_rules (
+        id, property_id, name, state_code,
+        enable_meal_break_enforcement, meal_break_minutes, meal_break_threshold_hours,
+        second_meal_break_threshold_hours, allow_meal_break_waiver, meal_waiver_max_shift_hours,
+        enable_rest_break_enforcement, rest_break_minutes, rest_break_interval_hours, rest_break_is_paid,
+        enable_premium_pay, meal_break_premium_hours, rest_break_premium_hours,
+        require_clock_out_attestation, attestation_message,
+        enable_break_alerts, alert_minutes_before_deadline,
+        active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        rule.id, rule.propertyId, rule.name || 'California Break Rules', rule.stateCode || 'CA',
+        rule.enableMealBreakEnforcement !== false ? 1 : 0, rule.mealBreakMinutes || 30, rule.mealBreakThresholdHours || '5.00',
+        rule.secondMealBreakThresholdHours || '10.00', rule.allowMealBreakWaiver !== false ? 1 : 0, rule.mealWaiverMaxShiftHours || '6.00',
+        rule.enableRestBreakEnforcement !== false ? 1 : 0, rule.restBreakMinutes || 10, rule.restBreakIntervalHours || '4.00',
+        rule.restBreakIsPaid !== false ? 1 : 0,
+        rule.enablePremiumPay !== false ? 1 : 0, rule.mealBreakPremiumHours || '1.00', rule.restBreakPremiumHours || '1.00',
+        rule.requireClockOutAttestation !== false ? 1 : 0, rule.attestationMessage,
+        rule.enableBreakAlerts !== false ? 1 : 0, rule.alertMinutesBeforeDeadline || 15,
+        rule.active !== false ? 1 : 0,
+      ]
+    );
+  }
+
+  getBreakRulesByProperty(propertyId: string): any[] {
+    return this.all('SELECT * FROM break_rules WHERE property_id = ? AND active = 1', [propertyId]);
+  }
+
+  // ==========================================================================
+  // Tip Rules
+  // ==========================================================================
+
+  upsertTipRule(rule: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO tip_rules (
+        id, enterprise_id, property_id, rvc_id, name, distribution_method,
+        timeframe, applies_to_all_locations, declare_cash_tips,
+        declare_cash_tips_all_locations, exclude_managers,
+        minimum_hours_for_pool, active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        rule.id, rule.enterpriseId, rule.propertyId, rule.rvcId,
+        rule.name || 'Default Tip Rules', rule.distributionMethod || 'tip_directly',
+        rule.timeframe || 'daily', rule.appliesToAllLocations ? 1 : 0, rule.declareCashTips ? 1 : 0,
+        rule.declareCashTipsAllLocations ? 1 : 0, rule.excludeManagers !== false ? 1 : 0,
+        rule.minimumHoursForPool || '0', rule.active !== false ? 1 : 0,
+      ]
+    );
+  }
+
+  getTipRulesByProperty(propertyId: string): any[] {
+    return this.all('SELECT * FROM tip_rules WHERE property_id = ? AND active = 1', [propertyId]);
+  }
+
+  upsertTipRuleJobPercentage(trjp: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO tip_rule_job_percentages (id, tip_rule_id, job_code_id, percentage, created_at)
+       VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM tip_rule_job_percentages WHERE id = ?), datetime('now')))`,
+      [trjp.id, trjp.tipRuleId, trjp.jobCodeId, trjp.percentage || '0', trjp.id]
+    );
+  }
+
+  getTipRuleJobPercentagesByRule(tipRuleId: string): any[] {
+    return this.all('SELECT * FROM tip_rule_job_percentages WHERE tip_rule_id = ?', [tipRuleId]);
+  }
+
+  // ==========================================================================
+  // Minor Labor Rules
+  // ==========================================================================
+
+  upsertMinorLaborRule(rule: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO minor_labor_rules (
+        id, property_id, state_code, minor_age_threshold, young_minor_age_threshold,
+        school_day_max_hours, school_week_max_hours, school_day_start_time, school_day_end_time,
+        non_school_day_max_hours, non_school_week_max_hours, non_school_day_start_time, non_school_day_end_time,
+        require_work_permit, work_permit_expiration_alert_days,
+        active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        rule.id, rule.propertyId, rule.stateCode || 'CA',
+        rule.minorAgeThreshold || 18, rule.youngMinorAgeThreshold || 16,
+        rule.schoolDayMaxHours || '4.00', rule.schoolWeekMaxHours || '18.00',
+        rule.schoolDayStartTime || '07:00', rule.schoolDayEndTime || '19:00',
+        rule.nonSchoolDayMaxHours || '8.00', rule.nonSchoolWeekMaxHours || '40.00',
+        rule.nonSchoolDayStartTime || '07:00', rule.nonSchoolDayEndTime || '21:00',
+        rule.requireWorkPermit !== false ? 1 : 0, rule.workPermitExpirationAlertDays || 30,
+        rule.active !== false ? 1 : 0,
+      ]
+    );
+  }
+
+  getMinorLaborRulesByProperty(propertyId: string): any[] {
+    return this.all('SELECT * FROM minor_labor_rules WHERE property_id = ? AND active = 1', [propertyId]);
+  }
+
+  // ==========================================================================
+  // Diagnostic Queries (record counts for all synced tables)
+  // ==========================================================================
+
+  getTableRecordCounts(): Record<string, number> {
+    const tables = [
+      'enterprises', 'properties', 'rvcs',
+      'roles', 'privileges', 'role_privileges',
+      'employees', 'employee_assignments', 'employee_job_codes',
+      'major_groups', 'family_groups',
+      'slus', 'menu_items', 'menu_item_slus',
+      'modifier_groups', 'modifiers', 'modifier_group_modifiers', 'menu_item_modifier_groups',
+      'print_classes', 'print_class_routing',
+      'tax_groups', 'tenders', 'discounts', 'service_charges',
+      'workstations', 'printers', 'kds_devices',
+      'order_devices', 'order_device_printers', 'order_device_kds',
+      'terminal_devices', 'print_agents',
+      'pos_layouts', 'pos_layout_cells', 'pos_layout_rvc_assignments',
+      'payment_processors', 'payment_gateway_config',
+      'descriptor_sets', 'descriptor_logo_assets',
+      'gift_cards', 'loyalty_programs', 'loyalty_members', 'loyalty_member_enrollments', 'loyalty_rewards',
+      'overtime_rules', 'break_rules', 'tip_rules', 'tip_rule_job_percentages', 'minor_labor_rules',
+      'fiscal_periods', 'cash_drawers', 'online_order_sources',
+      'item_availability', 'emc_option_flags',
+      'job_codes',
+    ];
+    const counts: Record<string, number> = {};
+    for (const table of tables) {
+      try {
+        const row = this.get<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM ${table}`, []);
+        counts[table] = row?.cnt || 0;
+      } catch {
+        counts[table] = -1;
+      }
+    }
+    return counts;
+  }
+
+  getTableRows(tableName: string, limit: number = 100): any[] {
+    const allowedTables = new Set([
+      'enterprises', 'properties', 'rvcs',
+      'roles', 'privileges', 'role_privileges',
+      'employees', 'employee_assignments', 'employee_job_codes',
+      'major_groups', 'family_groups',
+      'slus', 'menu_items', 'menu_item_slus',
+      'modifier_groups', 'modifiers', 'modifier_group_modifiers', 'menu_item_modifier_groups',
+      'print_classes', 'print_class_routing',
+      'tax_groups', 'tenders', 'discounts', 'service_charges',
+      'workstations', 'printers', 'kds_devices',
+      'order_devices', 'order_device_printers', 'order_device_kds',
+      'terminal_devices', 'print_agents',
+      'pos_layouts', 'pos_layout_cells', 'pos_layout_rvc_assignments',
+      'payment_processors', 'payment_gateway_config',
+      'descriptor_sets', 'descriptor_logo_assets',
+      'gift_cards', 'loyalty_programs', 'loyalty_members', 'loyalty_member_enrollments', 'loyalty_rewards',
+      'overtime_rules', 'break_rules', 'tip_rules', 'tip_rule_job_percentages', 'minor_labor_rules',
+      'fiscal_periods', 'cash_drawers', 'online_order_sources',
+      'item_availability', 'emc_option_flags',
+      'job_codes', 'checks', 'check_items', 'check_payments',
+    ]);
+    if (!allowedTables.has(tableName)) {
+      return [];
+    }
+
+    const sensitiveFields: Record<string, Set<string>> = {
+      employees: new Set(['pin_hash', 'password_hash', 'pin', 'password', 'secret', 'token']),
+      print_agents: new Set(['agent_token', 'auth_token', 'secret', 'api_key']),
+      payment_processors: new Set(['api_key', 'api_secret', 'secret_key', 'merchant_key', 'password', 'token', 'credentials', 'credential_key_prefix']),
+      payment_gateway_config: new Set(['api_key', 'api_secret', 'secret_key', 'merchant_key', 'password', 'token', 'credentials', 'credential_key_prefix']),
+    };
+
+    const sensitivePatterns = /key|secret|token|password|credential|hash|pin/i;
+
+    const maxLimit = Math.min(limit, 200);
+    const rows = this.all(`SELECT * FROM ${tableName} LIMIT ?`, [maxLimit]);
+
+    const explicitRedactSet = sensitiveFields[tableName];
+    return rows.map((row: any) => {
+      const sanitized = { ...row };
+      for (const key of Object.keys(sanitized)) {
+        if (sanitized[key] == null) continue;
+        const shouldRedact = (explicitRedactSet && explicitRedactSet.has(key)) || sensitivePatterns.test(key);
+        if (shouldRedact) {
+          sanitized[key] = '***REDACTED***';
+        }
+      }
+      return sanitized;
+    });
+  }
+
+  resolveEmployeePrivilegeChain(employeeId: string): any {
+    const rawEmployee = this.get('SELECT * FROM employees WHERE id = ?', [employeeId]);
+    if (!rawEmployee) return null;
+
+    const emp = { ...(rawEmployee as any) };
+    delete emp.pin_hash;
+    delete emp.password_hash;
+    delete emp.pin;
+    delete emp.password;
+    delete emp.secret;
+    delete emp.token;
+    const employee = emp;
+
+    const assignments = this.all('SELECT * FROM employee_assignments WHERE employee_id = ?', [employeeId]);
+
+    const directRoleId = (employee as any).role_id;
+    const directRole = directRoleId ? this.get('SELECT * FROM roles WHERE id = ?', [directRoleId]) : null;
+
+    const assignmentRoles: any[] = [];
+    const allRoleIds = new Set<string>();
+    if (directRoleId) allRoleIds.add(directRoleId);
+
+    for (const assignment of assignments) {
+      const a = assignment as any;
+      if (a.role_id && !allRoleIds.has(a.role_id)) {
+        allRoleIds.add(a.role_id);
+        const assignmentRole = this.get('SELECT * FROM roles WHERE id = ?', [a.role_id]);
+        if (assignmentRole) {
+          assignmentRoles.push({
+            assignmentId: a.id,
+            propertyId: a.property_id,
+            rvcId: a.rvc_id,
+            isPrimary: a.is_primary,
+            role: assignmentRole,
+            source: 'assignment',
+          });
+        }
+      }
+    }
+
+    const allPrivs: any[] = [];
+    const seenCodes = new Set<string>();
+    const privilegeProvenance: any[] = [];
+
+    for (const roleId of allRoleIds) {
+      const role = roleId === directRoleId ? directRole : assignmentRoles.find(ar => (ar.role as any)?.id === roleId)?.role;
+      const roleName = (role as any)?.name || 'unknown';
+      const roleSource = roleId === directRoleId ? 'employee.role_id' : 'assignment';
+
+      const rolePrivs = this.all(
+        `SELECT rp.*, p.name as privilege_name, p.domain as privilege_domain
+         FROM role_privileges rp
+         JOIN privileges p ON rp.privilege_code = p.code
+         WHERE rp.role_id = ?`,
+        [roleId]
+      );
+
+      for (const rp of rolePrivs) {
+        const code = (rp as any).privilege_code;
+        allPrivs.push(rp);
+        if (!seenCodes.has(code)) {
+          seenCodes.add(code);
+          privilegeProvenance.push({
+            privilegeCode: code,
+            privilegeName: (rp as any).privilege_name,
+            privilegeDomain: (rp as any).privilege_domain,
+            grantedViaRoleId: roleId,
+            grantedViaRoleName: roleName,
+            roleSource,
+          });
+        }
+      }
+    }
+
+    return {
+      employee,
+      assignments,
+      role: directRole,
+      assignmentRoles,
+      rolePrivileges: allPrivs,
+      resolvedPrivilegeCodes: [...seenCodes],
+      privilegeProvenance,
+    };
+  }
+
+  // ==========================================================================
   // Loyalty Programs
   // ==========================================================================
   
