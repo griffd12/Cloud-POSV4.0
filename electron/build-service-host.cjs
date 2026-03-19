@@ -62,8 +62,11 @@ try {
     content = lines.join('\n');
     console.log(`[build-service-host] Fixed fileURLToPath(__filename) patterns: ${fixCount} lines`);
 
+    const buildInfo = JSON.parse(fs.readFileSync(path.join(__dirname, 'build-info.json'), 'utf8'));
     const envBootstrap = `
 // Embedded service-host bootstrap: read config from environment variables
+process.env.CAPS_VERSION = process.env.CAPS_VERSION || '${buildInfo.version}';
+process.env.CAPS_BUILD_DATE = process.env.CAPS_BUILD_DATE || '${buildInfo.buildDate}';
 if (process.env.SERVICE_HOST_PORT) {
   const _origArgv = process.argv;
   const _envArgs = ['node', 'service-host'];
