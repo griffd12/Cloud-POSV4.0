@@ -18,6 +18,19 @@ import { PaymentController } from '../services/payment-controller.js';
 import { ConfigSync } from '../sync/config-sync.js';
 import { Database } from '../db/database.js';
 
+function snakeToCamel(str: string): string {
+  return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+}
+function mapKeys(obj: any): any {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(mapKeys);
+  const out: any = {};
+  for (const [k, v] of Object.entries(obj)) {
+    out[snakeToCamel(k)] = v;
+  }
+  return out;
+}
+
 export function createApiRoutes(
   caps: CapsService,
   print: PrintController,
@@ -2967,10 +2980,10 @@ export function createApiRoutes(
       const discountCount = config.getDiscounts().length;
 
       res.json({
-        workstation: ws || { id: req.params.id, name: 'CAPS Workstation' },
-        rvcs: rvcs || [],
-        property: prop || null,
-        enterprise: enterprise || null,
+        workstation: mapKeys(ws) || { id: req.params.id, name: 'CAPS Workstation' },
+        rvcs: (rvcs || []).map(mapKeys),
+        property: mapKeys(prop) || null,
+        enterprise: mapKeys(enterprise) || null,
         defaultLayout,
         configSummary: {
           menuItems: menuItemCount,
