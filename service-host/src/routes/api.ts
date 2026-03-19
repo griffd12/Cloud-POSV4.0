@@ -94,7 +94,8 @@ export function createApiRoutes(
 
     const originalJson = res.json.bind(res);
     res.json = (body: any) => {
-      const camelBody = (typeof body === 'object' && body !== null) ? mapKeys(body) : body;
+      const skipConvert = (res as any)._skipCamelConvert === true;
+      const camelBody = (!skipConvert && typeof body === 'object' && body !== null) ? mapKeys(body) : body;
       
       const durationMs = Date.now() - start;
       let responseSummary: string | null = null;
@@ -2763,6 +2764,7 @@ export function createApiRoutes(
       for (const key of optionKeys) {
         options[key] = checkOptionBit(key, rvcId, propertyId);
       }
+      (res as any)._skipCamelConvert = true;
       res.json(options);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
