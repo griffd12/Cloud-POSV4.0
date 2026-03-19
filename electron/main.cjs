@@ -2193,28 +2193,28 @@ function setupIpcHandlers() {
 
   ipcMain.on('wizard-launch-app', async () => {
     appLogger.info('Wizard', 'Launching app after wizard completion — following normal boot contract');
-    const config = loadConfig();
 
-    if (mainWindow) {
-      mainWindow.close();
-      mainWindow = null;
+    const wizardWindow = mainWindow;
+
+    appLogger.info('Wizard', 'Step 1: Opening app window before closing wizard (prevent zero-window quit)');
+    createWindow();
+
+    if (wizardWindow && !wizardWindow.isDestroyed()) {
+      wizardWindow.close();
     }
 
-    appLogger.info('Wizard', 'Step 1: Resolving CAPS identity via activation-config');
+    appLogger.info('Wizard', 'Step 2: Resolving CAPS identity via activation-config');
     await fetchActivationConfig();
     const resolvedConfig = loadConfig();
 
     if (capsConfig && capsConfig.isCapsWorkstation) {
-      appLogger.info('Wizard', 'Step 2: This device IS the CAPS host — starting service-host');
+      appLogger.info('Wizard', 'Step 3: This device IS the CAPS host — starting service-host');
       await startServiceHost();
     } else {
-      appLogger.info('Wizard', 'Step 2: This device is a remote WS/KDS — will connect to LAN CAPS', {
+      appLogger.info('Wizard', 'Step 3: This device is a remote WS/KDS — will connect to LAN CAPS', {
         serviceHostUrl: resolvedConfig.serviceHostUrl || 'none',
       });
     }
-
-    appLogger.info('Wizard', 'Step 3: Opening app window (same as normal createWindow)');
-    createWindow();
 
     const startupServiceHostUrl = resolvedConfig.serviceHostUrl;
 
