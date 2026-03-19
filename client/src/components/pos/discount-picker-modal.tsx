@@ -15,12 +15,23 @@ import { Label } from "@/components/ui/label";
 import { Percent, DollarSign, ShieldCheck, Loader2, Trash2 } from "lucide-react";
 import type { CheckItem } from "@shared/schema";
 
-type AnyDiscount = Record<string, any>;
+interface Discount {
+  id: string;
+  name: string;
+  type?: string;
+  discountType?: string;
+  value?: string | number;
+  amount?: string | number;
+  requiresManager?: boolean;
+  requires_manager?: boolean;
+  active?: boolean;
+  [key: string]: unknown;
+}
 
-function getDiscountType(d: AnyDiscount): string {
+function getDiscountType(d: Discount): string {
   return d.type || d.discountType || "amount";
 }
-function getDiscountValue(d: AnyDiscount): string {
+function getDiscountValue(d: Discount): string {
   return String(d.value ?? d.amount ?? "0");
 }
 
@@ -28,7 +39,7 @@ interface DiscountPickerModalProps {
   open: boolean;
   onClose: () => void;
   item: CheckItem | null;
-  discounts: AnyDiscount[];
+  discounts: Discount[];
   onApplyDiscount: (discountId: string, managerPin?: string) => void;
   onRemoveDiscount: (itemId: string) => void;
   isApplying?: boolean;
@@ -43,7 +54,7 @@ export function DiscountPickerModal({
   onRemoveDiscount,
   isApplying = false,
 }: DiscountPickerModalProps) {
-  const [selectedDiscount, setSelectedDiscount] = useState<AnyDiscount | null>(null);
+  const [selectedDiscount, setSelectedDiscount] = useState<Discount | null>(null);
   const [managerPin, setManagerPin] = useState("");
   const [showPinInput, setShowPinInput] = useState(false);
 

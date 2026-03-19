@@ -759,11 +759,14 @@ export function PaymentModal({
         if (!res.ok) return;
         const session = await res.json() as TerminalSession;
         
-        if (session.status === "approved") {
+        const normalizedStatus = session.status === "completed" || session.status === "completed_offline"
+          ? "approved"
+          : session.status === "failed"
+            ? "declined"
+            : session.status;
+        if (normalizedStatus === "approved") {
           setTerminalPolling(false);
           if (cardTender) {
-            // Get tip amount: prioritize EMV terminal tip (from session.tipAmount in cents), 
-            // fallback to confirmed overage tip from UI prompt
             const emvTipDollars = session.tipAmount ? session.tipAmount / 100 : 0;
             const effectiveTip = emvTipDollars > 0 ? emvTipDollars : confirmedTipAmount;
             onPayment(cardTender.id, cardAmount, false, session.paymentTransactionId || undefined, effectiveTip);
@@ -776,7 +779,7 @@ export function PaymentModal({
             title: "Payment Approved",
             description: `$${cardAmount.toFixed(2)} charged via terminal${tipDisplay}`,
           });
-        } else if (session.status === "declined") {
+        } else if (normalizedStatus === "declined") {
           setTerminalPolling(false);
           toast({
             title: "Payment Declined",
@@ -785,7 +788,7 @@ export function PaymentModal({
           });
           setPaymentMethod("select");
           setTerminalSession(null);
-        } else if (session.status === "cancelled" || session.status === "timeout" || session.status === "error") {
+        } else if (normalizedStatus === "cancelled" || normalizedStatus === "timeout" || normalizedStatus === "error") {
           setTerminalPolling(false);
           toast({
             title: "Payment Cancelled",
