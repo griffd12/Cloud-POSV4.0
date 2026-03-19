@@ -1,0 +1,12 @@
+diff --git a/client/src/pages/pos.tsx b/client/src/pages/pos.tsx
+index a97e623..aacc1ef 100644
+--- a/client/src/pages/pos.tsx
++++ b/client/src/pages/pos.tsx
+@@ -2356,6 +2356,7 @@ export default function PosPage() {
+             onVoidServiceCharge={currentCheck?.status === "open" && serviceChargeTotal > 0 ? () => voidServiceChargeMutation.mutate() : undefined}
+             isEditingClosedCheck={!!editingClosedCheckId}
+             onCancelEditClosedCheck={handleCancelEditClosedCheck}
++            isPendingReopen={!!pendingReopenCheckId}
+           />
+         </div>
+       </div>

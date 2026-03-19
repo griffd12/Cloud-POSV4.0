@@ -1,0 +1,13 @@
+diff --git a/electron/electron-builder.json b/electron/electron-builder.json
+index 5ad0d2e..e706ff1 100644
+--- a/electron/electron-builder.json
++++ b/electron/electron-builder.json
+@@ -90,7 +90,7 @@
+   },
+   "extraMetadata": {
+     "main": "electron/main.cjs",
+-    "version": "3.1.92"
++    "version": "3.1.93"
+   },
+   "buildDependenciesFromSource": false,
+   "npmRebuild": true

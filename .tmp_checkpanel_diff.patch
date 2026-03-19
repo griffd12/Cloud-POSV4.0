@@ -1,0 +1,59 @@
+diff --git a/client/src/components/pos/check-panel.tsx b/client/src/components/pos/check-panel.tsx
+index 3fc188a..91489b5 100644
+--- a/client/src/components/pos/check-panel.tsx
++++ b/client/src/components/pos/check-panel.tsx
+@@ -45,6 +45,7 @@ interface CheckPanelProps {
+   onVoidServiceCharge?: () => void;
+   isEditingClosedCheck?: boolean;
+   onCancelEditClosedCheck?: () => void;
++  isPendingReopen?: boolean;
+ }
+ 
+ const ORDER_TYPE_LABELS: Record<string, string> = {
+@@ -347,6 +348,7 @@ export function CheckPanel({
+   onVoidServiceCharge,
+   isEditingClosedCheck = false,
+   onCancelEditClosedCheck,
++  isPendingReopen = false,
+ }: CheckPanelProps) {
+   const formatPrice = (price: string | number | null) => {
+     const numPrice = typeof price === "string" ? parseFloat(price) : (price || 0);
+@@ -356,6 +358,9 @@ export function CheckPanel({
+   const activeItems = items.filter(item => !item.voided);
+   const unsentItems = activeItems.filter(item => !item.sent);
+   const sentItems = activeItems.filter(item => item.sent);
++  const hasUnvoidedPriorPayments = isPendingReopen && payments.some(
++    (p) => p.paymentStatus === "completed" || (p.paymentStatus !== "voided" && !p.paymentStatus)
++  );
+   
+   const subtotal = propSubtotal ?? 0;
+   const tax = propTax ?? 0;
+@@ -654,15 +659,24 @@ export function CheckPanel({
+             </Button>
+           ) : (
+             <Button
+-              variant={unsentItems.length > 0 ? "default" : "secondary"}
++              variant={isPendingReopen ? "secondary" : (unsentItems.length > 0 ? "default" : "secondary")}
+               size="lg"
+               className="aspect-square min-h-20 text-base font-semibold flex flex-col items-center justify-center gap-1"
+               onClick={onSend}
+-              disabled={isSending}
++              disabled={isSending || (isPendingReopen && hasUnvoidedPriorPayments)}
+               data-testid="button-send-order"
+             >
+-              <Send className="w-6 h-6" />
+-              <span>{unsentItems.length > 0 ? `Send (${unsentItems.length})` : balanceDue > 0 ? "Send" : "Exit"}</span>
++              {isPendingReopen ? (
++                <>
++                  <XCircle className="w-6 h-6" />
++                  <span>{hasUnvoidedPriorPayments ? "Void Payment First" : "Exit"}</span>
++                </>
++              ) : (
++                <>
++                  <Send className="w-6 h-6" />
++                  <span>{unsentItems.length > 0 ? `Send (${unsentItems.length})` : balanceDue > 0 ? "Send" : "Exit"}</span>
++                </>
++              )}
+             </Button>
+           )}
+           <Button

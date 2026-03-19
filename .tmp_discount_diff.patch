@@ -1,0 +1,80 @@
+diff --git a/client/src/components/pos/discount-picker-modal.tsx b/client/src/components/pos/discount-picker-modal.tsx
+index 3d86fe4..6186f2d 100644
+--- a/client/src/components/pos/discount-picker-modal.tsx
++++ b/client/src/components/pos/discount-picker-modal.tsx
+@@ -13,7 +13,27 @@ import { ScrollArea } from "@/components/ui/scroll-area";
+ import { Input } from "@/components/ui/input";
+ import { Label } from "@/components/ui/label";
+ import { Percent, DollarSign, ShieldCheck, Loader2, Trash2 } from "lucide-react";
+-import type { Discount, CheckItem } from "@shared/schema";
++import type { CheckItem } from "@shared/schema";
++
++interface Discount {
++  id: string;
++  name: string;
++  type?: string;
++  discountType?: string;
++  value?: string | number;
++  amount?: string | number;
++  requiresManager?: boolean;
++  requires_manager?: boolean;
++  active?: boolean;
++  [key: string]: unknown;
++}
++
++function getDiscountType(d: Discount): string {
++  return d.type || d.discountType || "amount";
++}
++function getDiscountValue(d: Discount): string {
++  return String(d.value ?? d.amount ?? "0");
++}
+ 
+ interface DiscountPickerModalProps {
+   open: boolean;
+@@ -62,21 +82,25 @@ export function DiscountPickerModal({
+   // Check if item already has a discount
+   const hasExistingDiscount = item?.discountId && parseFloat(item.discountAmount || "0") > 0;
+ 
+-  const calculateDiscountAmount = (discount: Discount): number => {
+-    if (discount.type === "percent") {
+-      return itemAmount * (parseFloat(discount.value) / 100);
++  const calculateDiscountAmount = (discount: AnyDiscount): number => {
++    const dType = getDiscountType(discount);
++    const dValue = getDiscountValue(discount);
++    if (dType === "percent") {
++      return itemAmount * (parseFloat(dValue) / 100);
+     }
+-    return Math.min(parseFloat(discount.value), itemAmount);
++    return Math.min(parseFloat(dValue), itemAmount);
+   };
+ 
+-  const formatDiscountValue = (discount: Discount): string => {
+-    if (discount.type === "percent") {
+-      return `${discount.value}%`;
++  const formatDiscountValue = (discount: AnyDiscount): string => {
++    const dType = getDiscountType(discount);
++    const dValue = getDiscountValue(discount);
++    if (dType === "percent") {
++      return `${dValue}%`;
+     }
+-    return `$${parseFloat(discount.value).toFixed(2)}`;
++    return `$${parseFloat(dValue).toFixed(2)}`;
+   };
+ 
+-  const handleSelect = (discount: Discount) => {
++  const handleSelect = (discount: AnyDiscount) => {
+     setSelectedDiscount(discount);
+     // If requires manager approval, show PIN input
+     if (discount.requiresManagerApproval) {
+@@ -185,9 +209,9 @@ export function DiscountPickerModal({
+                         <div className="flex items-center justify-between gap-2">
+                           <div className="flex items-center gap-2 flex-1 min-w-0">
+                             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+-                              discount.type === "percent" ? "bg-blue-500/10" : "bg-green-500/10"
++                              getDiscountType(discount) === "percent" ? "bg-blue-500/10" : "bg-green-500/10"
+                             }`}>
+-                              {discount.type === "percent" ? (
++                              {getDiscountType(discount) === "percent" ? (
+                                 <Percent className="w-4 h-4 text-blue-500" />
+                               ) : (
+                                 <DollarSign className="w-4 h-4 text-green-500" />

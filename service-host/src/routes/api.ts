@@ -2707,6 +2707,9 @@ export function createApiRoutes(
   });
 
   router.post('/terminal-sessions/:id/simulate-callback', async (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ error: 'Simulation endpoint is disabled in production' });
+    }
     try {
       const row = caps.db.get<any>('SELECT data FROM terminal_sessions WHERE id = ?', [req.params.id]);
       if (!row) return res.status(404).json({ error: 'Terminal session not found' });
@@ -2727,7 +2730,7 @@ export function createApiRoutes(
         `UPDATE terminal_sessions SET data = ?, status = ?, updated_at = ? WHERE id = ?`,
         [JSON.stringify(session), session.status, session.updatedAt, req.params.id]
       );
-      console.log(`[CAPS] Terminal session simulated ${action}: ${req.params.id}`);
+      console.log(`[CAPS] Terminal session simulated ${action}: ${req.params.id} (dev-only)`);
       res.json(session);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });

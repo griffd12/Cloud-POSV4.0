@@ -24,6 +24,8 @@ interface Discount {
   amount?: string | number;
   requiresManager?: boolean;
   requires_manager?: boolean;
+  requiresManagerApproval?: boolean;
+  requires_manager_approval?: boolean;
   active?: boolean;
   [key: string]: unknown;
 }
@@ -82,7 +84,7 @@ export function DiscountPickerModal({
   // Check if item already has a discount
   const hasExistingDiscount = item?.discountId && parseFloat(item.discountAmount || "0") > 0;
 
-  const calculateDiscountAmount = (discount: AnyDiscount): number => {
+  const calculateDiscountAmount = (discount: Discount): number => {
     const dType = getDiscountType(discount);
     const dValue = getDiscountValue(discount);
     if (dType === "percent") {
@@ -91,7 +93,7 @@ export function DiscountPickerModal({
     return Math.min(parseFloat(dValue), itemAmount);
   };
 
-  const formatDiscountValue = (discount: AnyDiscount): string => {
+  const formatDiscountValue = (discount: Discount): string => {
     const dType = getDiscountType(discount);
     const dValue = getDiscountValue(discount);
     if (dType === "percent") {
@@ -100,7 +102,7 @@ export function DiscountPickerModal({
     return `$${parseFloat(dValue).toFixed(2)}`;
   };
 
-  const handleSelect = (discount: AnyDiscount) => {
+  const handleSelect = (discount: Discount) => {
     setSelectedDiscount(discount);
     // If requires manager approval, show PIN input
     if (discount.requiresManagerApproval) {

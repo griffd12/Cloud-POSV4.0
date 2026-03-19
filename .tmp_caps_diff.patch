@@ -1,0 +1,93 @@
+diff --git a/service-host/src/services/caps.ts b/service-host/src/services/caps.ts
+index e46ea24..ba0ea3c 100644
+--- a/service-host/src/services/caps.ts
++++ b/service-host/src/services/caps.ts
+@@ -192,9 +192,9 @@ export class CapsService {
+       tableNumber: row.table_number || undefined,
+       guestCount: row.guest_count,
+       status: row.status as 'open' | 'closed' | 'voided',
+-      subtotal: row.subtotal,
+-      tax: row.tax,
+-      total: row.total,
++      subtotal: row.subtotal || 0,
++      tax: row.tax || 0,
++      total: row.total || 0,
+       discountTotal: row.discount_total || 0,
+       serviceChargeTotal: row.service_charge_total || 0,
+       amountDue: row.amount_due || 0,
+@@ -451,21 +451,24 @@ export class CapsService {
+       [id, checkId, params.tenderId, params.tenderType, params.amount, params.tip || 0, changeAmount, params.reference, check.businessDate || null]
+     );
+     
+-    const payment: Payment & { popDrawer?: boolean; printCheck?: boolean; changeAmount?: number } = {
++    const payment: Payment & { popDrawer?: boolean; printCheck?: boolean } = {
+       id,
+       checkId,
+       tenderId: params.tenderId,
++      tenderName: tender?.name || params.tenderType,
+       tenderType: params.tenderType,
+       isCashMedia: tender?.is_cash_media === 1,
+       isCardMedia: tender?.is_card_media === 1,
+       isGiftMedia: tender?.is_gift_media === 1,
+       amount: params.amount,
++      tipAmount: String(params.tip || 0),
+       tip: params.tip || 0,
++      changeAmount: String(changeAmount),
+       reference: params.reference,
+       status: 'authorized',
++      paymentStatus: 'completed',
+       popDrawer: tender?.pop_drawer === 1,
+       printCheck: tender?.print_check_on_payment === 1,
+-      changeAmount,
+     };
+     
+     this.writeJournal(checkId, check.txnGroupId, check.rvcId, 'payment_added', {
+@@ -602,18 +605,24 @@ export class CapsService {
+     
+     return rows.map(row => {
+       const tender = this.db.getTender(row.tender_id);
++      const rawStatus = row.status as string;
++      const paymentStatus = rawStatus === 'voided' ? 'voided' : 'completed';
+       return {
+         id: row.id,
+         checkId: row.check_id,
+         tenderId: row.tender_id,
++        tenderName: tender?.name || row.tender_type || 'Payment',
+         tenderType: row.tender_type,
+         isCashMedia: tender?.is_cash_media === 1,
+         isCardMedia: tender?.is_card_media === 1,
+         isGiftMedia: tender?.is_gift_media === 1,
+-        amount: row.amount,
++        amount: String(row.amount || 0),
++        tipAmount: String(row.tip_amount || 0),
+         tip: row.tip_amount || 0,
++        changeAmount: String(row.change_amount || 0),
+         reference: row.reference_number || undefined,
+-        status: row.status as 'authorized' | 'captured' | 'voided',
++        status: rawStatus,
++        paymentStatus,
+       };
+     });
+   }
+@@ -766,14 +775,18 @@ interface Payment {
+   id: string;
+   checkId: string;
+   tenderId: string;
+-  tenderType: string; // display/label only, not used for behavioral logic
++  tenderName?: string;
++  tenderType: string;
+   isCashMedia?: boolean;
+   isCardMedia?: boolean;
+   isGiftMedia?: boolean;
+-  amount: number;
++  amount: number | string;
++  tipAmount?: string;
+   tip: number;
++  changeAmount?: string;
+   reference?: string;
+-  status: 'authorized' | 'captured' | 'voided';
++  status: string;
++  paymentStatus: 'completed' | 'voided';
+ }
+ 
+ interface CheckRow {
