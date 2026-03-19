@@ -2125,12 +2125,17 @@ export class DatabaseStorage implements IStorage {
         if (isDuplicateKey && attempt < MAX_RETRIES - 1) {
           console.warn(`[CheckCounter] Duplicate key on attempt ${attempt + 1} for rvc ${rvcId}, resetting counter...`);
           await db.execute(sql`
-            UPDATE rvc_counters
-            SET next_check_number = COALESCE(
-              (SELECT MAX(check_number) + 1 FROM checks WHERE rvc_id = ${rvcId}), 1
-            ),
-            updated_at = NOW()
-            WHERE rvc_id = ${rvcId}
+            INSERT INTO rvc_counters (rvc_id, next_check_number, updated_at)
+            VALUES (
+              ${rvcId},
+              COALESCE((SELECT MAX(check_number) + 1 FROM checks WHERE rvc_id = ${rvcId}), 1),
+              NOW()
+            )
+            ON CONFLICT (rvc_id) DO UPDATE
+              SET next_check_number = COALESCE(
+                (SELECT MAX(check_number) + 1 FROM checks WHERE rvc_id = ${rvcId}), 1
+              ),
+              updated_at = NOW()
           `);
           continue;
         }
