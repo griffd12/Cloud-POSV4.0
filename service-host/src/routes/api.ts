@@ -434,8 +434,15 @@ export function createApiRoutes(
       }
       const payment = caps.addPayment(req.params.id, paymentParams, workstationId);
       const updatedCheck = caps.getCheck(req.params.id);
+      const checkPayments = updatedCheck?.payments || [];
+      const paidAmount = checkPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
+      const checkTotal = updatedCheck?.total || 0;
+      const changeDue = Math.max(0, paidAmount - checkTotal);
       res.json({
         ...updatedCheck,
+        paidAmount,
+        tenderedAmount: paidAmount,
+        changeDue,
         popDrawer: payment.popDrawer,
         printCheck: payment.printCheck,
         changeAmount: payment.changeAmount || 0,
