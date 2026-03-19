@@ -2834,6 +2834,11 @@ export class Database {
   // ==========================================================================
   
   upsertItemAvailability(avail: any): void {
+    const quantity = avail.availableQuantity ?? avail.available_quantity ?? avail.currentQuantity ?? avail.current_quantity;
+    const reason = avail.unavailableReason ?? avail.unavailable_reason;
+    const until = avail.unavailableUntil ?? avail.unavailable_until;
+    const updatedBy = avail.updatedByEmployeeId ?? avail.updated_by_employee_id ?? avail.eightySixedById ?? avail.eighty_sixed_by_id;
+    const isAvailable = avail.is86ed ? 0 : (avail.isAvailable !== false ? 1 : 0);
     this.run(
       `INSERT OR REPLACE INTO item_availability (
         id, property_id, rvc_id, menu_item_id, is_available,
@@ -2841,9 +2846,10 @@ export class Database {
         updated_at, updated_by_employee_id
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
       [
-        avail.id, avail.propertyId, avail.rvcId, avail.menuItemId,
-        avail.isAvailable !== false ? 1 : 0, avail.availableQuantity,
-        avail.unavailableReason, avail.unavailableUntil, avail.updatedByEmployeeId
+        avail.id, avail.propertyId ?? avail.property_id,
+        avail.rvcId ?? avail.rvc_id, avail.menuItemId ?? avail.menu_item_id,
+        isAvailable, quantity,
+        reason, until, updatedBy
       ]
     );
   }
@@ -2966,6 +2972,11 @@ export class Database {
   // ==========================================================================
   
   upsertGiftCard(card: any): void {
+    const balance = card.balance ?? card.currentBalance ?? card.current_balance ?? 0;
+    const initialBalance = card.initialBalance ?? card.initial_balance ?? balance ?? 0;
+    const activatedBy = card.activatedByEmployeeId ?? card.activated_by_employee_id ?? card.activatedById ?? card.activated_by_id;
+    const customerName = card.customerName ?? card.purchaserName ?? card.recipientName ?? card.customer_name;
+    const customerEmail = card.customerEmail ?? card.recipientEmail ?? card.customer_email;
     this.run(
       `INSERT OR REPLACE INTO gift_cards (
         id, property_id, card_number, pin, balance, initial_balance, status,
@@ -2973,10 +2984,12 @@ export class Database {
         customer_name, customer_phone, customer_email, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM gift_cards WHERE id = ?), datetime('now')), datetime('now'))`,
       [
-        card.id, card.propertyId, card.cardNumber, card.pin,
-        card.balance || 0, card.initialBalance || card.balance || 0,
-        card.status || 'active', card.activatedAt, card.activatedByEmployeeId,
-        card.expiresAt, card.lastUsedAt, card.customerName, card.customerPhone, card.customerEmail, card.id
+        card.id, card.propertyId ?? card.property_id,
+        card.cardNumber ?? card.card_number, card.pin,
+        balance, initialBalance,
+        card.status || 'active', card.activatedAt ?? card.activated_at, activatedBy,
+        card.expiresAt ?? card.expires_at, card.lastUsedAt ?? card.last_used_at,
+        customerName, card.customerPhone ?? card.customer_phone, customerEmail, card.id
       ]
     );
   }
@@ -3431,15 +3444,21 @@ export class Database {
   }
   
   upsertFiscalPeriod(period: any): void {
+    const periodType = period.periodType ?? period.period_type ?? 'business_day';
+    const startTime = period.startTime ?? period.start_time ?? period.openedAt ?? period.opened_at ?? new Date().toISOString();
+    const endTime = period.endTime ?? period.end_time ?? period.closedAt ?? period.closed_at;
+    const openedBy = period.openedByEmployeeId ?? period.opened_by_employee_id ?? period.reopenedById ?? period.reopened_by_id;
+    const closedBy = period.closedByEmployeeId ?? period.closed_by_employee_id ?? period.closedById ?? period.closed_by_id;
     this.run(
       `INSERT OR REPLACE INTO fiscal_periods (
         id, property_id, period_type, business_date, start_time, end_time, status,
         opened_by_employee_id, closed_by_employee_id, cloud_synced, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM fiscal_periods WHERE id = ?), datetime('now')), datetime('now'))`,
       [
-        period.id, period.propertyId, period.periodType, period.businessDate,
-        period.startTime, period.endTime, period.status || 'open',
-        period.openedByEmployeeId, period.closedByEmployeeId,
+        period.id, period.propertyId ?? period.property_id, periodType,
+        period.businessDate ?? period.business_date,
+        startTime, endTime, period.status || 'open',
+        openedBy, closedBy,
         period.cloudSynced ? 1 : 0, period.id
       ]
     );
@@ -3556,14 +3575,19 @@ export class Database {
   // ==========================================================================
   
   upsertOnlineOrderSource(source: any): void {
+    const name = source.sourceName ?? source.name ?? source.source_name ?? 'Unknown';
+    const sourceType = source.sourceType ?? source.source_type ?? 'other';
+    const prepTime = source.defaultPrepMinutes ?? source.defaultPrepTime ?? source.default_prep_minutes ?? source.default_prep_time ?? 15;
     this.run(
       `INSERT OR REPLACE INTO online_order_sources (
         id, property_id, name, source_type, api_key, webhook_url, auto_accept, default_prep_time, active, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
-        source.id, source.propertyId, source.name, source.sourceType,
-        source.apiKey, source.webhookUrl, source.autoAccept ? 1 : 0,
-        source.defaultPrepTime || 15, source.active !== false ? 1 : 0
+        source.id, source.propertyId ?? source.property_id, name, sourceType,
+        source.apiKeyPrefix ?? source.apiKey ?? source.api_key,
+        source.webhookUrl ?? source.webhook_url,
+        (source.autoAccept ?? source.auto_accept) ? 1 : 0,
+        prepTime, source.active !== false ? 1 : 0
       ]
     );
   }

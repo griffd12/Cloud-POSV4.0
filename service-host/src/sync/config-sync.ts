@@ -274,19 +274,32 @@ export class ConfigSync {
       console.log(`[ConfigSync] Mapped entity arrays: ${arraySizes || '(none)'}`);
       
       this.db.run('PRAGMA foreign_keys = OFF');
+      const syncErrors: string[] = [];
+      const safeSync = (label: string, fn: () => number) => {
+        try {
+          totalRecords += fn.call(this);
+        } catch (e) {
+          const msg = `${label}: ${(e as Error).message}`;
+          console.error(`[ConfigSync] Category sync failed — ${msg}`);
+          syncErrors.push(msg);
+        }
+      };
       try {
-        totalRecords += this.syncHierarchy(config);
-        totalRecords += this.syncMenu(config);
-        totalRecords += this.syncEmployees(config);
-        totalRecords += this.syncDevices(config);
-        totalRecords += this.syncOperations(config);
-        totalRecords += this.syncPosLayouts(config);
-        totalRecords += this.syncPayments(config);
-        totalRecords += this.syncLoyalty(config);
-        totalRecords += this.syncLabor(config);
-        totalRecords += this.syncMisc(config);
+        safeSync('hierarchy', () => this.syncHierarchy(config));
+        safeSync('menu', () => this.syncMenu(config));
+        safeSync('employees', () => this.syncEmployees(config));
+        safeSync('devices', () => this.syncDevices(config));
+        safeSync('operations', () => this.syncOperations(config));
+        safeSync('posLayouts', () => this.syncPosLayouts(config));
+        safeSync('payments', () => this.syncPayments(config));
+        safeSync('loyalty', () => this.syncLoyalty(config));
+        safeSync('labor', () => this.syncLabor(config));
+        safeSync('misc', () => this.syncMisc(config));
       } finally {
         this.db.run('PRAGMA foreign_keys = ON');
+      }
+      if (syncErrors.length > 0) {
+        console.warn(`[ConfigSync] Full sync completed with ${syncErrors.length} category warning(s): ${syncErrors.join('; ')}`);
       }
       
       this.currentVersion = config.version || 1;
@@ -694,108 +707,56 @@ export class ConfigSync {
   private syncLoyalty(config: FullConfigResponse): number {
     let count = 0;
     
-    if (config.loyaltyPrograms) {
-      for (const lp of config.loyaltyPrograms) {
-        this.db.upsertLoyaltyProgram(lp);
-        count++;
+    const syncGroup = (label: string, items: any[] | undefined, upsertFn: (item: any) => void) => {
+      if (!items) return;
+      let synced = 0;
+      for (const item of items) {
+        try {
+          upsertFn.call(this.db, item);
+          synced++;
+          count++;
+        } catch (e) {
+          console.error(`  [ConfigSync] Failed to sync ${label} item ${item.id || '?'}: ${(e as Error).message}`);
+        }
       }
-      console.log(`  Synced ${config.loyaltyPrograms.length} loyalty programs`);
-    }
-    
-    if (config.loyaltyMembers) {
-      for (const lm of config.loyaltyMembers) {
-        this.db.upsertLoyaltyMember(lm);
-        count++;
-      }
-      console.log(`  Synced ${config.loyaltyMembers.length} loyalty members`);
-    }
-    
-    if (config.loyaltyMemberEnrollments) {
-      for (const lme of config.loyaltyMemberEnrollments) {
-        this.db.upsertLoyaltyMemberEnrollment(lme);
-        count++;
-      }
-      console.log(`  Synced ${config.loyaltyMemberEnrollments.length} loyalty enrollments`);
-    }
-    
-    if (config.loyaltyRewards) {
-      for (const lr of config.loyaltyRewards) {
-        this.db.upsertLoyaltyReward(lr);
-        count++;
-      }
-      console.log(`  Synced ${config.loyaltyRewards.length} loyalty rewards`);
-    }
-    
-    if (config.giftCards) {
-      for (const gc of config.giftCards) {
-        this.db.upsertGiftCard(gc);
-        count++;
-      }
-      console.log(`  Synced ${config.giftCards.length} gift cards`);
-    }
-    
+      console.log(`  Synced ${synced}/${items.length} ${label}`);
+    };
+
+    syncGroup('loyalty programs', config.loyaltyPrograms, this.db.upsertLoyaltyProgram);
+    syncGroup('loyalty members', config.loyaltyMembers, this.db.upsertLoyaltyMember);
+    syncGroup('loyalty enrollments', config.loyaltyMemberEnrollments, this.db.upsertLoyaltyMemberEnrollment);
+    syncGroup('loyalty rewards', config.loyaltyRewards, this.db.upsertLoyaltyReward);
+    syncGroup('gift cards', config.giftCards, this.db.upsertGiftCard);
+
     return count;
   }
   
   private syncMisc(config: FullConfigResponse): number {
     let count = 0;
     
-    if (config.fiscalPeriods) {
-      for (const fp of config.fiscalPeriods) {
-        this.db.upsertFiscalPeriod(fp);
-        count++;
+    const syncGroup = (label: string, items: any[] | undefined, upsertFn: (item: any) => void) => {
+      if (!items) return;
+      let synced = 0;
+      for (const item of items) {
+        try {
+          upsertFn.call(this.db, item);
+          synced++;
+          count++;
+        } catch (e) {
+          console.error(`  [ConfigSync] Failed to sync ${label} item ${item.id || '?'}: ${(e as Error).message}`);
+        }
       }
-      console.log(`  Synced ${config.fiscalPeriods.length} fiscal periods`);
-    }
-    
-    if (config.cashDrawers) {
-      for (const cd of config.cashDrawers) {
-        this.db.upsertCashDrawer(cd);
-        count++;
-      }
-      console.log(`  Synced ${config.cashDrawers.length} cash drawers`);
-    }
-    
-    if (config.onlineOrderSources) {
-      for (const oos of config.onlineOrderSources) {
-        this.db.upsertOnlineOrderSource(oos);
-        count++;
-      }
-      console.log(`  Synced ${config.onlineOrderSources.length} online order sources`);
-    }
-    
-    if (config.itemAvailability) {
-      for (const ia of config.itemAvailability) {
-        this.db.upsertItemAvailability(ia);
-        count++;
-      }
-      console.log(`  Synced ${config.itemAvailability.length} item availability records`);
-    }
-    
-    if (config.emcOptionFlags) {
-      for (const flag of config.emcOptionFlags) {
-        this.db.upsertOptionFlag(flag);
-        count++;
-      }
-      console.log(`  Synced ${config.emcOptionFlags.length} EMC option flags`);
-    }
-    
-    if (config.descriptorSets) {
-      for (const ds of config.descriptorSets) {
-        this.db.upsertDescriptorSet(ds);
-        count++;
-      }
-      console.log(`  Synced ${config.descriptorSets.length} descriptor sets`);
-    }
-    
-    if (config.descriptorLogoAssets) {
-      for (const dla of config.descriptorLogoAssets) {
-        this.db.upsertDescriptorLogoAsset(dla);
-        count++;
-      }
-      console.log(`  Synced ${config.descriptorLogoAssets.length} descriptor logo assets`);
-    }
-    
+      console.log(`  Synced ${synced}/${items.length} ${label}`);
+    };
+
+    syncGroup('fiscal periods', config.fiscalPeriods, this.db.upsertFiscalPeriod);
+    syncGroup('cash drawers', config.cashDrawers, this.db.upsertCashDrawer);
+    syncGroup('online order sources', config.onlineOrderSources, this.db.upsertOnlineOrderSource);
+    syncGroup('item availability records', config.itemAvailability, this.db.upsertItemAvailability);
+    syncGroup('EMC option flags', config.emcOptionFlags, this.db.upsertOptionFlag);
+    syncGroup('descriptor sets', config.descriptorSets, this.db.upsertDescriptorSet);
+    syncGroup('descriptor logo assets', config.descriptorLogoAssets, this.db.upsertDescriptorLogoAsset);
+
     return count;
   }
   
