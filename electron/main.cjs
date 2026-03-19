@@ -2192,125 +2192,105 @@ function setupIpcHandlers() {
   });
 
   ipcMain.on('wizard-launch-app', async () => {
-    appLogger.info('Wizard', 'Launching app after wizard completion');
+    appLogger.info('Wizard', 'Launching app after wizard completion — following normal boot contract');
     const config = loadConfig();
-
-    appLogger.info('Wizard', 'Initializing all services after setup completion');
-    await initAllServices();
 
     if (mainWindow) {
       mainWindow.close();
       mainWindow = null;
     }
 
-    const windowConfig = {
-      width: 1280,
-      height: 1024,
-      minWidth: 1024,
-      minHeight: 768,
-      title: appMode === 'kds' ? 'Cloud POS - Kitchen Display' : 'Cloud POS',
-      icon: path.join(__dirname, 'assets', 'icon.png'),
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        webSecurity: true,
-        preload: path.join(__dirname, 'preload.cjs'),
-      },
-      autoHideMenuBar: true,
-      fullscreenable: true,
-      backgroundColor: '#0f1729',
-      kiosk: isKiosk,
-      fullscreen: isKiosk,
-    };
+    appLogger.info('Wizard', 'Step 1: Resolving CAPS identity via activation-config');
+    await fetchActivationConfig();
+    const resolvedConfig = loadConfig();
 
-    const newWindow = new BrowserWindow(windowConfig);
-    mainWindow = newWindow;
-    if (!isKiosk) {
-      mainWindow.maximize();
+    if (capsConfig && capsConfig.isCapsWorkstation) {
+      appLogger.info('Wizard', 'Step 2: This device IS the CAPS host — starting service-host');
+      await startServiceHost();
+    } else {
+      appLogger.info('Wizard', 'Step 2: This device is a remote WS/KDS — will connect to LAN CAPS', {
+        serviceHostUrl: resolvedConfig.serviceHostUrl || 'none',
+      });
     }
 
-    const serverUrl = config.serverUrl || getServerUrl();
-    const startPath = appMode === 'kds' ? '/kds' : '/';
-    const targetUrl = `${serverUrl}${startPath}`;
-    appLogger.info('Wizard', `Post-wizard loading URL: ${targetUrl}`, { maximized: !isKiosk });
+    appLogger.info('Wizard', 'Step 3: Opening app window (same as normal createWindow)');
+    createWindow();
 
-    const loadingHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cloud POS</title>
-<style>body{font-family:system-ui,sans-serif;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
-.c{max-width:480px;padding:40px}.spinner{width:40px;height:40px;border:3px solid #2a3a52;border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 20px}
-@keyframes spin{to{transform:rotate(360deg)}}h2{margin:0 0 8px;font-weight:500}p{opacity:0.6;font-size:14px;margin:0}</style></head>
-<body><div class="c"><div class="spinner"></div><h2>Cloud POS</h2><p>Connecting to server...</p></div></body></html>`;
+    const startupServiceHostUrl = resolvedConfig.serviceHostUrl;
 
-    newWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml)}`).then(() => {
-      appLogger.info('Wizard', 'Post-wizard loading screen shown, navigating to server...');
-      if (!newWindow.isDestroyed()) newWindow.loadURL(targetUrl);
-    }).catch((err) => {
-      appLogger.error('Wizard', `Failed to show loading screen: ${err.message}`);
-      if (!newWindow.isDestroyed()) newWindow.loadURL(targetUrl);
-    });
+    capsBootStage = 'connecting';
+    if (mainWindow) {
+      mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+    }
 
-    mainWindow.on('closed', () => { mainWindow = null; });
+    if (!startupServiceHostUrl) {
+      capsBootStage = 'no-caps-url';
+      isOnline = false;
+      connectionMode = 'red';
+      firstBootConnectivityChecked = true;
+      if (mainWindow) mainWindow.webContents.send('connection-mode', 'red');
+      if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+      appLogger.warn('Wizard', 'Post-wizard boot: No CAPS URL resolved — RED mode');
+      return;
+    }
 
-    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-      appLogger.error('Window', `Page load failed after wizard: ${errorDescription}`, { errorCode, url: validatedURL });
+    appLogger.info('Wizard', `Step 4: pollCapsReady against ${startupServiceHostUrl}`);
 
-      if (errorCode === -3) return;
-      if (!mainWindow) return;
-
-      if (errorCode === -21) {
-        appLogger.info('Window', 'Network changed after wizard (ERR_NETWORK_CHANGED), auto-retrying in 2s...');
-        setTimeout(() => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            const bundledIndex = path.join(getBundledAssetsDir(), 'index.html');
-            if (fs.existsSync(bundledIndex)) {
-              appLogger.info('Window', 'Auto-retrying post-wizard load: loading bundled index.html');
-              mainWindow.loadFile(bundledIndex);
-            } else {
-              appLogger.info('Window', `Auto-retrying post-wizard load: ${serverUrl}${startPath}`);
-              mainWindow.loadURL(`${serverUrl}${startPath}`);
+    const pollCapsReadyPostWizard = async () => {
+      let attempt = 0;
+      while (true) {
+        attempt++;
+        try {
+          const capsReadyCheck = await fetch(`${startupServiceHostUrl}/health/ready`, {
+            signal: AbortSignal.timeout(3000),
+          });
+          if (capsReadyCheck.ok) {
+            const readyData = await capsReadyCheck.json().catch(() => ({}));
+            const stage = readyData.status === 'ready' ? 'ready' : 'loading-config';
+            capsBootStage = stage;
+            if (mainWindow) {
+              mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage, ...readyData });
             }
+            if (readyData.status === 'ready') {
+              return true;
+            }
+            if (attempt % 5 === 0) {
+              appLogger.info('Wizard', `Post-wizard CAPS readiness: ${readyData.status} (attempt ${attempt})`);
+            }
+          } else {
+            capsBootStage = 'connecting';
+            if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
           }
-        }, 2000);
-        return;
+        } catch {
+          capsBootStage = 'connecting';
+          if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+        }
+        const delay = attempt <= 10 ? 1000 : (attempt <= 30 ? 2000 : 5000);
+        await new Promise(r => setTimeout(r, delay));
       }
+    };
 
-      if (errorCode === -106 || errorCode === -105 || errorCode === -2) {
-        isOnline = false;
-        if (offlineInterceptor) offlineInterceptor.setOffline(true);
-      }
-
-      const retryUrl = `${serverUrl}${startPath}`;
-      const isKdsMode2 = appMode === 'kds';
-      const postWizTitle = isKdsMode2 ? 'Kitchen Display - Connecting' : 'Cloud POS - Connection Error';
-      const postWizHeading = isKdsMode2 ? 'Kitchen Display - Connecting to Server' : 'Cannot Connect to Server';
-      const postWizMsg = isKdsMode2
-        ? 'Waiting for the server to become available. The kitchen display will load automatically when connected.'
-        : 'Unable to reach the Cloud POS server. Please check your internet connection and verify the server URL is correct.';
-      const postWizAutoRetry = isKdsMode2
-        ? `<script>let c=15;const t=document.getElementById('countdown');setInterval(()=>{c--;if(c<=0){c=15;location.href='${retryUrl.replace(/'/g, "\\'")}';}if(t)t.textContent=c;},1000);</script>`
-        : '';
-      const postWizCountdown = isKdsMode2 ? '<p style="opacity:0.6;font-size:13px;margin-top:8px">Auto-retry in <span id="countdown">15</span>s</p>' : '';
-      const postWizSpinner = isKdsMode2 ? '<div style="width:32px;height:32px;border:3px solid #2a3a52;border-top-color:#f59e0b;border-radius:50%;animation:spin 0.8s linear infinite;margin:16px auto 0"></div>' : '';
-
-      const errorHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${postWizTitle}</title>
-<style>body{font-family:system-ui,sans-serif;background:#0f1729;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
-.c{max-width:520px;padding:40px}h1{margin:0 0 12px;font-size:22px}p{opacity:0.8;line-height:1.6;margin:0 0 20px;font-size:14px}
-button{padding:12px 32px;font-size:16px;border:1px solid #4a4a6a;border-radius:8px;background:#2a2a4a;color:#fff;cursor:pointer;margin:4px}
-button:hover{background:#3a3a5a}.info{margin-top:20px;font-size:12px;opacity:0.4;font-family:monospace}${isKdsMode2 ? '@keyframes spin{to{transform:rotate(360deg)}}' : ''}</style></head>
-<body><div class="c">${isKdsMode2 ? '<div style="font-size:48px;margin-bottom:16px">🍳</div>' : ''}<h1>${postWizHeading}</h1>
-<p>${postWizMsg}</p>
-<button onclick="location.href='${retryUrl.replace(/'/g, "\\'")}'" id="retryBtn">Retry Connection</button>
-${postWizCountdown}${postWizSpinner}
-<p class="info">Server: ${serverUrl}<br>Error: ${errorDescription} (${errorCode})</p></div></body>${postWizAutoRetry}</html>`;
-
-      if (mainWindow) mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(errorHtml)}`).catch(() => {});
+    pollCapsReadyPostWizard().then(() => {
+      capsBootStage = 'ready';
+      firstBootConnectivityChecked = true;
+      setConnectionMode('yellow');
+      if (offlineInterceptor) offlineInterceptor.setConnectionMode('yellow');
+      if (mainWindow) mainWindow.webContents.send('connection-mode', 'yellow');
+      if (mainWindow) mainWindow.webContents.send('caps-boot-status', { stage: capsBootStage });
+      appLogger.info('Wizard', 'Post-wizard CAPS ready — YELLOW mode set, boot overlay dismissed');
+      checkConnectivity().catch(() => {});
+    }).catch((e) => {
+      appLogger.error('Wizard', `Post-wizard CAPS readiness poll unexpected error: ${e.message}`);
     });
 
-    mainWindow.webContents.on('did-finish-load', () => {
-      if (!mainWindow) return;
-      const url = mainWindow.webContents.getURL();
-      if (!url.startsWith('data:')) {
-        appLogger.info('Window', `Post-wizard page loaded: ${url}`);
-      }
+    initOfflineDbEarly().catch(err => {
+      appLogger.warn('Wizard', `Post-wizard offline DB early init failed: ${err.message}`);
+    });
+
+    initAllServices().then(() => {
+      appLogger.info('Wizard', 'Post-wizard background service initialization complete');
+    }).catch(err => {
+      appLogger.error('Wizard', `Post-wizard background service init failed: ${err.message}`);
     });
   });
 }

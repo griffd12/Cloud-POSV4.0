@@ -77,8 +77,26 @@ app.whenReady()
     │   │        └─ *** POS READY — employee enters PIN against CAPS, starts transacting ***
     │   │
     │   └── NO ──── Show Setup Wizard (CAL enrollment — cloud required ONE TIME ONLY)
+    │               │
+    │               ├── Wizard completes: wizard-save-config → settings.json (setupComplete=true)
+    │               ├── wizard-launch-app fires:
+    │               │   ├── Close wizard window
+    │               │   ├── fetchActivationConfig() — resolve CAPS identity from cloud
+    │               │   │   └── Writes serviceHostUrl, isCapsWorkstation, serviceHostToken to settings.json
+    │               │   ├── If isCapsWorkstation → startServiceHost() (fork service-host-embedded.cjs)
+    │               │   ├── createWindow() — same function as normal boot (setupComplete=true path)
+    │               │   ├── capsBootStage = 'connecting'
+    │               │   │   └── UI: Full-screen "Starting Up" overlay (SAME as normal boot)
+    │               │   ├── pollCapsReady() — identical loop, polls /health/ready
+    │               │   │   └── Blocks UI until status: 'ready'
+    │               │   ├── [CAPS ready] → capsBootStage='ready', setConnectionMode('yellow')
+    │               │   │   └── Boot overlay dismissed — POS/KDS usable
+    │               │   ├── checkConnectivity() — background cloud probe (YELLOW → GREEN if cloud ok)
+    │               │   └── initAllServices() — background (non-blocking)
+    │               │
+    │               └── *** FIRST LAUNCH FOLLOWS SAME BOOT CONTRACT AS EVERY SUBSEQUENT LAUNCH ***
     │
-    └─ Bootstrap Watchdog: 10s timer
+    └─ Bootstrap Watchdog: 10s timer (DISABLED when setup-wizard.html is loaded)
         └── If React doesn't signal ready → auto-reload (max 2x)
 ```
 
@@ -368,7 +386,7 @@ All other /api/* paths       → passed through unchanged to CAPS
 |-------|-------|-----------|-----|---------------|
 | **Phase 1: Auth/Bootstrap** | `service-host/src/index.ts`, `electron/main.cjs`, `client/src/contexts/connection-mode-context.tsx`, `client/src/components/connection-mode-banner.tsx` | Startup race: UI loaded before CAPS ready. Missing auth headers on LAN requests (401s). No readiness signal from service-host | `/health/ready` with 4 readiness flags. `pollCapsReady()` loop. Protocol interceptor injects x-workstation-token + Authorization headers. Blue boot overlay blocks UI until CAPS ready | Boot app → overlay blocks until CAPS ready. No 401s. POS screen appears only after CAPS reports ready |
 | **Phase 2: Menu/Config** | `service-host/src/routes/api.ts`, `service-host/src/db/database.ts` | Broken modifier loading (`sort_order` vs `display_order`). Missing KDS device routes. Incomplete workstation context (RVC/property/layout) | Fixed SQL column. Added KDS device routes. Enriched /workstations/:id/context with full property, enterprise, layout from SQLite | Modifiers load correctly. KDS devices populate. Workstation context returns RVC name, property, layout |
-| **Phase 3: Core POS** | `electron/main.cjs`, `service-host/src/routes/api.ts`, `client/src/contexts/connection-mode-context.tsx` | Split-brain: WS fell back to cloud on CAPS 404. Check operations not consistently routed through CAPS. capsBootStage dropped by applyConnectionMode | ALL /api/ → CAPS exclusively. Hard 503 on CAPS unreachable. 18 POS handlers added. Fixed state spread for capsBootStage. GREEN/YELLOW identical for all routing | Disconnect cloud → all check ops work. No cloud URLs in network tab. GREEN↔YELLOW has zero routing difference |
+| **Phase 3: Core POS** | `electron/main.cjs`, `service-host/src/routes/api.ts`, `client/src/contexts/connection-mode-context.tsx` | Split-brain: WS fell back to cloud on CAPS 404. Check operations not consistently routed through CAPS. capsBootStage dropped by applyConnectionMode. Post-wizard first-launch bypassed capsBootStage/pollCapsReady gate — could enter runtime before CAPS ready | ALL /api/ → CAPS exclusively. Hard 503 on CAPS unreachable. 18 POS handlers added. Fixed state spread for capsBootStage. GREEN/YELLOW identical for all routing. Unified wizard-launch-app to follow identical boot contract: fetchActivationConfig → startServiceHost (if CAPS host) → createWindow → capsBootStage='connecting' → pollCapsReady → YELLOW only on ready | Disconnect cloud → all check ops work. No cloud URLs in network tab. GREEN↔YELLOW has zero routing difference. Fresh install → boot overlay shown, CAPS polled, overlay dismissed only on ready |
 | **Phase 4: KDS Runtime** | `client/src/pages/kds.tsx`, `client/src/hooks/use-pos-websocket.ts`, `service-host/src/services/kds-controller.ts`, `service-host/src/routes/api.ts` | WebSocket path mismatch (/ws/kds vs /ws). Duplicate KDS tickets on re-send. NOT NULL violations on check_number | Standardized WebSocket to /ws. Fixed send to capture only unsent items. Null-safety for check_number/round_number. /kds-tickets/bumped for recall | Send → single KDS ticket (no dupes). Bump → disappears. Recall → bumped tickets visible. WebSocket reconnects cleanly |
 | **Phase 5: Print/Devices** | `electron/print-agent-service.cjs`, `service-host/src/index.ts`, `print-agent/print-agent.js` | Print agent WebSocket path mismatch. CAPS lacked print agent protocol handlers (HELLO/HEARTBEAT/JOB_RESULT) | Aligned print agent WebSocket to /ws. Added printAgentClients Map. HELLO→AUTH_OK handshake. HEARTBEAT keepalive. Print job routing through CAPS | Send to printer → job routes through CAPS → receipt prints. Agent reconnects after disconnect |
 | **Phase 6: Privileges/Option-Bits** | `service-host/src/routes/api.ts`, `client/src/pages/pos.tsx` | Privilege checks UI-only (API bypass possible). Option-bits not enforced by CAPS. checkOptionBit() calls had undefined scope | `checkOptionBit()` with resolveCheckScope/resolveItemScope/resolvePaymentScope. `checkPrivilege()` for employee auth. /config/workstation-options. Fail-closed defaults | Void without privilege → 403 from CAPS. Disable allow_voids → API rejects AND UI hides. Manager PIN override works |
