@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
@@ -880,6 +880,7 @@ CREATE TABLE IF NOT EXISTS loyalty_members (
   sms_opt_in INTEGER DEFAULT 0,
   email_opt_in INTEGER DEFAULT 0,
   marketing_opt_in INTEGER DEFAULT 0,
+  active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

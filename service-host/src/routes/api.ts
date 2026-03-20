@@ -2374,6 +2374,10 @@ export function createApiRoutes(
         `UPDATE check_items SET discount_id = ?, discount_name = ?, discount_amount = ?, discount_type = ? WHERE id = ?`,
         [discountId, discount.name, discountAmountCents, discType, itemId]
       );
+      caps.db.run(
+        'UPDATE check_discounts SET voided = 1 WHERE check_item_id = ? AND check_id = ? AND voided = 0',
+        [itemId, item.check_id]
+      );
       caps.addDiscount(item.check_id, {
         discountId,
         checkItemId: itemId,
@@ -2406,6 +2410,10 @@ export function createApiRoutes(
       caps.db.run(
         'UPDATE check_items SET discount_id = NULL, discount_name = NULL, discount_amount = 0, discount_type = NULL WHERE id = ?',
         [itemId]
+      );
+      caps.db.run(
+        'UPDATE check_discounts SET voided = 1 WHERE check_item_id = ? AND check_id = ? AND voided = 0',
+        [itemId, item.check_id]
       );
       caps.recalculateTotals(item.check_id);
       const txnGroupId = caps.getTxnGroupId(item.check_id);

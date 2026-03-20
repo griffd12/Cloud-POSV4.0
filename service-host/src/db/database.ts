@@ -179,6 +179,10 @@ export class Database {
       this.migrateToV14();
     }
     
+    if (fromVersion < 15) {
+      this.migrateToV15();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -905,6 +909,17 @@ export class Database {
     }
     
     console.log('[DB] v14 migration complete — employee_assignments.role_id added, 18 tables created');
+  }
+  
+  private migrateToV15(): void {
+    console.log('[DB] Running v15 migration: loyalty_members.active column');
+    try {
+      this.run('ALTER TABLE loyalty_members ADD COLUMN active INTEGER DEFAULT 1');
+      console.log('[DB] Added loyalty_members.active');
+    } catch (e: any) {
+      if (!e.message?.includes('duplicate column')) console.log(`[DB] loyalty_members.active skipped: ${e.message}`);
+    }
+    console.log('[DB] v15 migration complete');
   }
   
   // ==========================================================================
