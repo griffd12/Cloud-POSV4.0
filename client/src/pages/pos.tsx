@@ -796,6 +796,7 @@ export default function PosPage() {
     },
     onSuccess: (data: { item: CheckItem; check: Check }) => {
       setCheckItems((prev) => prev.map((item) => (item.id === data.item.id ? data.item : item)));
+      setCurrentCheck(data.check);
       setShowDiscountModal(false);
       setDiscountItem(null);
       queryClient.invalidateQueries({ queryKey: ["/api/checks", currentCheck?.id] });
@@ -822,6 +823,7 @@ export default function PosPage() {
     },
     onSuccess: (data: { item: CheckItem; check: Check }) => {
       setCheckItems((prev) => prev.map((item) => (item.id === data.item.id ? data.item : item)));
+      setCurrentCheck(data.check);
       queryClient.invalidateQueries({ queryKey: ["/api/checks", currentCheck?.id] });
       toast({ title: "Discount removed" });
     },

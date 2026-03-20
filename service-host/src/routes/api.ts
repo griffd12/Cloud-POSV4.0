@@ -18,7 +18,6 @@ import { PaymentController } from '../services/payment-controller.js';
 import { ConfigSync } from '../sync/config-sync.js';
 import { Database } from '../db/database.js';
 import { initGatewayLogger, writeGatewayEntry } from '../gateway-logger.js';
-import { translateToHuman, isNoiseRoute, HumanLogEntry } from '../gateway-log-translator.js';
 import { getLogger } from '../utils/logger.js';
 
 function snakeToCamel(str: string): string {
@@ -53,8 +52,6 @@ export function createApiRoutes(
   const router = Router();
   const discountLog = getLogger('Discount');
 
-  const logger = getLogger('CAPS');
-
   if (dataDir) {
     initGatewayLogger(dataDir);
   }
@@ -64,8 +61,21 @@ export function createApiRoutes(
   // In-memory ring buffer (500 entries) + file-based gateway.log (5MB rotation)
   // ============================================================================
 
+  interface GatewayLogEntry {
+    id: string;
+    timestamp: string;
+    deviceName: string;
+    method: string;
+    url: string;
+    requestBody: string | null;
+    responseStatus: number;
+    responseSummary: string | null;
+    durationMs: number;
+    error: string | null;
+  }
+
   const GATEWAY_LOG_MAX = 500;
-  const gatewayLog: HumanLogEntry[] = [];
+  const gatewayLog: GatewayLogEntry[] = [];
 
   router.use((req: any, res: any, next: any) => {
     const start = Date.now();
@@ -80,30 +90,76 @@ export function createApiRoutes(
       return next();
     }
 
-    const isNoise = isNoiseRoute(url, method);
-    const reqBody = req.body && Object.keys(req.body).length > 0 ? req.body : null;
+    const REDACTED_FIELDS = ['pin', 'managerPin', 'pinHash', 'pin_hash', 'posPin', 'pos_pin', 'password', 'token', 'cardNumber', 'cvv', 'expiryDate'];
+    let requestBodySummary: string | null = null;
+    if (req.body && Object.keys(req.body).length > 0) {
+      const sanitized = { ...req.body };
+      for (const field of REDACTED_FIELDS) {
+        if (field in sanitized) sanitized[field] = '[REDACTED]';
+      }
+      const bodyStr = JSON.stringify(sanitized);
+      requestBodySummary = bodyStr.length > 500 ? bodyStr.substring(0, 500) + '...' : bodyStr;
+    }
 
     const originalJson = res.json.bind(res);
     res.json = (body: any) => {
       const skipConvert = (res as any)._skipCamelConvert === true;
       const camelBody = (!skipConvert && typeof body === 'object' && body !== null) ? mapKeys(body) : body;
-
+      
       const durationMs = Date.now() - start;
+      let responseSummary: string | null = null;
+      let errorMsg: string | null = null;
 
-      if (isNoise && res.statusCode < 400) {
-        return originalJson(camelBody);
+      if (camelBody) {
+        if (camelBody.error || camelBody.message) {
+          errorMsg = camelBody.error || camelBody.message;
+        }
+        const sanitizedResp = typeof camelBody === 'object' && camelBody !== null ? { ...camelBody } : camelBody;
+        if (typeof sanitizedResp === 'object' && sanitizedResp !== null) {
+          for (const field of REDACTED_FIELDS) {
+            if (field in sanitizedResp) sanitizedResp[field] = '[REDACTED]';
+          }
+          if (sanitizedResp.employee && typeof sanitizedResp.employee === 'object') {
+            const empCopy = { ...sanitizedResp.employee };
+            for (const field of REDACTED_FIELDS) {
+              if (field in empCopy) empCopy[field] = '[REDACTED]';
+            }
+            sanitizedResp.employee = empCopy;
+          }
+        }
+        const bodyStr = JSON.stringify(sanitizedResp);
+        responseSummary = bodyStr.length > 500 ? bodyStr.substring(0, 500) + '...' : bodyStr;
       }
 
-      const humanEntry = translateToHuman(
-        method, url, res.statusCode, durationMs, deviceName, reqBody, camelBody, db
-      );
+      const entry: GatewayLogEntry = {
+        id: `gw_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: new Date().toISOString(),
+        deviceName,
+        method,
+        url,
+        requestBody: requestBodySummary,
+        responseStatus: res.statusCode,
+        responseSummary,
+        durationMs,
+        error: errorMsg,
+      };
 
-      gatewayLog.push(humanEntry);
+      gatewayLog.push(entry);
       if (gatewayLog.length > GATEWAY_LOG_MAX) {
         gatewayLog.splice(0, gatewayLog.length - GATEWAY_LOG_MAX);
       }
 
-      writeGatewayEntry({ line: humanEntry.line });
+      writeGatewayEntry({
+        ts: entry.timestamp,
+        device: deviceName,
+        method,
+        url,
+        status: res.statusCode,
+        ms: durationMs,
+        reqBody: requestBodySummary,
+        resBody: responseSummary,
+        err: errorMsg,
+      });
 
       return originalJson(camelBody);
     };
@@ -114,15 +170,19 @@ export function createApiRoutes(
   router.get('/caps/gateway-log', (req, res) => {
     const limit = parseInt(req.query.limit as string) || 100;
     const deviceFilter = req.query.device as string | undefined;
+    const methodFilter = req.query.method as string | undefined;
     const errorsOnly = req.query.errorsOnly === 'true';
 
     let entries = gatewayLog.slice(-limit).reverse();
 
     if (deviceFilter) {
-      entries = entries.filter(e => e.line.toLowerCase().includes(deviceFilter.toLowerCase()));
+      entries = entries.filter(e => e.deviceName.toLowerCase().includes(deviceFilter.toLowerCase()));
+    }
+    if (methodFilter) {
+      entries = entries.filter(e => e.method === methodFilter.toUpperCase());
     }
     if (errorsOnly) {
-      entries = entries.filter(e => e.isError);
+      entries = entries.filter(e => e.error || e.responseStatus >= 400);
     }
 
     res.json({
@@ -212,7 +272,7 @@ export function createApiRoutes(
 
       res.json(enriched);
     } catch (e) {
-      logger.error('Failed to get check orders', e as Error);
+      console.error('Get caps/checks/orders error:', e);
       res.status(400).json({ message: 'Failed to get orders' });
     }
   });
@@ -318,7 +378,7 @@ export function createApiRoutes(
           }
         }
       } catch (kdsErr) {
-        logger.error(`KDS ticket creation failed for check ${req.params.id}`, kdsErr as Error);
+        console.error('[KDS] Failed to create ticket for check', req.params.id, kdsErr);
       }
       
       res.json(result);
@@ -609,29 +669,29 @@ export function createApiRoutes(
           'SELECT name, discount_type, amount FROM discounts WHERE id = ?', [discountId]
         );
         if (discount) {
-          discountLog.info('Discount record', { name: discount.name, discountType: discount.discount_type, amount: discount.amount });
+          console.log(`[DISCOUNT TRACE] Discount record: name="${discount.name}" discount_type="${discount.discount_type}" amount="${discount.amount}"`);
           discountName = discount.name;
           discountType = discount.discount_type;
           const itemTotalCents = itemRow.unit_price * itemRow.quantity;
           const itemTotalDollars = itemTotalCents / 100;
           const discountVal = parseFloat(discount.amount || '0');
-          discountLog.info('Calculation inputs', { discType: discountType, itemTotalDollars, discountVal });
+          console.log(`[DISCOUNT TRACE] Calculation: discType="${discountType}" itemTotalDollars=${itemTotalDollars} discountVal=${discountVal}`);
           if (discount.discount_type === 'percent') {
             discountAmountDollars = parseFloat((itemTotalDollars * (discountVal / 100)).toFixed(2));
-            discountLog.info('Percent calc', { itemTotalDollars, discountVal, result: discountAmountDollars });
+            console.log(`[DISCOUNT TRACE] Percent calc: ${itemTotalDollars} * (${discountVal}/100) = $${discountAmountDollars}`);
           } else {
             discountAmountDollars = Math.min(discountVal, itemTotalDollars);
-            discountLog.info('Fixed calc', { discountVal, itemTotalDollars, result: discountAmountDollars });
+            console.log(`[DISCOUNT TRACE] Fixed calc: min(${discountVal}, ${itemTotalDollars}) = $${discountAmountDollars}`);
           }
         } else {
-          discountLog.warn('Discount not found in DB', { discountId });
+          console.log(`[DISCOUNT TRACE] WARNING: discount not found in DB for id=${discountId}`);
         }
       }
       
       const discountAmountCents = Math.round(discountAmountDollars * 100);
-      discountLog.info('Final amount', { dollars: discountAmountDollars, cents: discountAmountCents });
+      console.log(`[DISCOUNT TRACE] Final: $${discountAmountDollars} = ${discountAmountCents} cents`);
       if (discountAmountCents === 0) {
-        discountLog.warn('Discount amount is ZERO — discount will have no effect', { discountId, itemId });
+        console.log(`[DISCOUNT TRACE] WARNING: discount amount is ZERO — discount will have no effect`);
       }
       caps.db.run(
         'UPDATE check_discounts SET voided = 1 WHERE check_item_id = ? AND check_id = ? AND voided = 0',
@@ -641,7 +701,7 @@ export function createApiRoutes(
         `UPDATE check_items SET discount_id = ?, discount_name = ?, discount_amount = ?, discount_type = ? WHERE id = ?`,
         [discountId, discountName, discountAmountCents, discountType, itemId]
       );
-      discountLog.info('Updated check_items', { discountAmountCents });
+      console.log(`[DISCOUNT TRACE] Updated check_items.discount_amount = ${discountAmountCents} cents`);
       
       caps.addDiscount(itemRow.check_id, {
         discountId,
@@ -654,12 +714,12 @@ export function createApiRoutes(
       
       const updatedCheck = caps.getCheck(itemRow.check_id);
       const updatedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
-      discountLog.info('Response item', { discountId: updatedItem?.discountId, discountName: updatedItem?.discountName, discountAmount: updatedItem?.discountAmount, discountType: updatedItem?.discountType });
-      discountLog.info('Response check', { total: updatedCheck?.total, subtotal: updatedCheck?.subtotal, discountTotal: updatedCheck?.discountTotal, amountDue: updatedCheck?.amountDue });
-      discountLog.info('CAPS apply item discount end', { itemId, discountId });
+      console.log(`[DISCOUNT TRACE] Response item: discountId=${updatedItem?.discountId} discountName="${updatedItem?.discountName}" discountAmount=${updatedItem?.discountAmount} discountType=${updatedItem?.discountType}`);
+      console.log(`[DISCOUNT TRACE] Response check: total=${updatedCheck?.total} subtotal=${updatedCheck?.subtotal} discountTotal=${updatedCheck?.discountTotal} amountDue=${updatedCheck?.amountDue}`);
+      console.log(`[DISCOUNT TRACE] === CAPS APPLY ITEM DISCOUNT END ===`);
       res.json({ item: updatedItem, check: updatedCheck });
     } catch (e) {
-      discountLog.error('CAPS discount error', e as Error, { itemId: req.params.id });
+      console.error(`[DISCOUNT TRACE] ERROR: ${(e as Error).message}`, (e as Error).stack);
       res.status(400).json({ error: (e as Error).message });
     }
   });
@@ -1614,7 +1674,7 @@ export function createApiRoutes(
 
       res.json(enriched);
     } catch (e) {
-      logger.error('Failed to get check orders', e as Error);
+      console.error('Get checks/orders error:', e);
       res.status(400).json({ message: 'Failed to get orders' });
     }
   });
@@ -1771,7 +1831,7 @@ export function createApiRoutes(
           }
         }
       } catch (kdsErr) {
-        logger.error(`KDS ticket creation failed for check ${req.params.id}`, kdsErr as Error);
+        console.error('[KDS] Failed to create ticket for check', req.params.id, kdsErr);
       }
       const updatedCheck = caps.getCheck(req.params.id);
       res.json({ round: result.roundNumber || result.round || null, updatedItems: updatedCheck?.items || [] });
@@ -2320,45 +2380,45 @@ export function createApiRoutes(
     try {
       const itemId = req.params.id;
       const { discountId, employeeId, managerPin } = req.body;
-      discountLog.info('Apply item discount start', { itemId, discountId });
+      console.log(`[DISCOUNT TRACE] === APPLY ITEM DISCOUNT START === itemId=${itemId} discountId=${discountId}`);
       const idScope = resolveItemScope(itemId);
       if (!checkOptionBit('allow_discounts', idScope.rvcId, idScope.propertyId)) {
-        discountLog.warn('Blocked: allow_discounts disabled', { rvcId: idScope.rvcId });
+        console.log(`[DISCOUNT TRACE] BLOCKED: allow_discounts is disabled for rvc=${idScope.rvcId}`);
         return res.status(403).json({ error: 'Discount operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
       if (!privCheck.allowed) {
-        discountLog.warn('Blocked: privilege check failed', { employeeId });
+        console.log(`[DISCOUNT TRACE] BLOCKED: privilege check failed for employee=${employeeId}`);
         return res.status(403).json(privCheck.error);
       }
       const item = caps.db.get<any>('SELECT * FROM check_items WHERE id = ?', [itemId]);
-      if (!item) { discountLog.warn('Item not found', { itemId }); return res.status(404).json({ error: 'Item not found' }); }
-      discountLog.info('Item found', { name: item.name, unitPriceCents: item.unit_price, qty: item.quantity, checkId: item.check_id });
+      if (!item) { console.log(`[DISCOUNT TRACE] FAILED: item not found id=${itemId}`); return res.status(404).json({ error: 'Item not found' }); }
+      console.log(`[DISCOUNT TRACE] Item found: name="${item.name}" unit_price=${item.unit_price} (cents) qty=${item.quantity} check_id=${item.check_id}`);
       const discount = caps.db.getDiscount(discountId);
-      if (!discount) { discountLog.warn('Discount not found (may be inactive or not synced)', { discountId }); return res.status(404).json({ error: 'Discount not found' }); }
-      discountLog.info('Discount record', { name: discount.name, discountType: discount.discount_type, type: discount.type, amount: discount.amount, value: discount.value, active: discount.active });
+      if (!discount) { console.log(`[DISCOUNT TRACE] FAILED: discount not found id=${discountId} (may be inactive or not synced)`); return res.status(404).json({ error: 'Discount not found' }); }
+      console.log(`[DISCOUNT TRACE] Discount record: name="${discount.name}" discount_type="${discount.discount_type}" type="${discount.type}" amount="${discount.amount}" value="${discount.value}" active=${discount.active}`);
       let discountAmountDollars = 0;
       const discType = discount.discount_type || discount.type || 'percent';
       const itemTotalDollars = (item.unit_price * item.quantity) / 100;
       const discountVal = parseFloat(discount.amount || discount.value || '0');
-      discountLog.info('Calculation inputs', { discType, itemTotalDollars, discountVal });
+      console.log(`[DISCOUNT TRACE] Calculation: discType="${discType}" itemTotalDollars=${itemTotalDollars} discountVal=${discountVal}`);
       if (discType === 'percent') {
         discountAmountDollars = parseFloat((itemTotalDollars * (discountVal / 100)).toFixed(2));
-        discountLog.info('Percent calc', { itemTotalDollars, discountVal, result: discountAmountDollars });
+        console.log(`[DISCOUNT TRACE] Percent calc: ${itemTotalDollars} * (${discountVal}/100) = $${discountAmountDollars}`);
       } else {
         discountAmountDollars = Math.min(discountVal, itemTotalDollars);
-        discountLog.info('Fixed calc', { discountVal, itemTotalDollars, result: discountAmountDollars });
+        console.log(`[DISCOUNT TRACE] Fixed calc: min(${discountVal}, ${itemTotalDollars}) = $${discountAmountDollars}`);
       }
       const discountAmountCents = Math.round(discountAmountDollars * 100);
-      discountLog.info('Final amount', { dollars: discountAmountDollars, cents: discountAmountCents });
+      console.log(`[DISCOUNT TRACE] Final: $${discountAmountDollars} = ${discountAmountCents} cents`);
       if (discountAmountCents === 0) {
-        discountLog.warn('Discount amount is ZERO — discount will have no effect', { discountId, itemId });
+        console.log(`[DISCOUNT TRACE] WARNING: discount amount is ZERO — discount will have no effect`);
       }
       caps.db.run(
         `UPDATE check_items SET discount_id = ?, discount_name = ?, discount_amount = ?, discount_type = ? WHERE id = ?`,
         [discountId, discount.name, discountAmountCents, discType, itemId]
       );
-      discountLog.info('Updated check_items', { discountAmountCents });
+      console.log(`[DISCOUNT TRACE] Updated check_items.discount_amount = ${discountAmountCents} cents`);
       caps.db.run(
         'UPDATE check_discounts SET voided = 1 WHERE check_item_id = ? AND check_id = ? AND voided = 0',
         [itemId, item.check_id]
@@ -2376,12 +2436,12 @@ export function createApiRoutes(
       caps.transactionSync.queueCheck(item.check_id, 'update', caps.getCheck(item.check_id));
       const updatedCheck = caps.getCheck(item.check_id);
       const updatedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
-      discountLog.info('Response item', { discountId: updatedItem?.discountId, discountName: updatedItem?.discountName, discountAmount: updatedItem?.discountAmount, discountType: updatedItem?.discountType });
-      discountLog.info('Response check', { total: updatedCheck?.total, subtotal: updatedCheck?.subtotal, discountTotal: updatedCheck?.discountTotal, amountDue: updatedCheck?.amountDue });
-      discountLog.info('Apply item discount end', { itemId, discountId });
+      console.log(`[DISCOUNT TRACE] Response item: discountId=${updatedItem?.discountId} discountName="${updatedItem?.discountName}" discountAmount=${updatedItem?.discountAmount} discountType=${updatedItem?.discountType}`);
+      console.log(`[DISCOUNT TRACE] Response check: total=${updatedCheck?.total} subtotal=${updatedCheck?.subtotal} discountTotal=${updatedCheck?.discountTotal} amountDue=${updatedCheck?.amountDue}`);
+      console.log(`[DISCOUNT TRACE] === APPLY ITEM DISCOUNT END ===`);
       res.json({ item: updatedItem, check: updatedCheck });
     } catch (e) {
-      discountLog.error('Discount error', e as Error, { itemId: req.params.id });
+      console.error(`[DISCOUNT TRACE] ERROR: ${(e as Error).message}`, (e as Error).stack);
       res.status(400).json({ error: (e as Error).message });
     }
   });
@@ -2482,10 +2542,10 @@ export function createApiRoutes(
       const pmtCheck = caps.getCheck(checkId);
       caps.writeJournal(checkId, pmtTxnGroupId, pmtCheck?.rvcId || '', 'payment_added', { paymentId, amount: body.amount || 0, type: body.tenderType || body.tender_type || 'cash' });
       caps.transactionSync.queueCheck(checkId, 'update', pmtCheck);
-      logger.info(`Payment saved for check`, { paymentId, checkId });
+      console.log('[CAPS] Payment saved:', paymentId, 'for check:', checkId);
       res.json({ id: paymentId, checkId, status: body.status || 'completed', offline: false });
     } catch (e) {
-      logger.error('Payment route failed', e as Error);
+      console.error('[CAPS] Payment route error:', (e as Error).message);
       res.status(500).json({ error: (e as Error).message });
     }
   };
@@ -2593,7 +2653,7 @@ export function createApiRoutes(
       }
       res.json(result);
     } catch (e) {
-      logger.error('Modifier map failed', e as Error);
+      console.error('[CAPS] modifier-map error:', (e as Error).message);
       res.json({});
     }
   });
@@ -2613,9 +2673,9 @@ export function createApiRoutes(
         updated_at TEXT NOT NULL
       )
     `);
-    logger.info('Terminal sessions table ready');
+    console.log('[CAPS] terminal_sessions table ensured in CAPS database');
   } catch (e) {
-    logger.error('Failed to create terminal_sessions table', e as Error);
+    console.error('[CAPS] Failed to create terminal_sessions table:', (e as Error).message);
   }
 
   router.post('/terminal-sessions', async (req, res) => {
@@ -2640,7 +2700,7 @@ export function createApiRoutes(
          session.tipAmount, session.status, session.transactionType,
          JSON.stringify(session), session.createdAt, session.updatedAt]
       );
-      logger.info(`Terminal session created: ${sessionId}`);
+      console.log(`[CAPS] Terminal session created (SQLite): ${sessionId} — queued for poll-based processing`);
       res.json(session);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -2682,7 +2742,7 @@ export function createApiRoutes(
           `UPDATE terminal_sessions SET data = ?, status = ?, updated_at = ? WHERE id = ?`,
           [JSON.stringify(session), session.status || 'pending', session.updatedAt, req.params.id]
         );
-        logger.info(`Terminal session updated: ${req.params.id} → ${session.status}`);
+        console.log(`[CAPS] Terminal session updated (SQLite): ${req.params.id} -> ${session.status}`);
         return res.json(session);
       }
       res.status(404).json({ error: 'Terminal session not found' });
@@ -2704,7 +2764,7 @@ export function createApiRoutes(
         `UPDATE terminal_sessions SET data = ?, status = 'cancelled', updated_at = ? WHERE id = ?`,
         [JSON.stringify(session), session.updatedAt, req.params.id]
       );
-      logger.info(`Terminal session cancelled: ${req.params.id}`);
+      console.log(`[CAPS] Terminal session cancelled: ${req.params.id}`);
       res.json(session);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -2735,7 +2795,7 @@ export function createApiRoutes(
         `UPDATE terminal_sessions SET data = ?, status = ?, updated_at = ? WHERE id = ?`,
         [JSON.stringify(session), session.status, session.updatedAt, req.params.id]
       );
-      logger.info(`Terminal session simulated ${action}: ${req.params.id}`);
+      console.log(`[CAPS] Terminal session simulated ${action}: ${req.params.id} (dev-only)`);
       res.json(session);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -2810,7 +2870,7 @@ export function createApiRoutes(
         }
       }
     }
-    logger.warn(`Auth: falling back to default privileges for employee ${employee.id}`);
+    console.warn(`[Auth] Falling back to default privileges for employee ${employee.id} — no role/assignment privileges found`);
     return DEFAULT_PRIVILEGES;
   }
 
@@ -3409,7 +3469,7 @@ export function createApiRoutes(
             [refundId, checkId || null, rvcId || null, employeeId || null, refundType || 'full', reason || '', parseFloat(total) || 0, refundNumber, now]
           );
         } catch (dbErr) {
-          logger.warn(`Refunds table may not exist: ${(dbErr as Error).message}`);
+          console.warn('[CAPS] Refunds table may not exist, returning stub:', (dbErr as Error).message);
         }
       }
       const txnGroupId = checkId ? caps.getTxnGroupId(checkId) : refundId;
@@ -3750,7 +3810,7 @@ export function createApiRoutes(
             enrolledPrograms.push(prog.name);
           }
         } catch (enrollErr) {
-          logger.error('Loyalty auto-enrollment failed', enrollErr as Error);
+          console.error('[CAPS] Auto-enrollment error:', enrollErr);
         }
       }
       const createdMember = db?.getLoyaltyMember(memberId);
@@ -3765,7 +3825,7 @@ export function createApiRoutes(
           : 'Member added successfully',
       });
     } catch (e) {
-      logger.error('Loyalty enrollment failed', e as Error);
+      console.error('[CAPS] Loyalty enroll error:', e);
       res.status(500).json({ message: (e as Error).message || 'Failed to enroll member' });
     }
   });
@@ -3852,7 +3912,7 @@ export function createApiRoutes(
         avgCheck: closedChecks.length > 0 ? (grossSales / closedChecks.length) : 0,
       });
     } catch (e) {
-      logger.error('Sales summary report failed', e as Error);
+      console.error('[CAPS] sales-summary error:', e);
       res.status(500).json({ message: (e as Error).message });
     }
   });
@@ -4123,7 +4183,7 @@ export function createApiRoutes(
         message: `Gift card $${balanceStr} activated and added to check.`,
       });
     } catch (e) {
-      logger.error('Gift card sell failed', e as Error);
+      console.error('[CAPS] Gift card sell error:', e);
       res.status(500).json({ message: (e as Error).message || 'Failed to sell gift card' });
     }
   });
@@ -4177,7 +4237,7 @@ export function createApiRoutes(
         message: `Reload added to check. Complete payment to apply funds.`,
       });
     } catch (e) {
-      logger.error('Gift card reload failed', e as Error);
+      console.error('[CAPS] Gift card reload error:', e);
       res.status(500).json({ message: (e as Error).message || 'Failed to reload gift card' });
     }
   });
@@ -4342,7 +4402,7 @@ export function createApiRoutes(
           }
         });
 
-        logger.info(`Check synced`, { checkId: check.id, items: check.items?.length || 0, payments: check.payments?.length || 0 });
+        console.log(`[CAPS Sync] Check ${check.id} synced with ${check.items?.length || 0} items, ${check.payments?.length || 0} payments`);
 
         try {
           const existing = db.all<{ id: number }>(
@@ -4354,12 +4414,12 @@ export function createApiRoutes(
               `UPDATE sync_queue SET payload = ?, next_attempt_at = datetime('now') WHERE entity_type = 'check' AND entity_id = ? AND attempts < max_attempts`,
               [JSON.stringify(check), check.id]
             );
-            logger.debug(`Sync queue updated for check ${check.id}`);
+            console.log(`[CAPS Sync] Updated existing sync_queue entry for check ${check.id}`);
           } else {
             db.addToSyncQueue('check', check.id, 'update', check, 5);
           }
         } catch (qErr) {
-          logger.warn(`Failed to queue check ${check.id} for cloud sync: ${(qErr as Error).message}`);
+          console.warn(`[CAPS Sync] Failed to queue check ${check.id} for cloud forward: ${(qErr as Error).message}`);
         }
       } finally {
         db.run('PRAGMA foreign_keys = ON');
@@ -4367,7 +4427,7 @@ export function createApiRoutes(
 
       res.json({ success: true, checkId: check.id });
     } catch (e) {
-      logger.error('Check state sync failed', e as Error);
+      console.error('[CAPS Sync] check-state error:', (e as Error).message);
       res.status(500).json({ error: (e as Error).message });
     }
   });
@@ -4396,10 +4456,10 @@ export function createApiRoutes(
         new Date().toISOString(),
       ]);
 
-      logger.info(`Sync operation queued: ${method} ${opPath}`);
+      console.log(`[CAPS Sync] Queued operation: ${method} ${opPath}`);
       res.json({ success: true, operationId: id });
     } catch (e) {
-      logger.error('Sync queue-operation failed', e as Error);
+      console.error('[CAPS Sync] queue-operation error:', (e as Error).message);
       res.status(500).json({ error: (e as Error).message });
     }
   });
@@ -4600,7 +4660,7 @@ export function createApiRoutes(
   });
 
   payment.startPolling(5000);
-  logger.info('Payment controller polling started (5s interval)');
+  console.log('[CAPS] Payment controller polling started (5s interval)');
 
   return router;
 }
