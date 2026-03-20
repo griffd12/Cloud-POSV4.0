@@ -16,6 +16,7 @@ import { PrintController } from '../services/print-controller.js';
 import { KdsController } from '../services/kds-controller.js';
 import { PaymentController } from '../services/payment-controller.js';
 import { ConfigSync } from '../sync/config-sync.js';
+import { CloudConnection } from '../sync/cloud-connection.js';
 import { Database } from '../db/database.js';
 import { initGatewayLogger, writeGatewayEntry } from '../gateway-logger.js';
 import { getLogger } from '../utils/logger.js';
@@ -137,7 +138,8 @@ export function createApiRoutes(
   payment: PaymentController,
   config: ConfigSync,
   db?: Database,
-  dataDir?: string
+  dataDir?: string,
+  cloudConnection?: CloudConnection
 ): Router {
   const router = Router();
   const discountLog = getLogger('Discount');
@@ -2848,18 +2850,30 @@ export function createApiRoutes(
 
   router.post('/terminal-sessions/:id/cancel', async (req, res) => {
     try {
-      const row = caps.db.get<any>('SELECT data FROM terminal_sessions WHERE id = ?', [req.params.id]);
+      const row = caps.db.get<any>('SELECT data, cloud_session_id FROM terminal_sessions WHERE id = ?', [req.params.id]);
       if (!row) return res.status(404).json({ error: 'Terminal session not found' });
       let session: any;
       try { session = JSON.parse(row.data); } catch { session = { id: req.params.id }; }
+      const reason = req.body?.reason || 'Cancelled by cashier';
       session.status = 'cancelled';
-      session.statusMessage = req.body?.reason || 'Cancelled by cashier';
+      session.statusMessage = reason;
       session.updatedAt = new Date().toISOString();
       caps.db.run(
         `UPDATE terminal_sessions SET data = ?, status = 'cancelled', updated_at = ? WHERE id = ?`,
         [JSON.stringify(session), session.updatedAt, req.params.id]
       );
       console.log(`[CAPS] Terminal session cancelled: ${req.params.id}`);
+
+      const cloudSessionId = row.cloud_session_id || session.cloudSessionId;
+      if (cloudSessionId && cloudConnection && cloudConnection.isConnected()) {
+        try {
+          await cloudConnection.post(`/api/terminal-sessions/${cloudSessionId}/cancel`, { reason });
+          console.log(`[CAPS] Cancel forwarded to Cloud session: ${cloudSessionId}`);
+        } catch (cloudErr: any) {
+          console.error(`[CAPS] Failed to forward cancel to Cloud: ${cloudErr.message}`);
+        }
+      }
+
       res.json(session);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });

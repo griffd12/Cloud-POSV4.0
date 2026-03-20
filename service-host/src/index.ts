@@ -365,7 +365,8 @@ class ServiceHost {
       this.paymentController,
       this.configSync,
       this.db,
-      this.config.dataDir
+      this.config.dataDir,
+      this.cloudConnection
     );
     this.app.use('/api', authMiddleware, propertyScopeMiddleware, apiRouter);
     

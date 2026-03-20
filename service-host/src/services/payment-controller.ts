@@ -413,6 +413,12 @@ export class PaymentController {
     while (Date.now() - startTime < CLOUD_POLL_TIMEOUT_MS) {
       await new Promise(resolve => setTimeout(resolve, CLOUD_POLL_INTERVAL_MS));
 
+      const localRow = this.db.get<any>('SELECT status FROM terminal_sessions WHERE id = ?', [localSessionId]);
+      if (localRow && localRow.status === 'cancelled') {
+        logger.info('Local session cancelled — aborting Cloud poll', { localSessionId, cloudSessionId });
+        return { success: false, error: 'Payment cancelled' };
+      }
+
       try {
         const cloudStatus = await this.cloudConnection.get<any>(`/api/terminal-sessions/${cloudSessionId}`);
         const status = cloudStatus.status;
@@ -501,6 +507,15 @@ export class PaymentController {
     amount: number,
     tip: number
   ): PaymentResult {
+    const localRow = this.db.get<any>('SELECT status FROM terminal_sessions WHERE id = ?', [localSessionId]);
+    if (localRow && localRow.status === 'cancelled') {
+      logger.warn('Cloud approved but local session already cancelled — discarding payment', {
+        localSessionId,
+        cloudSessionId: cloudStatus.id,
+      });
+      return { success: false, error: 'Payment cancelled before terminal response received' };
+    }
+
     const transactionId = randomUUID();
 
     const tenderId = this.resolveCardTenderId(session.tenderId, terminalDevice.property_id);
