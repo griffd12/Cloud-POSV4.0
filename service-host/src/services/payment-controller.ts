@@ -2,6 +2,7 @@
  * Payment Controller
  * 
  * Handles payment terminal integration:
+ * - Real EMV terminal communication via TCP
  * - Authorize card payments
  * - Capture/void transactions
  * - Store-and-forward for offline
@@ -9,23 +10,26 @@
 
 import { Database } from '../db/database.js';
 import { TransactionSync } from '../sync/transaction-sync.js';
+import { EMVTerminalService } from './emv-terminal.js';
+import { getLogger } from '../utils/logger.js';
 import { randomUUID } from 'crypto';
+
+const logger = getLogger('Payment');
 
 export class PaymentController {
   private db: Database;
   private transactionSync: TransactionSync;
+  private emvTerminal: EMVTerminalService;
   
   constructor(db: Database, transactionSync: TransactionSync) {
     this.db = db;
     this.transactionSync = transactionSync;
+    this.emvTerminal = new EMVTerminalService();
   }
   
-  // Authorize a payment
   async authorize(params: AuthorizeParams): Promise<PaymentResult> {
     const transactionId = randomUUID();
     
-    // For now, simulate authorization
-    // In production, this would connect to payment gateway
     const result: PaymentResult = {
       success: true,
       transactionId,
@@ -36,7 +40,6 @@ export class PaymentController {
       tip: params.tip || 0,
     };
     
-    // Store authorization
     this.db.run(
       `INSERT INTO check_payments (id, check_id, tender_id, tender_type, amount, tip_amount, reference_number, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'authorized')`,
@@ -55,7 +58,6 @@ export class PaymentController {
       ]
     );
     
-    // Queue for cloud sync
     this.transactionSync.queuePayment(transactionId, {
       id: transactionId,
       checkId: params.checkId,
@@ -70,7 +72,6 @@ export class PaymentController {
     return result;
   }
   
-  // Capture an authorized payment
   async capture(transactionId: string): Promise<PaymentResult> {
     const payment = this.getPayment(transactionId);
     if (!payment) {
@@ -81,7 +82,6 @@ export class PaymentController {
       return { success: false, error: `Cannot capture ${payment.status} transaction` };
     }
     
-    // Update status
     this.db.run(
       `UPDATE check_payments SET status = 'captured' WHERE id = ?`,
       [transactionId]
@@ -94,7 +94,6 @@ export class PaymentController {
     };
   }
   
-  // Void a transaction
   async void(transactionId: string, reason?: string): Promise<PaymentResult> {
     const payment = this.getPayment(transactionId);
     if (!payment) {
@@ -105,7 +104,6 @@ export class PaymentController {
       return { success: false, error: 'Transaction already voided' };
     }
     
-    // Update status
     this.db.run(
       `UPDATE check_payments SET status = 'voided' WHERE id = ?`,
       [transactionId]
@@ -118,7 +116,6 @@ export class PaymentController {
     };
   }
   
-  // Refund a captured payment
   async refund(transactionId: string, amount?: number): Promise<PaymentResult> {
     const payment = this.getPayment(transactionId);
     if (!payment) {
@@ -134,8 +131,6 @@ export class PaymentController {
       return { success: false, error: 'Refund amount exceeds original amount' };
     }
     
-    // In production, would call payment gateway
-    // For now, just track locally
     const refundId = randomUUID();
     
     return {
@@ -145,7 +140,6 @@ export class PaymentController {
     };
   }
   
-  // Get payment by ID
   getPayment(transactionId: string): PaymentRecord | null {
     const row = this.db.get<PaymentRow>(
       'SELECT * FROM check_payments WHERE id = ?',
@@ -175,7 +169,6 @@ export class PaymentController {
     };
   }
   
-  // Get payments for a check
   getPaymentsForCheck(checkId: string): PaymentRecord[] {
     const rows = this.db.all<PaymentRow>(
       'SELECT * FROM check_payments WHERE check_id = ? ORDER BY created_at',
@@ -204,9 +197,7 @@ export class PaymentController {
     });
   }
   
-  // Offline authorization (store-and-forward)
   async authorizeOffline(params: AuthorizeParams): Promise<PaymentResult> {
-    // For offline, we generate a local auth code and queue for later
     const transactionId = randomUUID();
     const offlineAuthCode = `OFF${Date.now().toString(36).toUpperCase()}`;
     
@@ -221,7 +212,6 @@ export class PaymentController {
       offline: true,
     };
     
-    // Store with offline flag
     this.db.run(
       `INSERT INTO check_payments (id, check_id, tender_id, tender_type, amount, tip_amount, reference_number, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'offline_authorized')`,
@@ -241,7 +231,6 @@ export class PaymentController {
       ]
     );
     
-    // Queue for sync - will be processed when online
     this.transactionSync.queuePayment(transactionId, {
       id: transactionId,
       checkId: params.checkId,
@@ -260,67 +249,196 @@ export class PaymentController {
   async processTerminalSession(sessionId: string, session: any): Promise<PaymentResult> {
     const amount = parseFloat(session.amount || '0');
     const tip = parseFloat(session.tipAmount || '0');
-    
-    try {
-      const terminalResult = await this.authorize({
-        checkId: session.checkId,
-        amount: amount + tip,
-        tip: tip,
-        tenderId: session.tenderId || 'card',
-        tenderType: session.transactionType === 'debit' ? 'debit' : 'credit',
-        cardLast4: session.cardLast4,
-        cardBrand: session.cardBrand,
-        terminalId: session.terminalDeviceId,
+    const totalCents = Math.round((amount + tip) * 100);
+
+    const terminalDevice = session.terminalDeviceId
+      ? this.db.getTerminalDevice(session.terminalDeviceId)
+      : null;
+
+    if (!terminalDevice || !terminalDevice.ip_address) {
+      logger.warn('No terminal device or address found, falling back to offline', {
+        sessionId,
+        terminalDeviceId: session.terminalDeviceId,
       });
-
-      this.db.run(
-        `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
-        [
-          terminalResult.success ? 'completed' : 'failed',
-          JSON.stringify({
-            ...session,
-            status: terminalResult.success ? 'completed' : 'failed',
-            transactionId: terminalResult.transactionId,
-            authCode: terminalResult.authCode,
-            cardLast4: terminalResult.cardLast4,
-            cardBrand: terminalResult.cardBrand,
-            processedAt: new Date().toISOString(),
-          }),
-          sessionId,
-        ]
-      );
-
-      return terminalResult;
-    } catch (e: any) {
-      const offlineResult = await this.authorizeOffline({
-        checkId: session.checkId,
-        amount: amount + tip,
-        tip: tip,
-        tenderId: session.tenderId || 'card',
-        tenderType: session.transactionType === 'debit' ? 'debit' : 'credit',
-        cardLast4: session.cardLast4 || '****',
-        cardBrand: session.cardBrand || 'unknown',
-        terminalId: session.terminalDeviceId,
-      });
-
-      this.db.run(
-        `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
-        [
-          'completed_offline',
-          JSON.stringify({
-            ...session,
-            status: 'completed_offline',
-            transactionId: offlineResult.transactionId,
-            authCode: offlineResult.authCode,
-            offline: true,
-            processedAt: new Date().toISOString(),
-          }),
-          sessionId,
-        ]
-      );
-
-      return offlineResult;
+      return this.handleTerminalFailure(sessionId, session, amount, tip, 'Terminal device not configured');
     }
+
+    logger.info('Processing terminal session', {
+      sessionId,
+      terminalName: terminalDevice.name,
+      address: terminalDevice.ip_address,
+      port: terminalDevice.port || 9100,
+      amount,
+      tip,
+    });
+
+    this.db.run(
+      `UPDATE terminal_sessions SET status = 'waiting_for_card', data = ?, updated_at = datetime('now') WHERE id = ?`,
+      [
+        JSON.stringify({ ...session, status: 'waiting_for_card', updatedAt: new Date().toISOString() }),
+        sessionId,
+      ]
+    );
+
+    try {
+      const terminalResponse = await this.emvTerminal.sendPayment({
+        address: terminalDevice.ip_address,
+        port: terminalDevice.port || 9100,
+        amount: totalCents,
+        transactionType: session.transactionType || 'sale',
+        timeout: 120,
+      });
+
+      if (!terminalResponse.complete) {
+        logger.warn('Terminal response incomplete', { sessionId });
+        return this.handleTerminalFailure(sessionId, session, amount, tip, 'Incomplete terminal response');
+      }
+
+      if (terminalResponse.approved) {
+        const transactionId = randomUUID();
+
+        this.db.run(
+          `INSERT INTO check_payments (id, check_id, tender_id, tender_type, amount, tip_amount, reference_number, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'authorized')`,
+          [
+            transactionId,
+            session.checkId,
+            session.tenderId || 'card',
+            session.transactionType === 'debit' ? 'debit' : 'credit',
+            amount + tip,
+            tip,
+            JSON.stringify({
+              authCode: terminalResponse.authCode,
+              cardLast4: terminalResponse.lastFour,
+              cardBrand: terminalResponse.cardType,
+              entryMethod: terminalResponse.entryMethod,
+              terminalTransactionId: terminalResponse.transactionId,
+            }),
+          ]
+        );
+
+        this.transactionSync.queuePayment(transactionId, {
+          id: transactionId,
+          checkId: session.checkId,
+          amount: amount + tip,
+          tip,
+          authCode: terminalResponse.authCode,
+          cardLast4: terminalResponse.lastFour,
+          cardBrand: terminalResponse.cardType,
+          status: 'authorized',
+        });
+
+        const result: PaymentResult = {
+          success: true,
+          transactionId,
+          authCode: terminalResponse.authCode,
+          cardLast4: terminalResponse.lastFour,
+          cardBrand: terminalResponse.cardType,
+          amount: amount + tip,
+          tip,
+        };
+
+        this.db.run(
+          `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+          [
+            'completed',
+            JSON.stringify({
+              ...session,
+              status: 'approved',
+              paymentTransactionId: transactionId,
+              approvalCode: terminalResponse.authCode,
+              cardLast4: terminalResponse.lastFour,
+              cardBrand: terminalResponse.cardType,
+              entryMethod: terminalResponse.entryMethod,
+              tipAmount: terminalResponse.tipAmount || 0,
+              processedAt: new Date().toISOString(),
+            }),
+            sessionId,
+          ]
+        );
+
+        logger.info('Terminal payment approved', {
+          sessionId,
+          transactionId,
+          authCode: terminalResponse.authCode,
+          cardType: terminalResponse.cardType,
+          lastFour: terminalResponse.lastFour,
+        });
+
+        return result;
+      } else {
+        logger.info('Terminal payment declined', {
+          sessionId,
+          responseCode: terminalResponse.responseCode,
+          message: terminalResponse.responseMessage,
+        });
+
+        this.db.run(
+          `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+          [
+            'declined',
+            JSON.stringify({
+              ...session,
+              status: 'declined',
+              statusMessage: terminalResponse.responseMessage || 'Card declined',
+              responseCode: terminalResponse.responseCode,
+              processedAt: new Date().toISOString(),
+            }),
+            sessionId,
+          ]
+        );
+
+        return {
+          success: false,
+          error: terminalResponse.responseMessage || 'Card declined',
+        };
+      }
+    } catch (e: any) {
+      logger.error('Terminal communication failed, falling back to offline', e, {
+        sessionId,
+        address: terminalDevice.ip_address,
+      });
+      return this.handleTerminalFailure(sessionId, session, amount, tip, e.message);
+    }
+  }
+
+  private async handleTerminalFailure(
+    sessionId: string,
+    session: any,
+    amount: number,
+    tip: number,
+    reason: string
+  ): Promise<PaymentResult> {
+    const offlineResult = await this.authorizeOffline({
+      checkId: session.checkId,
+      amount: amount + tip,
+      tip,
+      tenderId: session.tenderId || 'card',
+      tenderType: session.transactionType === 'debit' ? 'debit' : 'credit',
+      cardLast4: session.cardLast4 || '****',
+      cardBrand: session.cardBrand || 'unknown',
+      terminalId: session.terminalDeviceId,
+    });
+
+    this.db.run(
+      `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+      [
+        'completed_offline',
+        JSON.stringify({
+          ...session,
+          status: 'completed_offline',
+          paymentTransactionId: offlineResult.transactionId,
+          approvalCode: offlineResult.authCode,
+          offline: true,
+          offlineReason: reason,
+          processedAt: new Date().toISOString(),
+        }),
+        sessionId,
+      ]
+    );
+
+    logger.info('Terminal session completed offline', { sessionId, reason });
+    return offlineResult;
   }
 
   async processPendingSessions(): Promise<{ processed: number; failed: number }> {
@@ -342,6 +460,7 @@ export class PaymentController {
           await this.processTerminalSession(row.id, session);
           processed++;
         } catch (e: any) {
+          logger.error('Terminal session processing failed', e, { sessionId: row.id });
           this.db.run(
             `UPDATE terminal_sessions SET status = 'error', updated_at = datetime('now') WHERE id = ?`,
             [row.id]
@@ -350,7 +469,7 @@ export class PaymentController {
         }
       }
     } catch (e: any) {
-      console.error(`[PaymentController] Poll pending sessions error: ${e.message}`);
+      logger.error('Poll pending sessions error', e as Error);
     }
     return { processed, failed };
   }
@@ -364,10 +483,10 @@ export class PaymentController {
       try {
         const result = await this.processPendingSessions();
         if (result.processed > 0 || result.failed > 0) {
-          console.log(`[PaymentController] Poll: ${result.processed} processed, ${result.failed} failed`);
+          logger.info('Poll results', { processed: result.processed, failed: result.failed });
         }
       } catch (e: any) {
-        console.error(`[PaymentController] Poll error: ${e.message}`);
+        logger.error('Poll error', e as Error);
       } finally {
         polling = false;
       }
@@ -415,7 +534,7 @@ interface PaymentRecord {
   id: string;
   checkId: string;
   tenderId: string;
-  tenderType: string; // display/label only, not used for behavioral logic
+  tenderType: string;
   isCashMedia?: boolean;
   isCardMedia?: boolean;
   isGiftMedia?: boolean;
@@ -435,7 +554,11 @@ interface PaymentRow {
   tender_type: string;
   amount: number;
   tip: number;
+  tip_amount: number;
   reference: string | null;
+  reference_number: string | null;
+  card_last4: string | null;
+  card_brand: string | null;
   status: string;
   created_at: string;
 }

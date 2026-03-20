@@ -1283,6 +1283,7 @@ export function PaymentModal({
               </div>
             </div>
 
+            {import.meta.env.DEV && (
             <div className="bg-muted/50 rounded-lg p-3 text-sm text-muted-foreground text-center">
               <p>Demo Mode: Click buttons below to simulate</p>
               <div className="flex gap-2 mt-2 justify-center">
@@ -1306,6 +1307,7 @@ export function PaymentModal({
                 </Button>
               </div>
             </div>
+            )}
 
             <Separator />
 
