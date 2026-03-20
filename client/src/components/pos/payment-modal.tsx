@@ -41,7 +41,25 @@ const TENDER_ICONS: Record<string, typeof Banknote> = {
   other: DollarSign,
 };
 
-const QUICK_CASH_AMOUNTS = [1, 5, 10, 20, 50, 100];
+function getSmartCashAmounts(remainingBalance: number): number[] {
+  const ceil = Math.ceil(remainingBalance);
+  const roundUps = [1, 2, 5, 10, 20, 50, 100];
+  const amounts: number[] = [];
+
+  if (ceil > remainingBalance) {
+    amounts.push(ceil);
+  }
+
+  for (const denom of roundUps) {
+    const rounded = Math.ceil(remainingBalance / denom) * denom;
+    if (rounded > remainingBalance && !amounts.includes(rounded)) {
+      amounts.push(rounded);
+    }
+  }
+
+  amounts.sort((a, b) => a - b);
+  return amounts.slice(0, 6);
+}
 
 export function PaymentModal({
   open,
@@ -1221,7 +1239,7 @@ export function PaymentModal({
     }
   };
 
-  const relevantQuickAmounts = QUICK_CASH_AMOUNTS;
+  const relevantQuickAmounts = getSmartCashAmounts(remainingBalance);
   const customAmountNum = parseFloat(customAmount) || 0;
   const changeFromCustom = customAmountNum - remainingBalance;
   const tenderAmountNum = parseFloat(tenderAmount) || 0;
