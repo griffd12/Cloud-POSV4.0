@@ -13,6 +13,17 @@ export interface AuthenticatedRequest extends Request {
   propertyId?: string;
 }
 
+function isPrivateNetworkIp(ip: string): boolean {
+  const clean = ip.replace(/^::ffff:/, '');
+  if (clean === '127.0.0.1' || clean === '::1' || clean === 'localhost') return true;
+  const parts = clean.split('.').map(Number);
+  if (parts.length !== 4) return false;
+  if (parts[0] === 10) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  return false;
+}
+
 export function createAuthMiddleware(db: Database) {
   const serviceHostToken = process.env.SERVICE_HOST_TOKEN || '';
   const serviceHostPropertyId = process.env.SERVICE_HOST_PROPERTY_ID || '';
@@ -39,15 +50,25 @@ export function createAuthMiddleware(db: Database) {
       return next();
     }
     
-    if (!token) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-    
-    if (serviceHostToken && token === serviceHostToken) {
+    if (token && serviceHostToken && token === serviceHostToken) {
       req.propertyId = serviceHostPropertyId;
       const wsId = req.headers['x-workstation-id'] as string;
       if (wsId) req.workstationId = wsId;
       return next();
+    }
+
+    if (isPrivateNetworkIp(clientIp)) {
+      if (token && serviceHostToken && token !== serviceHostToken) {
+        return res.status(401).json({ error: 'Invalid workstation token' });
+      }
+      req.propertyId = serviceHostPropertyId;
+      const wsId = req.headers['x-workstation-id'] as string;
+      if (wsId) req.workstationId = wsId;
+      return next();
+    }
+    
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
     
     return res.status(401).json({ error: 'Invalid workstation token' });

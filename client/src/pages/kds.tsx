@@ -314,7 +314,13 @@ export default function KdsPage() {
         wsUrl = `${protocol}//${window.location.host}/ws`;
       }
 
-      socket = new WebSocket(wsUrl);
+      try {
+        socket = new WebSocket(wsUrl);
+      } catch (e) {
+        console.warn('[KDS] WebSocket construction failed (mixed-content or invalid URL), retrying in 5s:', (e as Error).message);
+        reconnectTimer = setTimeout(connect, 5000);
+        return;
+      }
 
       socket.onopen = () => {
         setWsConnected(true);

@@ -3853,7 +3853,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             capsWorkstationId: kdsProperty.capsWorkstationId || null,
             capsWorkstationName: kdsCapsWorkstation?.name || null,
             syncEnabled: true,
-            serviceHostToken: null,
+            serviceHostToken: kdsPrimaryServiceHost?.registrationToken || null,
           },
         });
       }

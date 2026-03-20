@@ -106,8 +106,21 @@ export function useConfigSync() {
     if (isUnmountedRef.current) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/kds`;
+    const serviceHostUrl = localStorage.getItem('serviceHostUrl');
+    let wsUrl: string;
+    if (serviceHostUrl) {
+      try {
+        const shUrl = new URL(serviceHostUrl);
+        const wsProtocol = shUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${wsProtocol}//${shUrl.host}/ws/kds`;
+      } catch {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        wsUrl = `${protocol}//${window.location.host}/ws/kds`;
+      }
+    } else {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      wsUrl = `${protocol}//${window.location.host}/ws/kds`;
+    }
     const connId = ++connectionIdCounter;
     activeConnectionIdRef.current = connId;
 
