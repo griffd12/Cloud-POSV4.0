@@ -24,68 +24,85 @@ function snakeToCamel(str: string): string {
   return str.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
 }
 
-const BOOLEAN_COLUMNS = new Set([
-  'active', 'is_primary', 'is_default', 'is_online', 'is_system', 'is_latest',
-  'is_training', 'is_preview', 'is_recalled', 'is_ready', 'is_modified',
-  'is_completed', 'is_non_revenue', 'is_available', 'is_86ed',
-  'required', 'sent', 'voided', 'paid', 'processed', 'read', 'acknowledged',
-  'approved', 'enabled', 'notifications_sent', 'alert_sent',
-  'auto_clock_out_enabled', 'fast_transaction_default', 'dynamic_order_mode',
-  'conversational_ordering_enabled', 'void_receipt_print', 'require_guest_count',
-  'bypass_windows_allowed', 'fast_transaction_enabled', 'require_begin_check',
-  'allow_pickup_check', 'allow_reopen_closed_checks', 'allow_offline_operation',
-  'manager_approval_device', 'clock_in_allowed', 'cash_drawer_enabled',
-  'cash_drawer_auto_open_on_cash', 'cash_drawer_auto_open_on_drop',
-  'auto_cut', 'print_logo', 'print_order_header', 'print_order_footer',
-  'print_voids', 'print_reprints', 'show_draft_items', 'show_sent_items_only',
-  'show_timers', 'allow_bump', 'allow_recall', 'allow_void_display',
-  'expo_mode', 'new_order_sound', 'color_alert_1_enabled', 'color_alert_2_enabled',
-  'color_alert_3_enabled', 'send_voids', 'send_reprints',
-  'menu_build_enabled', 'pop_drawer', 'print_check_on_payment',
-  'is_cash_media', 'is_card_media', 'is_gift_media',
-  'auto_accept', 'auto_inject', 'sound_enabled',
-  'track_inventory', 'notify_email', 'notify_sms', 'notify_push',
-  'logo_enabled', 'override_header', 'override_trailer', 'override_logo',
-  'registration_token_used', 'auto_reconnect',
-  'bypass_clock_in', 'sent_to_kitchen', 'offline_mode_enabled',
-  'breakers_provided', 'missed_meal_break', 'missed_rest_break',
-  'enable_daily_overtime', 'enable_daily_double_time',
-  'enable_weekly_overtime', 'enable_weekly_double_time',
-  'enable_meal_break_enforcement', 'allow_meal_break_waiver',
-  'enable_rest_break_enforcement', 'rest_break_is_paid',
-  'enable_premium_pay', 'require_clock_out_attestation', 'enable_break_alerts',
-  'exclude_managers', 'exclude_training', 'applies_to_all_locations',
-  'declare_cash_tips', 'declare_cash_tips_all_locations',
-  'enable_sale', 'enable_void', 'enable_refund', 'enable_auth_capture',
-  'enable_manual_entry', 'enable_debit', 'enable_ebt', 'enable_healthcare',
-  'enable_contactless', 'enable_emv', 'enable_msr',
-  'enable_partial_approval', 'enable_tokenization', 'enable_store_and_forward',
-  'enable_surcharge', 'enable_tip_adjust', 'enable_incremental_auth',
-  'enable_cashback', 'enable_auto_batch_close', 'enable_manual_batch_close',
-  'receipt_show_emv_fields', 'receipt_show_aid', 'receipt_show_tvr',
-  'receipt_show_tsi', 'receipt_show_app_label', 'receipt_show_entry_method',
-  'receipt_print_merchant_copy', 'receipt_print_customer_copy',
-  'cloud_synced', 'test_mode',
+// ---------------------------------------------------------------------------
+// Schema-driven normalization registries
+// Extracted from shared/schema.ts boolean() and jsonb() column definitions.
+// SQLite returns 1/0 for booleans and JSON strings for JSONB columns;
+// these registries let mapKeys coerce them to proper JS types so the
+// frontend receives the same contract whether served by Cloud (PG) or CAPS.
+// ---------------------------------------------------------------------------
+
+const BOOLEAN_SNAKE = new Set([
+  'acknowledged', 'active', 'alert_sent', 'allow_bump', 'allow_meal_break_waiver',
+  'allow_offline_operation', 'allow_over_tender', 'allow_pickup_check', 'allow_recall',
+  'allow_reopen_closed_checks', 'allow_tips', 'allow_void_display',
+  'applies_to_all_locations', 'approved', 'auto_accept', 'auto_applied', 'auto_apply',
+  'auto_award_once', 'auto_clock_out_enabled', 'auto_cut', 'auto_inject',
+  'auto_reconnect', 'auto_update', 'breaks_provided', 'bypass_clock_in',
+  'bypass_windows_allowed', 'cash_drawer_auto_open_on_cash',
+  'cash_drawer_auto_open_on_drop', 'cash_drawer_enabled', 'clock_in_allowed',
+  'color_alert_1_enabled', 'color_alert_2_enabled', 'color_alert_3_enabled',
+  'conversational_ordering_enabled', 'currently_in_school', 'declare_cash_tips',
+  'declare_cash_tips_all_locations', 'dynamic_order_mode', 'enable_auth_capture',
+  'enable_auto_batch_close', 'enable_break_alerts', 'enable_cashback',
+  'enable_contactless', 'enable_daily_double_time', 'enable_daily_overtime',
+  'enable_debit', 'enable_debug_logging', 'enable_ebt', 'enable_emv',
+  'enable_healthcare', 'enable_incremental_auth', 'enable_manual_batch_close',
+  'enable_manual_entry', 'enable_meal_break_enforcement', 'enable_msr',
+  'enable_partial_approval', 'enable_premium_pay', 'enable_refund',
+  'enable_rest_break_enforcement', 'enable_sale', 'enable_store_and_forward',
+  'enable_surcharge', 'enable_tip_adjust', 'enable_tokenization', 'enable_void',
+  'enable_weekly_double_time', 'enable_weekly_overtime', 'enabled',
+  'exclude_managers', 'exclude_training', 'expo_mode', 'fast_transaction_default',
+  'fast_transaction_enabled', 'is_86ed', 'is_available', 'is_card_media',
+  'is_cash_media', 'is_default', 'is_edited', 'is_gift_media', 'is_latest',
+  'is_minor', 'is_modified', 'is_non_revenue', 'is_online', 'is_paid',
+  'is_preview', 'is_primary', 'is_ready', 'is_recalled', 'is_system',
+  'is_taxable', 'is_taxable_at_sale', 'is_violation', 'log_raw_requests',
+  'log_raw_responses', 'logo_enabled', 'manager_approval_device',
+  'menu_build_enabled', 'missed_meal_break', 'missed_rest_break',
+  'new_order_sound', 'notifications_sent', 'notify_email', 'notify_push',
+  'notify_sms', 'override_header', 'override_logo', 'override_trailer', 'paid',
+  'pop_drawer', 'post_to_tip_pool', 'print_check_on_payment', 'print_logo',
+  'print_order_footer', 'print_order_header', 'print_reprints', 'print_voids',
+  'read', 'receipt_print_customer_copy', 'receipt_print_merchant_copy',
+  'receipt_show_aid', 'receipt_show_app_label', 'receipt_show_emv_fields',
+  'receipt_show_entry_method', 'receipt_show_tsi', 'receipt_show_tvr',
+  'registration_token_used', 'require_begin_check', 'require_clock_out_attestation',
+  'require_guest_count', 'require_manager_approval', 'require_work_permit',
+  'required', 'requires_manager_approval', 'requires_payment_processor',
+  'rest_break_is_paid', 'send_reprints', 'send_voids', 'sent',
+  'show_draft_items', 'show_sent_items_only', 'show_timers', 'sound_enabled',
+  'supports_contactless', 'supports_emv', 'supports_partial_auth',
+  'supports_tip_adjust', 'supports_tokenization', 'test_mode', 'tip_eligible',
+  'track_inventory', 'void_receipt_print', 'voided',
 ]);
 
-const BOOLEAN_CAMEL_KEYS = new Set(
-  Array.from(BOOLEAN_COLUMNS).map(k => snakeToCamel(k))
-);
+const JSONB_SNAKE = new Set([
+  'after_value', 'before_value', 'capabilities', 'connected_device_ids', 'data',
+  'denominations', 'details', 'email_recipients', 'gateway_settings', 'header_lines',
+  'hourly_needs', 'hourly_projections', 'items', 'menu_mappings', 'metadata',
+  'modifiers', 'order_data', 'raw_payload', 'role_weights', 'service_config',
+  'services', 'sms_recipients', 'tier_config', 'trailer_lines',
+]);
 
-function normalizeValue(key: string, snakeKey: string, v: any): any {
+const BOOLEAN_CAMEL = new Set(Array.from(BOOLEAN_SNAKE).map(snakeToCamel));
+const JSONB_CAMEL = new Set(Array.from(JSONB_SNAKE).map(snakeToCamel));
+
+function normalizeValue(camelKey: string, snakeKey: string, v: any): any {
   if (v === null || v === undefined) return v;
 
-  if (BOOLEAN_COLUMNS.has(snakeKey) || BOOLEAN_CAMEL_KEYS.has(key)) {
-    if (v === 1 || v === '1') return true;
-    if (v === 0 || v === '0' || v === '') return false;
+  if (BOOLEAN_SNAKE.has(snakeKey) || BOOLEAN_CAMEL.has(camelKey)) {
+    if (v === 1 || v === '1' || v === true) return true;
+    if (v === 0 || v === '0' || v === '' || v === false) return false;
     return !!v;
   }
 
-  if (typeof v === 'string' && v.length > 1) {
-    const first = v[0];
-    if (first === '{' || first === '[') {
-      try { return JSON.parse(v); } catch { /* not JSON, return as-is */ }
+  if (JSONB_SNAKE.has(snakeKey) || JSONB_CAMEL.has(camelKey)) {
+    if (typeof v === 'string') {
+      try { return JSON.parse(v); } catch { return v; }
     }
+    return v;
   }
 
   return v;
@@ -100,8 +117,12 @@ function mapKeys(obj: any): any {
   for (const [k, v] of Object.entries(obj)) {
     const camelKey = snakeToCamel(k);
     const normalized = normalizeValue(camelKey, k, v);
-    if (typeof normalized === 'object' && normalized !== null && !(normalized instanceof Date)) {
+    if (typeof normalized === 'object' && normalized !== null && !Array.isArray(normalized) && !(normalized instanceof Date)) {
       out[camelKey] = mapKeys(normalized);
+    } else if (Array.isArray(normalized)) {
+      out[camelKey] = normalized.map((item: any) =>
+        (typeof item === 'object' && item !== null) ? mapKeys(item) : item
+      );
     } else {
       out[camelKey] = normalized;
     }
@@ -4725,6 +4746,68 @@ export function createApiRoutes(
       res.json(chain);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/caps/diagnostic/normalization-proof', (req, res) => {
+    const normLog = getLogger('Normalization');
+    try {
+      if (!db) return res.status(503).json({ error: 'Database not available' });
+
+      const PROOF_TABLES: Record<string, string> = {
+        tenders: 'SELECT * FROM tenders LIMIT 5',
+        workstations: 'SELECT * FROM workstations LIMIT 5',
+        terminal_devices: 'SELECT * FROM terminal_devices LIMIT 5',
+        payment_processors: 'SELECT * FROM payment_processors LIMIT 5',
+        kds_devices: 'SELECT * FROM kds_devices LIMIT 5',
+        rvcs: 'SELECT * FROM rvcs LIMIT 5',
+        pos_layout_cells: 'SELECT * FROM pos_layout_cells LIMIT 5',
+        descriptors: 'SELECT * FROM descriptors LIMIT 5',
+        break_rules: 'SELECT * FROM break_rules LIMIT 5',
+      };
+
+      const proof: Record<string, any> = {};
+      for (const [label, sql] of Object.entries(PROOF_TABLES)) {
+        try {
+          const rawRows = db.db.prepare(sql).all();
+          const normalizedRows = rawRows.map((r: any) => mapKeys(r));
+          const diffs: any[] = [];
+
+          for (let i = 0; i < rawRows.length; i++) {
+            const raw = rawRows[i] as Record<string, any>;
+            const norm = normalizedRows[i] as Record<string, any>;
+            const rowDiffs: Record<string, { raw: any; normalized: any; type: string }> = {};
+            for (const [snakeKey, rawVal] of Object.entries(raw)) {
+              const camelKey = snakeToCamel(snakeKey);
+              const normVal = norm[camelKey];
+              if (rawVal !== normVal && !(rawVal === null && normVal === null)) {
+                let diffType = 'unknown';
+                if (BOOLEAN_SNAKE.has(snakeKey)) diffType = 'boolean';
+                else if (JSONB_SNAKE.has(snakeKey)) diffType = 'jsonb';
+                else if (snakeKey !== camelKey) diffType = 'key_rename';
+                rowDiffs[camelKey] = {
+                  raw: rawVal,
+                  normalized: normVal,
+                  type: diffType,
+                };
+              }
+            }
+            if (Object.keys(rowDiffs).length > 0) {
+              diffs.push({ rowIndex: i, id: raw.id, changes: rowDiffs });
+            }
+          }
+          proof[label] = { rowCount: rawRows.length, diffs };
+        } catch (tableErr) {
+          proof[label] = { error: (tableErr as Error).message };
+        }
+      }
+
+      (res as any)._skipCamelConvert = true;
+      normLog.info(`Proof requested – ${Object.keys(proof).length} tables inspected`);
+      return res.json(proof);
+    } catch (e) {
+      normLog.error(`Proof error: ${(e as Error).message}`);
+      return res.status(500).json({ error: (e as Error).message });
     }
   });
 
