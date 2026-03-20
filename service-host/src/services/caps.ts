@@ -327,7 +327,7 @@ export class CapsService {
     this.validateLock(checkId, workstationId);
     
     const result = this.db.run(
-      `UPDATE check_items SET sent_to_kitchen = 1 WHERE check_id = ? AND sent_to_kitchen = 0 AND voided = 0`,
+      `UPDATE check_items SET sent_to_kitchen = 1, sent = 1 WHERE check_id = ? AND sent_to_kitchen = 0 AND voided = 0`,
       [checkId]
     );
     

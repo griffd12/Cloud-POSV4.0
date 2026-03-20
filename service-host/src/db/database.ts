@@ -2705,8 +2705,8 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO loyalty_members (
         id, enterprise_id, property_id, phone, email, first_name, last_name, external_id,
-        birthday, notes, sms_opt_in, email_opt_in, marketing_opt_in, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM loyalty_members WHERE id = ?), datetime('now')), datetime('now'))`,
+        birthday, notes, sms_opt_in, email_opt_in, marketing_opt_in, active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, COALESCE((SELECT created_at FROM loyalty_members WHERE id = ?), datetime('now')), datetime('now'))`,
       [
         member.id, member.enterpriseId, member.propertyId, member.phone, member.email,
         member.firstName, member.lastName, member.externalId,

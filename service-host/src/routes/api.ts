@@ -287,10 +287,11 @@ export function createApiRoutes(
         return res.status(404).json({ error: 'Check not found' });
       }
       const { items = [], payments = [], ...checkData } = check;
-      const paidAmount = payments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
+      const paidAmount = payments.filter((p: any) => p.status !== 'voided' && p.paymentStatus !== 'voided').reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
+      const tenderedAmount = payments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
       const total = parseFloat(checkData.total || '0');
       const changeDue = Math.max(0, paidAmount - total);
-      res.json({ check: { ...checkData, paidAmount, tenderedAmount: paidAmount, changeDue }, items, payments, refunds: [] });
+      res.json({ check: { ...checkData, paidAmount, tenderedAmount, changeDue }, items, payments, refunds: [] });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
@@ -435,7 +436,7 @@ export function createApiRoutes(
       const payment = caps.addPayment(req.params.id, paymentParams, workstationId);
       const updatedCheck = caps.getCheck(req.params.id);
       const checkPayments = updatedCheck?.payments || [];
-      const paidAmount = checkPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
+      const paidAmount = checkPayments.filter((p: any) => p.status !== 'voided' && p.paymentStatus !== 'voided').reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
       const checkTotal = updatedCheck?.total || 0;
       const changeDue = Math.max(0, paidAmount - checkTotal);
       res.json({
@@ -1655,7 +1656,7 @@ export function createApiRoutes(
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
       const { items = [], payments = [], ...checkData } = check;
-      const paidAmount = payments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
+      const paidAmount = payments.filter((p: any) => p.status !== 'voided' && p.paymentStatus !== 'voided').reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
       const total = parseFloat(checkData.total || '0');
       const changeDue = Math.max(0, paidAmount - total);
       res.json({ check: { ...checkData, paidAmount, tenderedAmount: paidAmount, changeDue }, items, payments, refunds: [] });
@@ -1669,7 +1670,7 @@ export function createApiRoutes(
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found' });
       const { items = [], payments = [], ...checkData } = check;
-      const paidAmount = payments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
+      const paidAmount = payments.filter((p: any) => p.status !== 'voided' && p.paymentStatus !== 'voided').reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
       const total = parseFloat(checkData.total || '0');
       const changeDue = Math.max(0, paidAmount - total);
       res.json({ check: { ...checkData, paidAmount, tenderedAmount: paidAmount, changeDue }, items, payments, refunds: [] });
@@ -1684,7 +1685,7 @@ export function createApiRoutes(
       const check = caps.getCheck(req.params.id);
       if (!check) return res.json({ payments: [], paidAmount: 0 });
       const payments = check.payments || [];
-      const paidAmount = payments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
+      const paidAmount = payments.filter((p: any) => p.status !== 'voided' && p.paymentStatus !== 'voided').reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
       res.json({ payments, paidAmount });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -1830,7 +1831,7 @@ export function createApiRoutes(
       if (!check) return res.status(404).json({ error: 'Check not found after payment' });
       const { items = [], payments = [], ...checkData } = check;
       const paidAmount = payments
-        .filter((p: any) => p.paymentStatus === 'completed' || !p.paymentStatus)
+        .filter((p: any) => p.status !== 'voided' && p.paymentStatus !== 'voided')
         .reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
       const total = parseFloat(checkData.total || '0');
       const tolerance = 0.05;
@@ -2373,7 +2374,14 @@ export function createApiRoutes(
         `UPDATE check_items SET discount_id = ?, discount_name = ?, discount_amount = ?, discount_type = ? WHERE id = ?`,
         [discountId, discount.name, discountAmountCents, discType, itemId]
       );
-      caps.recalculateTotals(item.check_id);
+      caps.addDiscount(item.check_id, {
+        discountId,
+        checkItemId: itemId,
+        name: discount.name || 'Item Discount',
+        type: discType,
+        amount: discountAmountDollars,
+        employeeId: req.body.employeeId,
+      });
       const txnGroupId = caps.getTxnGroupId(item.check_id);
       caps.writeJournal(item.check_id, txnGroupId, '', 'apply_item_discount', { itemId, discountId, discountAmount: discountAmountDollars });
       caps.transactionSync.queueCheck(item.check_id, 'update', caps.getCheck(item.check_id));
@@ -3228,8 +3236,18 @@ export function createApiRoutes(
   router.post('/item-availability/increment', (_req, res) => {
     res.json({ success: true });
   });
-  router.get('/break-rules', (_req, res) => {
-    res.json([]);
+  router.get('/break-rules', (req, res) => {
+    try {
+      const propertyId = req.query.propertyId as string;
+      if (propertyId && db) {
+        const rules = db.all('SELECT * FROM break_rules WHERE property_id = ?', [propertyId]);
+        return res.json(rules || []);
+      }
+      const allRules = db?.all('SELECT * FROM break_rules') || [];
+      res.json(allRules);
+    } catch (e) {
+      res.json([]);
+    }
   });
   router.post('/system-status/workstation/heartbeat', (_req, res) => {
     res.json({ status: 'caps', offline: true });
@@ -4059,11 +4077,11 @@ export function createApiRoutes(
         propertyId: propertyId || null,
         cardNumber,
         pin: null,
-        balance: 0,
+        balance: balanceStr,
         initialBalance: balanceStr,
-        status: 'pending',
-        activatedAt: null,
-        activatedByEmployeeId: null,
+        status: 'active',
+        activatedAt: new Date().toISOString(),
+        activatedByEmployeeId: employeeId || null,
         expiresAt: null,
         lastUsedAt: null,
         customerName: null,
@@ -4102,10 +4120,10 @@ export function createApiRoutes(
       if (checkItem) checkItem.unit_price = (checkItem.unit_price || 0) / 100;
       res.json({
         success: true,
-        giftCard: { id: gcId, cardNumber, initialBalance: balanceStr, status: 'pending' },
+        giftCard: { id: gcId, cardNumber, initialBalance: balanceStr, balance: balanceStr, status: 'active' },
         checkItem,
         check: createdCheck,
-        message: `Gift card added to check. Complete payment to activate.`,
+        message: `Gift card $${balanceStr} activated and added to check.`,
       });
     } catch (e) {
       console.error('[CAPS] Gift card sell error:', e);
