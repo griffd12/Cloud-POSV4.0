@@ -318,6 +318,7 @@ export default function TerminalDevicesPage() {
   function openEditForm(device: TerminalDevice) {
     setEditingDevice(device);
     form.reset({
+      propertyId: device.propertyId,
       name: device.name,
       model: device.model,
       workstationId: device.workstationId || undefined,
