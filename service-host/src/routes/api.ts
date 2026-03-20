@@ -18,6 +18,7 @@ import { PaymentController } from '../services/payment-controller.js';
 import { ConfigSync } from '../sync/config-sync.js';
 import { Database } from '../db/database.js';
 import { initGatewayLogger, writeGatewayEntry } from '../gateway-logger.js';
+import { getLogger } from '../utils/logger.js';
 
 function snakeToCamel(str: string): string {
   return str.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
@@ -49,6 +50,7 @@ export function createApiRoutes(
   dataDir?: string
 ): Router {
   const router = Router();
+  const discountLog = getLogger('Discount');
 
   if (dataDir) {
     initGatewayLogger(dataDir);
@@ -637,12 +639,15 @@ export function createApiRoutes(
     try {
       const itemId = req.params.id;
       const { discountId, employeeId, managerPin, workstationId } = req.body;
+      discountLog.info('CAPS apply item discount start', { itemId, discountId });
       const discItemScope = resolveItemScope(itemId);
       if (!checkOptionBit('allow_discounts', discItemScope.rvcId, discItemScope.propertyId)) {
+        discountLog.warn('Blocked: allow_discounts disabled', { rvcId: discItemScope.rvcId });
         return res.status(403).json({ error: 'Discount operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
       if (!privCheck.allowed) {
+        discountLog.warn('Blocked: privilege check failed', { employeeId });
         return res.status(403).json(privCheck.error);
       }
       
@@ -650,44 +655,71 @@ export function createApiRoutes(
         'SELECT check_id, name, unit_price, quantity FROM check_items WHERE id = ?', [itemId]
       );
       if (!itemRow) {
+        discountLog.warn('Item not found', { itemId });
         return res.status(404).json({ error: 'Check item not found' });
       }
+      discountLog.info('Item found', { name: itemRow.name, unitPriceCents: itemRow.unit_price, qty: itemRow.quantity, checkId: itemRow.check_id });
       
       let discountName = 'Item Discount';
       let discountType = 'amount';
-      let discountAmount = 0;
+      let discountAmountDollars = 0;
       
       if (discountId && db) {
         const discount = db.get<{ name: string; discount_type: string; amount: string }>(
           'SELECT name, discount_type, amount FROM discounts WHERE id = ?', [discountId]
         );
         if (discount) {
+          discountLog.info('Discount record', { name: discount.name, discountType: discount.discount_type, amount: discount.amount });
           discountName = discount.name;
           discountType = discount.discount_type;
           const itemTotalCents = itemRow.unit_price * itemRow.quantity;
           const itemTotalDollars = itemTotalCents / 100;
           const discountVal = parseFloat(discount.amount || '0');
+          discountLog.info('Calculation inputs', { discType: discountType, itemTotalDollars, discountVal });
           if (discount.discount_type === 'percent') {
-            discountAmount = itemTotalDollars * (discountVal / 100);
+            discountAmountDollars = parseFloat((itemTotalDollars * (discountVal / 100)).toFixed(2));
+            discountLog.info('Percent calc', { itemTotalDollars, discountVal, result: discountAmountDollars });
           } else {
-            discountAmount = Math.min(discountVal, itemTotalDollars);
+            discountAmountDollars = Math.min(discountVal, itemTotalDollars);
+            discountLog.info('Fixed calc', { discountVal, itemTotalDollars, result: discountAmountDollars });
           }
+        } else {
+          discountLog.warn('Discount not found in DB', { discountId });
         }
       }
+      
+      const discountAmountCents = Math.round(discountAmountDollars * 100);
+      discountLog.info('Final amount', { dollars: discountAmountDollars, cents: discountAmountCents });
+      if (discountAmountCents === 0) {
+        discountLog.warn('Discount amount is ZERO — discount will have no effect', { discountId, itemId });
+      }
+      caps.db.run(
+        'UPDATE check_discounts SET voided = 1 WHERE check_item_id = ? AND check_id = ? AND voided = 0',
+        [itemId, itemRow.check_id]
+      );
+      caps.db.run(
+        `UPDATE check_items SET discount_id = ?, discount_name = ?, discount_amount = ?, discount_type = ? WHERE id = ?`,
+        [discountId, discountName, discountAmountCents, discountType, itemId]
+      );
+      discountLog.info('Updated check_items', { discountAmountCents });
       
       caps.addDiscount(itemRow.check_id, {
         discountId,
         checkItemId: itemId,
         name: discountName,
         type: discountType,
-        amount: discountAmount,
+        amount: discountAmountDollars,
         employeeId,
       });
       
       const updatedCheck = caps.getCheck(itemRow.check_id);
       const updatedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
+      discountLog.info('Response item', { discountId: updatedItem?.discountId, discountName: updatedItem?.discountName, discountAmount: updatedItem?.discountAmount, discountType: updatedItem?.discountType });
+      discountLog.info('Response check', { total: updatedCheck?.total, subtotal: updatedCheck?.subtotal, discountTotal: updatedCheck?.discountTotal, amountDue: updatedCheck?.amountDue });
+      discountLog.info('CAPS apply item discount end', { itemId, discountId });
       res.json({ item: updatedItem, check: updatedCheck });
     } catch (e) {
+      discountLog.error('CAPS discount error', e as Error, { itemId: req.params.id });
       res.status(400).json({ error: (e as Error).message });
     }
   });
@@ -2348,32 +2380,45 @@ export function createApiRoutes(
     try {
       const itemId = req.params.id;
       const { discountId, employeeId, managerPin } = req.body;
+      discountLog.info('Apply item discount start', { itemId, discountId });
       const idScope = resolveItemScope(itemId);
       if (!checkOptionBit('allow_discounts', idScope.rvcId, idScope.propertyId)) {
+        discountLog.warn('Blocked: allow_discounts disabled', { rvcId: idScope.rvcId });
         return res.status(403).json({ error: 'Discount operations are disabled by configuration' });
       }
       const privCheck = checkPrivilege(employeeId, 'apply_discount', managerPin);
       if (!privCheck.allowed) {
+        discountLog.warn('Blocked: privilege check failed', { employeeId });
         return res.status(403).json(privCheck.error);
       }
       const item = caps.db.get<any>('SELECT * FROM check_items WHERE id = ?', [itemId]);
-      if (!item) return res.status(404).json({ error: 'Item not found' });
+      if (!item) { discountLog.warn('Item not found', { itemId }); return res.status(404).json({ error: 'Item not found' }); }
+      discountLog.info('Item found', { name: item.name, unitPriceCents: item.unit_price, qty: item.quantity, checkId: item.check_id });
       const discount = caps.db.getDiscount(discountId);
-      if (!discount) return res.status(404).json({ error: 'Discount not found' });
+      if (!discount) { discountLog.warn('Discount not found (may be inactive or not synced)', { discountId }); return res.status(404).json({ error: 'Discount not found' }); }
+      discountLog.info('Discount record', { name: discount.name, discountType: discount.discount_type, type: discount.type, amount: discount.amount, value: discount.value, active: discount.active });
       let discountAmountDollars = 0;
       const discType = discount.discount_type || discount.type || 'percent';
       const itemTotalDollars = (item.unit_price * item.quantity) / 100;
       const discountVal = parseFloat(discount.amount || discount.value || '0');
+      discountLog.info('Calculation inputs', { discType, itemTotalDollars, discountVal });
       if (discType === 'percent') {
         discountAmountDollars = parseFloat((itemTotalDollars * (discountVal / 100)).toFixed(2));
+        discountLog.info('Percent calc', { itemTotalDollars, discountVal, result: discountAmountDollars });
       } else {
         discountAmountDollars = Math.min(discountVal, itemTotalDollars);
+        discountLog.info('Fixed calc', { discountVal, itemTotalDollars, result: discountAmountDollars });
       }
       const discountAmountCents = Math.round(discountAmountDollars * 100);
+      discountLog.info('Final amount', { dollars: discountAmountDollars, cents: discountAmountCents });
+      if (discountAmountCents === 0) {
+        discountLog.warn('Discount amount is ZERO — discount will have no effect', { discountId, itemId });
+      }
       caps.db.run(
         `UPDATE check_items SET discount_id = ?, discount_name = ?, discount_amount = ?, discount_type = ? WHERE id = ?`,
         [discountId, discount.name, discountAmountCents, discType, itemId]
       );
+      discountLog.info('Updated check_items', { discountAmountCents });
       caps.db.run(
         'UPDATE check_discounts SET voided = 1 WHERE check_item_id = ? AND check_id = ? AND voided = 0',
         [itemId, item.check_id]
@@ -2391,8 +2436,12 @@ export function createApiRoutes(
       caps.transactionSync.queueCheck(item.check_id, 'update', caps.getCheck(item.check_id));
       const updatedCheck = caps.getCheck(item.check_id);
       const updatedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
+      discountLog.info('Response item', { discountId: updatedItem?.discountId, discountName: updatedItem?.discountName, discountAmount: updatedItem?.discountAmount, discountType: updatedItem?.discountType });
+      discountLog.info('Response check', { total: updatedCheck?.total, subtotal: updatedCheck?.subtotal, discountTotal: updatedCheck?.discountTotal, amountDue: updatedCheck?.amountDue });
+      discountLog.info('Apply item discount end', { itemId, discountId });
       res.json({ item: updatedItem, check: updatedCheck });
     } catch (e) {
+      discountLog.error('Discount error', e as Error, { itemId: req.params.id });
       res.status(400).json({ error: (e as Error).message });
     }
   });
