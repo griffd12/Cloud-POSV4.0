@@ -2,33 +2,54 @@
  * Payment Controller
  * 
  * Handles payment terminal integration:
- * - Real EMV terminal communication via TCP
+ * - Cloud-proxied terminal payments (Stripe, Heartland, North, Square)
  * - Authorize card payments
  * - Capture/void transactions
- * - Store-and-forward for offline
+ * - Graceful error handling when Cloud unreachable
  */
 
 import { Database } from '../db/database.js';
 import { TransactionSync } from '../sync/transaction-sync.js';
+import { CloudConnection } from '../sync/cloud-connection.js';
 import { EMVTerminalService } from './emv-terminal.js';
 import { getLogger } from '../utils/logger.js';
 import { randomUUID } from 'crypto';
 
 const logger = getLogger('Payment');
 
+const CLOUD_POLL_INTERVAL_MS = 1500;
+const CLOUD_POLL_TIMEOUT_MS = 120000;
+
 export class PaymentController {
   private db: Database;
   private transactionSync: TransactionSync;
+  private cloudConnection: CloudConnection;
   private emvTerminal: EMVTerminalService;
   
-  constructor(db: Database, transactionSync: TransactionSync) {
+  constructor(db: Database, transactionSync: TransactionSync, cloudConnection: CloudConnection) {
     this.db = db;
     this.transactionSync = transactionSync;
+    this.cloudConnection = cloudConnection;
     this.emvTerminal = new EMVTerminalService();
+  }
+
+  private resolveCardTenderId(providedTenderId?: string, propertyId?: string): string | null {
+    if (providedTenderId && providedTenderId !== 'card') {
+      const tender = this.db.getTender(providedTenderId);
+      if (tender) return providedTenderId;
+    }
+    const cardTender = this.db.getDefaultCardTender(propertyId);
+    if (cardTender) return cardTender.id;
+    return null;
   }
   
   async authorize(params: AuthorizeParams): Promise<PaymentResult> {
     const transactionId = randomUUID();
+    
+    const tenderId = this.resolveCardTenderId(params.tenderId);
+    if (!tenderId) {
+      return { success: false, error: 'No card tender configured. Add a credit/debit tender in EMC.' };
+    }
     
     const result: PaymentResult = {
       success: true,
@@ -46,7 +67,7 @@ export class PaymentController {
       [
         transactionId,
         params.checkId,
-        params.tenderId || 'card',
+        tenderId,
         params.tenderType || 'credit',
         params.amount,
         params.tip || 0,
@@ -198,6 +219,15 @@ export class PaymentController {
   }
   
   async authorizeOffline(params: AuthorizeParams): Promise<PaymentResult> {
+    const tenderId = this.resolveCardTenderId(params.tenderId);
+    if (!tenderId) {
+      logger.error('No card tender found for offline auth — cannot insert check_payment', undefined, {
+        checkId: params.checkId,
+        providedTenderId: params.tenderId,
+      });
+      return { success: false, error: 'No card tender configured. Cannot authorize offline.' };
+    }
+
     const transactionId = randomUUID();
     const offlineAuthCode = `OFF${Date.now().toString(36).toUpperCase()}`;
     
@@ -218,7 +248,7 @@ export class PaymentController {
       [
         transactionId,
         params.checkId,
-        params.tenderId || 'card',
+        tenderId,
         params.tenderType || 'credit',
         params.amount,
         params.tip || 0,
@@ -246,28 +276,34 @@ export class PaymentController {
     return result;
   }
   
+  private isCloudEligibleTerminal(device: any): boolean {
+    if (device.cloud_device_id) return true;
+    const dt = (device.device_type || '').toLowerCase();
+    if (dt.startsWith('stripe_') || dt === 'bbpos_chipper') return true;
+    if (dt.startsWith('pax_') || dt.startsWith('verifone_') || dt.startsWith('ingenico_')) return true;
+    if (device.connection_type === 'cloud') return true;
+    return false;
+  }
+
   async processTerminalSession(sessionId: string, session: any): Promise<PaymentResult> {
     const amount = parseFloat(session.amount || '0');
     const tip = parseFloat(session.tipAmount || '0');
-    const totalCents = Math.round((amount + tip) * 100);
 
     const terminalDevice = session.terminalDeviceId
       ? this.db.getTerminalDevice(session.terminalDeviceId)
       : null;
 
-    if (!terminalDevice || !terminalDevice.ip_address) {
-      logger.warn('No terminal device or address found, falling back to offline', {
-        sessionId,
-        terminalDeviceId: session.terminalDeviceId,
-      });
+    if (!terminalDevice) {
+      logger.warn('No terminal device found', { sessionId, terminalDeviceId: session.terminalDeviceId });
       return this.handleTerminalFailure(sessionId, session, amount, tip, 'Terminal device not configured');
     }
 
     logger.info('Processing terminal session', {
       sessionId,
       terminalName: terminalDevice.name,
+      deviceType: terminalDevice.device_type,
+      cloudDeviceId: terminalDevice.cloud_device_id,
       address: terminalDevice.ip_address,
-      port: terminalDevice.port || 9100,
       amount,
       tip,
     });
@@ -279,6 +315,314 @@ export class PaymentController {
         sessionId,
       ]
     );
+
+    if (this.isCloudEligibleTerminal(terminalDevice)) {
+      return this.processViaCloudProxy(sessionId, session, terminalDevice, amount, tip);
+    }
+
+    return this.processViaRawTcp(sessionId, session, terminalDevice, amount, tip);
+  }
+
+  private async processViaCloudProxy(
+    sessionId: string,
+    session: any,
+    terminalDevice: any,
+    amount: number,
+    tip: number
+  ): Promise<PaymentResult> {
+    if (!this.cloudConnection.isConnected()) {
+      logger.error('Cloud not connected — cannot process card payment via Cloud proxy', undefined, { sessionId });
+      this.db.run(
+        `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
+        [
+          JSON.stringify({
+            ...session,
+            status: 'error',
+            statusMessage: 'Cloud connection required for card payments. Check network.',
+            processedAt: new Date().toISOString(),
+          }),
+          sessionId,
+        ]
+      );
+      return { success: false, error: 'Cloud connection required for card payments. Check network connection.' };
+    }
+
+    try {
+      const cloudPayload = {
+        terminalDeviceId: session.terminalDeviceId,
+        checkId: session.checkId,
+        amount: String(amount),
+        tipAmount: String(tip),
+        transactionType: session.transactionType || 'sale',
+        currency: session.currency || 'usd',
+        employeeId: session.employeeId,
+        workstationId: session.workstationId,
+        propertyId: terminalDevice.property_id,
+      };
+
+      logger.info('Proxying terminal session to Cloud', { sessionId, terminalDeviceId: session.terminalDeviceId });
+      const cloudSession = await this.cloudConnection.post<any>('/api/terminal-sessions', cloudPayload);
+
+      const cloudSessionId = cloudSession.id;
+      this.db.run(
+        `UPDATE terminal_sessions SET cloud_session_id = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+        [
+          cloudSessionId,
+          JSON.stringify({
+            ...session,
+            status: 'awaiting_card',
+            cloudSessionId,
+            updatedAt: new Date().toISOString(),
+          }),
+          sessionId,
+        ]
+      );
+
+      logger.info('Cloud terminal session created, polling for completion', { sessionId, cloudSessionId });
+
+      const result = await this.pollCloudSession(cloudSessionId, sessionId, session, terminalDevice, amount, tip);
+      return result;
+    } catch (e: any) {
+      logger.error('Cloud proxy terminal payment failed', e, { sessionId });
+      this.db.run(
+        `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
+        [
+          JSON.stringify({
+            ...session,
+            status: 'error',
+            statusMessage: e.message || 'Cloud terminal communication error',
+            processedAt: new Date().toISOString(),
+          }),
+          sessionId,
+        ]
+      );
+      return { success: false, error: e.message || 'Cloud terminal communication error' };
+    }
+  }
+
+  private async pollCloudSession(
+    cloudSessionId: string,
+    localSessionId: string,
+    session: any,
+    terminalDevice: any,
+    amount: number,
+    tip: number
+  ): Promise<PaymentResult> {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < CLOUD_POLL_TIMEOUT_MS) {
+      await new Promise(resolve => setTimeout(resolve, CLOUD_POLL_INTERVAL_MS));
+
+      try {
+        const cloudStatus = await this.cloudConnection.get<any>(`/api/terminal-sessions/${cloudSessionId}`);
+        const status = cloudStatus.status;
+
+        if (status === 'completed' || status === 'approved') {
+          return this.handleCloudApproval(localSessionId, session, cloudStatus, terminalDevice, amount, tip);
+        }
+
+        if (status === 'declined') {
+          logger.info('Cloud terminal payment declined', { localSessionId, cloudSessionId });
+          this.db.run(
+            `UPDATE terminal_sessions SET status = 'declined', data = ?, updated_at = datetime('now') WHERE id = ?`,
+            [
+              JSON.stringify({
+                ...session,
+                status: 'declined',
+                cloudSessionId,
+                statusMessage: cloudStatus.statusMessage || 'Card declined',
+                processedAt: new Date().toISOString(),
+              }),
+              localSessionId,
+            ]
+          );
+          return { success: false, error: cloudStatus.statusMessage || 'Card declined' };
+        }
+
+        if (status === 'error' || status === 'cancelled' || status === 'expired') {
+          logger.warn('Cloud terminal session ended', { localSessionId, cloudSessionId, status });
+          this.db.run(
+            `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+            [
+              status,
+              JSON.stringify({
+                ...session,
+                status,
+                cloudSessionId,
+                statusMessage: cloudStatus.statusMessage || `Terminal session ${status}`,
+                processedAt: new Date().toISOString(),
+              }),
+              localSessionId,
+            ]
+          );
+          return { success: false, error: cloudStatus.statusMessage || `Terminal session ${status}` };
+        }
+
+        this.db.run(
+          `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+          [
+            status,
+            JSON.stringify({
+              ...session,
+              status,
+              cloudSessionId,
+              updatedAt: new Date().toISOString(),
+            }),
+            localSessionId,
+          ]
+        );
+      } catch (pollErr: any) {
+        logger.warn('Cloud poll error (retrying)', { cloudSessionId, error: pollErr.message });
+      }
+    }
+
+    logger.error('Cloud terminal session timed out', undefined, { localSessionId, cloudSessionId });
+    this.db.run(
+      `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
+      [
+        JSON.stringify({
+          ...session,
+          status: 'error',
+          cloudSessionId,
+          statusMessage: 'Terminal payment timed out (120s)',
+          processedAt: new Date().toISOString(),
+        }),
+        localSessionId,
+      ]
+    );
+    return { success: false, error: 'Terminal payment timed out' };
+  }
+
+  private handleCloudApproval(
+    localSessionId: string,
+    session: any,
+    cloudStatus: any,
+    terminalDevice: any,
+    amount: number,
+    tip: number
+  ): PaymentResult {
+    const transactionId = randomUUID();
+
+    const tenderId = this.resolveCardTenderId(session.tenderId, terminalDevice.property_id);
+    if (!tenderId) {
+      logger.error('No card tender found after Cloud approval — cannot record payment locally', undefined, {
+        localSessionId,
+      });
+      this.db.run(
+        `UPDATE terminal_sessions SET status = 'error', cloud_session_id = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+        [
+          cloudStatus.id,
+          JSON.stringify({
+            ...session,
+            status: 'error',
+            cloudSessionId: cloudStatus.id,
+            statusMessage: 'Payment approved by terminal but no card tender configured in EMC. Configure a credit/debit tender.',
+            processedAt: new Date().toISOString(),
+          }),
+          localSessionId,
+        ]
+      );
+      return {
+        success: false,
+        error: 'Payment approved by terminal but no card tender configured in EMC. Configure a credit/debit tender.',
+      };
+    }
+
+    const authCode = cloudStatus.approvalCode || cloudStatus.processorReference || 'CLOUD';
+    const cardLast4 = cloudStatus.cardLast4 || '****';
+    const cardBrand = cloudStatus.cardBrand || 'unknown';
+    const entryMethod = cloudStatus.entryMethod || 'chip';
+
+    this.db.run(
+      `INSERT INTO check_payments (id, check_id, tender_id, tender_type, amount, tip_amount, reference_number, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'authorized')`,
+      [
+        transactionId,
+        session.checkId,
+        tenderId,
+        session.transactionType === 'debit' ? 'debit' : 'credit',
+        amount + tip,
+        tip,
+        JSON.stringify({
+          authCode,
+          cardLast4,
+          cardBrand,
+          entryMethod,
+          cloudSessionId: cloudStatus.id,
+          processorReference: cloudStatus.processorReference,
+        }),
+      ]
+    );
+
+    this.transactionSync.queuePayment(transactionId, {
+      id: transactionId,
+      checkId: session.checkId,
+      amount: amount + tip,
+      tip,
+      authCode,
+      cardLast4,
+      cardBrand,
+      status: 'authorized',
+    });
+
+    this.db.run(
+      `UPDATE terminal_sessions SET status = 'completed', cloud_session_id = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+      [
+        cloudStatus.id,
+        JSON.stringify({
+          ...session,
+          status: 'approved',
+          paymentTransactionId: transactionId,
+          approvalCode: authCode,
+          cardLast4,
+          cardBrand,
+          entryMethod,
+          cloudSessionId: cloudStatus.id,
+          tipAmount: tip,
+          processedAt: new Date().toISOString(),
+        }),
+        localSessionId,
+      ]
+    );
+
+    logger.info('Cloud terminal payment approved', {
+      localSessionId,
+      transactionId,
+      authCode,
+      cardBrand,
+      cardLast4,
+    });
+
+    return {
+      success: true,
+      transactionId,
+      authCode,
+      cardLast4,
+      cardBrand,
+      amount: amount + tip,
+      tip,
+    };
+  }
+
+  private async processViaRawTcp(
+    sessionId: string,
+    session: any,
+    terminalDevice: any,
+    amount: number,
+    tip: number
+  ): Promise<PaymentResult> {
+    if (!terminalDevice.ip_address) {
+      logger.warn('No IP address for raw TCP terminal', { sessionId });
+      return this.handleTerminalFailure(sessionId, session, amount, tip, 'Terminal IP not configured');
+    }
+
+    const totalCents = Math.round((amount + tip) * 100);
+
+    logger.info('Processing via raw TCP', {
+      sessionId,
+      address: terminalDevice.ip_address,
+      port: terminalDevice.port || 9100,
+    });
 
     try {
       const terminalResponse = await this.emvTerminal.sendPayment({
@@ -296,6 +640,11 @@ export class PaymentController {
 
       if (terminalResponse.approved) {
         const transactionId = randomUUID();
+        const tenderId = this.resolveCardTenderId(session.tenderId, terminalDevice.property_id);
+        if (!tenderId) {
+          logger.error('No card tender for raw TCP approved payment', undefined, { sessionId });
+          return { success: false, error: 'No card tender configured in EMC.' };
+        }
 
         this.db.run(
           `INSERT INTO check_payments (id, check_id, tender_id, tender_type, amount, tip_amount, reference_number, status)
@@ -303,7 +652,7 @@ export class PaymentController {
           [
             transactionId,
             session.checkId,
-            session.tenderId || 'card',
+            tenderId,
             session.transactionType === 'debit' ? 'debit' : 'credit',
             amount + tip,
             tip,
@@ -357,17 +706,15 @@ export class PaymentController {
           ]
         );
 
-        logger.info('Terminal payment approved', {
+        logger.info('Raw TCP terminal payment approved', {
           sessionId,
           transactionId,
           authCode: terminalResponse.authCode,
-          cardType: terminalResponse.cardType,
-          lastFour: terminalResponse.lastFour,
         });
 
         return result;
       } else {
-        logger.info('Terminal payment declined', {
+        logger.info('Raw TCP terminal payment declined', {
           sessionId,
           responseCode: terminalResponse.responseCode,
           message: terminalResponse.responseMessage,
@@ -394,7 +741,7 @@ export class PaymentController {
         };
       }
     } catch (e: any) {
-      logger.error('Terminal communication failed, falling back to offline', e, {
+      logger.error('Raw TCP terminal communication failed', e, {
         sessionId,
         address: terminalDevice.ip_address,
       });
@@ -409,36 +756,22 @@ export class PaymentController {
     tip: number,
     reason: string
   ): Promise<PaymentResult> {
-    const offlineResult = await this.authorizeOffline({
-      checkId: session.checkId,
-      amount: amount + tip,
-      tip,
-      tenderId: session.tenderId || 'card',
-      tenderType: session.transactionType === 'debit' ? 'debit' : 'credit',
-      cardLast4: session.cardLast4 || '****',
-      cardBrand: session.cardBrand || 'unknown',
-      terminalId: session.terminalDeviceId,
-    });
+    logger.warn('Terminal failure — returning error (no offline fallback for card)', { sessionId, reason });
 
     this.db.run(
-      `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+      `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
       [
-        'completed_offline',
         JSON.stringify({
           ...session,
-          status: 'completed_offline',
-          paymentTransactionId: offlineResult.transactionId,
-          approvalCode: offlineResult.authCode,
-          offline: true,
-          offlineReason: reason,
+          status: 'error',
+          statusMessage: reason,
           processedAt: new Date().toISOString(),
         }),
         sessionId,
       ]
     );
 
-    logger.info('Terminal session completed offline', { sessionId, reason });
-    return offlineResult;
+    return { success: false, error: reason };
   }
 
   async processPendingSessions(): Promise<{ processed: number; failed: number }> {

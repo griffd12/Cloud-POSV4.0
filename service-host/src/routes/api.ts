@@ -2758,11 +2758,16 @@ export function createApiRoutes(
         tip_amount TEXT DEFAULT '0.00',
         status TEXT DEFAULT 'pending',
         transaction_type TEXT DEFAULT 'sale',
+        cloud_session_id TEXT,
         data TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
     `);
+    try {
+      caps.db.run(`ALTER TABLE terminal_sessions ADD COLUMN cloud_session_id TEXT`);
+    } catch (_e: any) {
+    }
     console.log('[CAPS] terminal_sessions table ensured in CAPS database');
   } catch (e) {
     console.error('[CAPS] Failed to create terminal_sessions table:', (e as Error).message);

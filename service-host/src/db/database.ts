@@ -183,6 +183,10 @@ export class Database {
       this.migrateToV15();
     }
     
+    if (fromVersion < 16) {
+      this.migrateToV16();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -922,6 +926,24 @@ export class Database {
     console.log('[DB] v15 migration complete');
   }
   
+  private migrateToV16(): void {
+    console.log('[DB] Running v16 migration: terminal_devices cloud fields');
+    const cols = [
+      { name: 'cloud_device_id', def: 'TEXT' },
+      { name: 'terminal_id', def: 'TEXT' },
+      { name: 'connection_type', def: "TEXT DEFAULT 'ethernet'" },
+    ];
+    for (const col of cols) {
+      try {
+        this.run(`ALTER TABLE terminal_devices ADD COLUMN ${col.name} ${col.def}`);
+        console.log(`[DB] Added terminal_devices.${col.name}`);
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column')) console.log(`[DB] terminal_devices.${col.name} skipped: ${e.message}`);
+      }
+    }
+    console.log('[DB] v16 migration complete');
+  }
+  
   // ==========================================================================
   // Generic query methods
   // ==========================================================================
@@ -1526,6 +1548,14 @@ export class Database {
   
   getTendersByCardMedia(propertyId: string): any[] {
     return this.all('SELECT * FROM tenders WHERE property_id = ? AND is_card_media = 1 AND active = 1', [propertyId]);
+  }
+  
+  getDefaultCardTender(propertyId?: string): any | null {
+    if (propertyId) {
+      const t = this.get('SELECT * FROM tenders WHERE property_id = ? AND is_card_media = 1 AND active = 1 ORDER BY display_order ASC LIMIT 1', [propertyId]);
+      if (t) return t;
+    }
+    return this.get("SELECT * FROM tenders WHERE is_card_media = 1 AND active = 1 ORDER BY display_order ASC LIMIT 1");
   }
   
   // ==========================================================================
@@ -3230,11 +3260,14 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO terminal_devices (
         id, property_id, name, device_type, serial_number, ip_address, port,
-        payment_processor_id, is_online, last_seen_at, firmware_version, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        payment_processor_id, cloud_device_id, terminal_id, connection_type,
+        is_online, last_seen_at, firmware_version, active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         device.id, device.propertyId, device.name, device.model || device.deviceType || 'unknown', device.serialNumber,
         device.ipAddress || device.networkAddress, device.port, device.paymentProcessorId,
+        device.cloudDeviceId || null, device.terminalId || null,
+        device.connectionType || 'ethernet',
         device.isOnline ? 1 : 0, device.lastSeenAt, device.firmwareVersion,
         device.active !== false ? 1 : 0
       ]

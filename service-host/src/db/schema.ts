@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
@@ -1018,6 +1018,9 @@ CREATE TABLE IF NOT EXISTS terminal_devices (
   ip_address TEXT,
   port INTEGER,
   payment_processor_id TEXT REFERENCES payment_processors(id),
+  cloud_device_id TEXT,
+  terminal_id TEXT,
+  connection_type TEXT DEFAULT 'ethernet',
   is_online INTEGER DEFAULT 0,
   last_seen_at TEXT,
   firmware_version TEXT,

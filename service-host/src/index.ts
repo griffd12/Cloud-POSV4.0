@@ -251,7 +251,7 @@ class ServiceHost {
     this.capsService = new CapsService(this.db, this.transactionSync);
     this.printController = new PrintController(this.db);
     this.kdsController = new KdsController(this.db);
-    this.paymentController = new PaymentController(this.db, this.transactionSync);
+    this.paymentController = new PaymentController(this.db, this.transactionSync, this.cloudConnection);
     
     // Initialize CAPS device tracker
     this.deviceTracker = new CapsDeviceTracker();
