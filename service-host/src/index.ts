@@ -516,12 +516,19 @@ class ServiceHost {
       await this.configSync.syncFull();
       this.readiness.configReady = true;
       console.log('Configuration synced from cloud');
+
+      const rvcs = this.db.all<{ id: string; name: string }>('SELECT id, name FROM rvcs WHERE active = 1 LIMIT 1');
+      if (rvcs.length > 0) {
+        this.configSync.setActiveRvcId(rvcs[0].id);
+        console.log(`[CAPS] Active RVC set: ${rvcs[0].name} (${rvcs[0].id})`);
+      }
       
       this.cloudConnection.onMessage('SALES_DATA_CLEARED', (data) => {
         console.log('[CAPS] Received SALES_DATA_CLEARED from cloud, clearing local transactional data...');
         try {
           const result = this.db.clearTransactionalData();
-          console.log(`[CAPS] Local transactional data cleared: ${result.tablesCleared.length} tables`);
+          this.capsService.resetCheckNumberSequence();
+          console.log(`[CAPS] Local transactional data cleared: ${result.tablesCleared.length} tables, check numbers reset to 1`);
           if (result.errors.length > 0) {
             console.warn('[CAPS] Some tables had errors during clear:', result.errors);
           }

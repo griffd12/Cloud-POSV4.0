@@ -11,7 +11,7 @@ import archiver from "archiver";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, ne, sql, inArray, and, desc } from "drizzle-orm";
-import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkServiceCharges, privileges, rolePrivileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts, workstationOrderDevices, posLayoutCells, posLayoutRvcAssignments, menuItemSlus, terminalDevices, printAgents, descriptorSets, descriptorLogoAssets, paymentGatewayConfig, employeeJobCodes, tipRuleJobPercentages, overtimeRules, breakRules, minorLaborRules, fiscalPeriods, cashDrawers, itemAvailability, emcOptionFlags, giftCards, loyaltyRewards, majorGroups, familyGroups, loyaltyMemberEnrollments } from "@shared/schema";
+import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkPayments, checkServiceCharges, privileges, rolePrivileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts, workstationOrderDevices, posLayoutCells, posLayoutRvcAssignments, menuItemSlus, terminalDevices, printAgents, descriptorSets, descriptorLogoAssets, paymentGatewayConfig, employeeJobCodes, tipRuleJobPercentages, overtimeRules, breakRules, minorLaborRules, fiscalPeriods, cashDrawers, itemAvailability, emcOptionFlags, giftCards, loyaltyRewards, majorGroups, familyGroups, loyaltyMemberEnrollments } from "@shared/schema";
 import { uberEatsIntegration } from "./integrations/uber-eats";
 import { grubhubIntegration } from "./integrations/grubhub";
 import { doorDashIntegration } from "./integrations/doordash";
@@ -25242,6 +25242,10 @@ connect();
 
       for (const tx of txList) {
         try {
+          const isCheckType = tx.type === "check" || tx.type === "check_closed";
+          const isUpdate = tx.action === "update" || tx.data?.status === "closed";
+          const isCheckUpdate = isCheckType && isUpdate;
+          
           if (tx.localId) {
             const existing = await db.select()
               .from(serviceHostTransactions)
@@ -25254,20 +25258,36 @@ connect();
               .limit(1);
             
             if (existing.length > 0) {
-              skipped.push(tx.localId);
-              processed++;
-              continue;
+              if (isCheckUpdate) {
+                console.log(`[TransactionSync] Processing check update: localId=${tx.localId}, items=${tx.data?.items?.length || 0}, total=${tx.data?.total}, status=${tx.data?.status}`);
+                await db.update(serviceHostTransactions)
+                  .set({ data: tx.data, transactionType: tx.type })
+                  .where(eq(serviceHostTransactions.id, existing[0].id));
+              } else {
+                skipped.push(tx.localId);
+                processed++;
+                continue;
+              }
+            } else {
+              await storage.createServiceHostTransaction({
+                serviceHostId,
+                propertyId,
+                localId: tx.localId || `sync-${Date.now()}`,
+                transactionType: tx.type,
+                businessDate: businessDate || tx.data?.businessDate || tx.data?.business_date || new Date().toISOString().split("T")[0],
+                data: tx.data,
+              });
             }
+          } else {
+            await storage.createServiceHostTransaction({
+              serviceHostId,
+              propertyId,
+              localId: `sync-${Date.now()}`,
+              transactionType: tx.type,
+              businessDate: businessDate || tx.data?.businessDate || tx.data?.business_date || new Date().toISOString().split("T")[0],
+              data: tx.data,
+            });
           }
-
-          const storedTx = await storage.createServiceHostTransaction({
-            serviceHostId,
-            propertyId,
-            localId: tx.localId || `sync-${Date.now()}`,
-            transactionType: tx.type,
-            businessDate: businessDate || tx.data?.businessDate || tx.data?.business_date || new Date().toISOString().split("T")[0],
-            data: tx.data,
-          });
 
           if ((tx.type === "check_closed" || tx.type === "check") && tx.data) {
             const d = tx.data;
@@ -25371,15 +25391,25 @@ connect();
             if (cloudCheck && d.payments && Array.isArray(d.payments)) {
               for (const pmt of d.payments) {
                 try {
-                  await storage.createPayment({
-                    id: pmt.id,
-                    checkId: cloudCheck.id,
-                    tenderId: pmt.tenderId || pmt.tender_id,
-                    amount: (pmt.amount || "0").toString(),
-                    tipAmount: (pmt.tipAmount || pmt.tip_amount || "0").toString(),
-                    paymentType: pmt.paymentType || pmt.payment_type || "cash",
-                    status: pmt.status || "completed",
-                  });
+                  const existingPmt = pmt.id ? await db.select().from(checkPayments)
+                    .where(eq(checkPayments.id, pmt.id)).limit(1) : [];
+                  if (existingPmt.length > 0) {
+                    await storage.updateCheckPayment(existingPmt[0].id, {
+                      amount: (pmt.amount || "0").toString(),
+                      tipAmount: (pmt.tipAmount || pmt.tip_amount || "0").toString(),
+                      status: pmt.status || "completed",
+                    });
+                  } else {
+                    await storage.createPayment({
+                      id: pmt.id,
+                      checkId: cloudCheck.id,
+                      tenderId: pmt.tenderId || pmt.tender_id,
+                      amount: (pmt.amount || "0").toString(),
+                      tipAmount: (pmt.tipAmount || pmt.tip_amount || "0").toString(),
+                      paymentType: pmt.paymentType || pmt.payment_type || "cash",
+                      status: pmt.status || "completed",
+                    });
+                  }
                 } catch (pmtErr: any) {
                   console.warn(`Sync check payment error: ${pmtErr.message}`);
                 }

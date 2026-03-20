@@ -118,6 +118,7 @@ export class ConfigSync {
   private db: Database;
   private cloud: CloudConnection;
   private propertyId: string;
+  private activeRvcId: string | null = null;
   private currentVersion: number = 0;
   private syncInProgress: boolean = false;
   private lastSyncAt: string | null = null;
@@ -1178,6 +1179,14 @@ export class ConfigSync {
     };
   }
   
+  setActiveRvcId(rvcId: string): void {
+    this.activeRvcId = rvcId;
+  }
+
+  getActiveRvcId(): string | null {
+    return this.activeRvcId;
+  }
+
   getMenuItems(): any[] {
     return this.db.getAllMenuItems();
   }
@@ -1203,19 +1212,19 @@ export class ConfigSync {
   }
   
   getTaxGroups(): any[] {
-    return this.db.getTaxGroupsByProperty(this.propertyId);
+    return this.db.getEffectiveTaxGroups(this.propertyId, this.activeRvcId || undefined);
   }
   
   getTenders(): any[] {
-    return this.db.getTendersByProperty(this.propertyId);
+    return this.db.getEffectiveTenders(this.propertyId, this.activeRvcId || undefined);
   }
   
   getDiscounts(): any[] {
-    return this.db.getDiscountsByProperty(this.propertyId);
+    return this.db.getEffectiveDiscounts(this.propertyId, this.activeRvcId || undefined);
   }
   
   getServiceCharges(): any[] {
-    return this.db.getServiceChargesByProperty(this.propertyId);
+    return this.db.getEffectiveServiceCharges(this.propertyId, this.activeRvcId || undefined);
   }
   
   getEmployees(): any[] {

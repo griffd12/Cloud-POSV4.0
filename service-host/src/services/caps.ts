@@ -34,6 +34,10 @@ export class CapsService {
     }
   }
   
+  resetCheckNumberSequence(): void {
+    this.checkNumberSequence = 1;
+  }
+
   setDeviceId(deviceId: string): void {
     this.deviceId = deviceId;
   }

@@ -1657,6 +1657,75 @@ export class Database {
   }
   
   // ==========================================================================
+  // Effective Config Resolution (Enterprise → Property → RVC)
+  // ==========================================================================
+
+  private resolveEffective(tableName: string, propertyId: string, rvcId?: string): any[] {
+    const enterpriseRows = this.all(
+      `SELECT *, 'enterprise' as _scope_level FROM ${tableName} WHERE property_id IS NULL AND rvc_id IS NULL AND active = 1`
+    );
+    const propertyRows = this.all(
+      `SELECT *, 'property' as _scope_level FROM ${tableName} WHERE property_id = ? AND (rvc_id IS NULL OR rvc_id = '') AND active = 1`,
+      [propertyId]
+    );
+    const rvcRows = rvcId ? this.all(
+      `SELECT *, 'rvc' as _scope_level FROM ${tableName} WHERE rvc_id = ? AND active = 1`,
+      [rvcId]
+    ) : [];
+
+    const resolved = new Map<string, any>();
+
+    for (const row of enterpriseRows) {
+      const key = row.code || row.name || row.id;
+      resolved.set(key, row);
+    }
+    for (const row of propertyRows) {
+      const key = row.code || row.name || row.id;
+      resolved.set(key, row);
+    }
+    for (const row of rvcRows) {
+      const key = row.code || row.name || row.id;
+      resolved.set(key, row);
+    }
+
+    return Array.from(resolved.values());
+  }
+
+  getEffectiveTenders(propertyId: string, rvcId?: string): any[] {
+    return this.resolveEffective('tenders', propertyId, rvcId);
+  }
+
+  getEffectiveDiscounts(propertyId: string, rvcId?: string): any[] {
+    return this.resolveEffective('discounts', propertyId, rvcId);
+  }
+
+  getEffectiveTaxGroups(propertyId: string, rvcId?: string): any[] {
+    return this.resolveEffective('tax_groups', propertyId, rvcId);
+  }
+
+  getEffectiveServiceCharges(propertyId: string, rvcId?: string): any[] {
+    return this.resolveEffective('service_charges', propertyId, rvcId);
+  }
+
+  getEffectiveRoles(propertyId: string, rvcId?: string): any[] {
+    return this.resolveEffective('roles', propertyId, rvcId);
+  }
+
+  getEmployeeAssignmentForRvc(employeeId: string, rvcId: string): any | null {
+    const rvcAssignment = this.get(
+      'SELECT * FROM employee_assignments WHERE employee_id = ? AND rvc_id = ?',
+      [employeeId, rvcId]
+    );
+    if (rvcAssignment) return rvcAssignment;
+
+    const primaryAssignment = this.get(
+      'SELECT * FROM employee_assignments WHERE employee_id = ? AND (is_primary = 1 OR is_primary IS NULL) ORDER BY is_primary DESC LIMIT 1',
+      [employeeId]
+    );
+    return primaryAssignment || null;
+  }
+
+  // ==========================================================================
   // Device Configuration
   // ==========================================================================
   
@@ -3713,6 +3782,17 @@ export class Database {
         if (!e.message?.includes('no such table')) {
           errors.push(`${table}: ${e.message}`);
         }
+      }
+    }
+
+    try {
+      this.run(
+        `UPDATE workstation_config SET current_check_number = check_number_start WHERE check_number_start IS NOT NULL`
+      );
+      console.log('[DB] Reset workstation check number counters to start values');
+    } catch (e: any) {
+      if (!e.message?.includes('no such table') && !e.message?.includes('no such column')) {
+        errors.push(`workstation_config reset: ${e.message}`);
       }
     }
 

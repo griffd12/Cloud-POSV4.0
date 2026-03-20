@@ -110,6 +110,11 @@ For pilot, CAPS is the store authority. If a workstation cannot reach CAPS, the 
 - **Schema v14 Migration**: Adds `employee_assignments.role_id` column + 18 missing tables (terminal_devices, cash_drawers, drawer_assignments, cash_transactions, safe_counts, job_codes, employee_job_codes, fiscal_periods, online_order_sources, overtime_rules, break_rules, tip_rules, tip_rule_job_percentages, minor_labor_rules, payment_gateway_config, descriptor_sets, descriptor_logo_assets, print_agents). Fixes cascade sync failure from v13.
 - **Enterprise Employee Privilege Resolution**: `getEmployeesByProperty()` includes `OR property_id IS NULL` to resolve privileges for enterprise-level employees.
 - **Price Unit Consistency**: `addItems()` response returns `unitPrice`/`totalPrice` in DOLLARS (matching `getCheckItems()`). DB stores CENTS internally.
+- **Transaction Sync Integrity**: Cloud dedup logic allows check updates through (items, payments, status, totals) instead of skipping them. Payments use upsert for idempotency. Fixes ghost checks showing $0/open on Cloud.
+- **Check Number Reset on Clear Totals**: `clearTransactionalData()` resets `workstation_config.current_check_number` back to `check_number_start` and resets in-memory `checkNumberSequence` to 1.
+- **Enterprise Effective Config Resolution**: Runtime config (tenders, discounts, tax groups, service charges, roles) resolves using enterprise→property→RVC hierarchy with RVC override > Property override > Enterprise default precedence. `resolveEffective()` in database.ts handles the merge. `ConfigSync` accessors wired to use effective resolution.
+- **RVC-Scoped Employee Privileges**: `resolveEmployeePrivileges()` accepts `rvcId` and resolves employee's role assignment for the active RVC first, then falls back to primary assignment. `checkPrivilege()` passes RVC context through.
+- **Effective Config Diagnostic**: `/caps/diagnostic/effective-config` endpoint shows resolved config for a workstation/RVC with scope level attribution (enterprise/property/RVC) for each entity.
 
 ## External Dependencies
 

@@ -2933,7 +2933,7 @@ export function createApiRoutes(
     'apply_tender',
   ];
 
-  function resolveEmployeePrivileges(employee: any): string[] {
+  function resolveEmployeePrivileges(employee: any, rvcId?: string): string[] {
     if (employee.privileges && Array.isArray(employee.privileges) && employee.privileges.length > 0) {
       return employee.privileges;
     }
@@ -2941,6 +2941,18 @@ export function createApiRoutes(
       return employee.rolePrivileges;
     }
     if (db) {
+      if (rvcId) {
+        const rvcAssignment = db.getEmployeeAssignmentForRvc(employee.id, rvcId);
+        if (rvcAssignment) {
+          const assignRoleId = rvcAssignment.role_id || rvcAssignment.roleId;
+          if (assignRoleId) {
+            const rvcPrivs = db.getRolePrivileges(assignRoleId);
+            if (rvcPrivs && rvcPrivs.length > 0) {
+              return rvcPrivs;
+            }
+          }
+        }
+      }
       const roleId = employee.roleId || employee.role_id;
       if (roleId) {
         const rolePrivs = db.getRolePrivileges(roleId);
@@ -2964,7 +2976,7 @@ export function createApiRoutes(
     return DEFAULT_PRIVILEGES;
   }
 
-  function checkPrivilege(employeeId: string | undefined, requiredPrivilege: string, managerPin?: string): { allowed: boolean; error?: any } {
+  function checkPrivilege(employeeId: string | undefined, requiredPrivilege: string, managerPin?: string, rvcId?: string): { allowed: boolean; error?: any } {
     if (!employeeId) {
       return { allowed: false, error: { error: 'Permission denied', requiredPrivilege, employeeId: employeeId || 'unknown' } };
     }
@@ -2973,7 +2985,8 @@ export function createApiRoutes(
     if (!employee) {
       return { allowed: false, error: { error: 'Permission denied', requiredPrivilege, employeeId } };
     }
-    const privileges = resolveEmployeePrivileges(employee);
+    const activeRvcId = rvcId || config.getActiveRvcId() || undefined;
+    const privileges = resolveEmployeePrivileges(employee, activeRvcId);
     if (privileges.includes('admin_access') || privileges.includes(requiredPrivilege)) {
       return { allowed: true };
     }
@@ -2982,7 +2995,7 @@ export function createApiRoutes(
         emp.pinHash === managerPin || emp.pin_hash === managerPin || emp.pin === managerPin || emp.posPin === managerPin || emp.pos_pin === managerPin
       );
       if (manager) {
-        const managerPrivs = resolveEmployeePrivileges(manager);
+        const managerPrivs = resolveEmployeePrivileges(manager, activeRvcId);
         if (managerPrivs.includes('admin_access') || managerPrivs.includes(requiredPrivilege)) {
           return { allowed: true };
         }
@@ -4807,6 +4820,66 @@ export function createApiRoutes(
       return res.json(proof);
     } catch (e) {
       normLog.error(`Proof error: ${(e as Error).message}`);
+      return res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/caps/diagnostic/effective-config', (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: 'Database not available' });
+
+      const rvcId = (req.query.rvcId as string) || config.getActiveRvcId() || undefined;
+      const propertyId = (req.query.propertyId as string) || undefined;
+
+      const rvcs = db.all('SELECT id, name, property_id FROM rvcs WHERE active = 1');
+      const resolvedRvc = rvcId || (rvcs.length > 0 ? rvcs[0].id : undefined);
+      const resolvedPropertyId = propertyId || (rvcs.length > 0 ? (rvcs[0] as any).property_id : undefined);
+
+      if (!resolvedPropertyId) {
+        return res.status(400).json({ error: 'No property context available' });
+      }
+
+      const tenders = db.getEffectiveTenders(resolvedPropertyId, resolvedRvc);
+      const discounts = db.getEffectiveDiscounts(resolvedPropertyId, resolvedRvc);
+      const taxGroups = db.getEffectiveTaxGroups(resolvedPropertyId, resolvedRvc);
+      const serviceCharges = db.getEffectiveServiceCharges(resolvedPropertyId, resolvedRvc);
+      const roles = db.getEffectiveRoles(resolvedPropertyId, resolvedRvc);
+
+      const formatEntity = (row: any) => ({
+        id: row.id,
+        name: row.name,
+        code: row.code,
+        scopeLevel: row._scope_level,
+        propertyId: row.property_id,
+        rvcId: row.rvc_id,
+      });
+
+      (res as any)._skipCamelConvert = true;
+      return res.json({
+        resolvedScope: {
+          propertyId: resolvedPropertyId,
+          rvcId: resolvedRvc,
+          activeRvcId: config.getActiveRvcId(),
+        },
+        tenders: tenders.map(formatEntity),
+        discounts: discounts.map(formatEntity),
+        taxGroups: taxGroups.map(formatEntity),
+        serviceCharges: serviceCharges.map(formatEntity),
+        roles: roles.map(formatEntity),
+        summary: {
+          tenderCount: tenders.length,
+          discountCount: discounts.length,
+          taxGroupCount: taxGroups.length,
+          serviceChargeCount: serviceCharges.length,
+          roleCount: roles.length,
+          scopeLevels: {
+            enterprise: [...tenders, ...discounts, ...taxGroups, ...serviceCharges, ...roles].filter((r: any) => r._scope_level === 'enterprise').length,
+            property: [...tenders, ...discounts, ...taxGroups, ...serviceCharges, ...roles].filter((r: any) => r._scope_level === 'property').length,
+            rvc: [...tenders, ...discounts, ...taxGroups, ...serviceCharges, ...roles].filter((r: any) => r._scope_level === 'rvc').length,
+          },
+        },
+      });
+    } catch (e) {
       return res.status(500).json({ error: (e as Error).message });
     }
   });
