@@ -67,6 +67,38 @@ function getDeviceLabel() {
   return globalDeviceLabel;
 }
 
+function summarizeData(data) {
+  if (data === undefined || data === null) return '';
+  if (typeof data === 'string') {
+    return data.length > 200 ? data.substring(0, 200) + '…' : data;
+  }
+  if (typeof data !== 'object') return String(data);
+  if (Array.isArray(data)) {
+    if (data.length === 0) return '';
+    return `[${data.length} items]`;
+  }
+  const keys = Object.keys(data);
+  if (keys.length === 0) return '';
+  const parts = [];
+  for (const k of keys.slice(0, 6)) {
+    const v = data[k];
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'object') {
+      if (Array.isArray(v)) {
+        parts.push(`${k}=[${v.length}]`);
+      } else {
+        const s = JSON.stringify(v);
+        parts.push(`${k}=${s.length > 60 ? s.substring(0, 60) + '…' : s}`);
+      }
+    } else {
+      const sv = String(v);
+      parts.push(`${k}=${sv.length > 60 ? sv.substring(0, 60) + '…' : sv}`);
+    }
+  }
+  if (keys.length > 6) parts.push(`+${keys.length - 6} more`);
+  return parts.join(', ');
+}
+
 function writeToUnifiedLog(subsystemTag, line) {
   try {
     rotateFile(UNIFIED_LOG_FILE, UNIFIED_MAX_SIZE, MAX_LOG_FILES);
@@ -100,18 +132,17 @@ class Logger {
 
   formatMessage(level, category, message, data) {
     const timestamp = new Date().toISOString();
+    const time = timestamp.split('T')[1].split('.')[0];
     const deviceTag = globalDeviceLabel ? `[${globalDeviceLabel}] ` : '';
-    let line = `[${timestamp}] [${level}] ${deviceTag}[${category}] ${message}`;
-    if (data !== undefined) {
+    let line = `[${time}] [${level}] ${deviceTag}[${category}] ${message}`;
+    if (data !== undefined && data !== null) {
       try {
-        const serialized = typeof data === 'string' ? data : JSON.stringify(data, null, 0);
-        if (serialized.length > 2000) {
-          line += ` | DATA: ${serialized.substring(0, 2000)}...(truncated)`;
-        } else {
-          line += ` | DATA: ${serialized}`;
+        const summary = summarizeData(data);
+        if (summary) {
+          line += ` | ${summary}`;
         }
       } catch {
-        line += ` | DATA: [unserializable]`;
+        line += ` | [unserializable]`;
       }
     }
     return line;

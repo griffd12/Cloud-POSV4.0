@@ -133,10 +133,27 @@ export class Logger {
     };
     const reset = '\x1b[0m';
     const color = levelColors[entry.level];
-    
-    let msg = `${color}[${entry.timestamp}] [${entry.level}] [${entry.service}]${reset} ${entry.message}`;
-    if (entry.context) {
-      msg += ` ${JSON.stringify(entry.context)}`;
+    const time = entry.timestamp.split('T')[1]?.split('.')[0] || entry.timestamp;
+
+    let msg = `${color}${time} [${entry.level}] [${entry.service}]${reset} ${entry.message}`;
+    if (entry.context && Object.keys(entry.context).length > 0) {
+      const parts: string[] = [];
+      for (const [k, v] of Object.entries(entry.context)) {
+        if (v === null || v === undefined) continue;
+        if (typeof v === 'object') {
+          if (Array.isArray(v)) {
+            parts.push(`${k}=[${v.length} items]`);
+          } else {
+            const objKeys = Object.keys(v as Record<string, unknown>);
+            parts.push(`${k}={${objKeys.slice(0, 3).join(',')}${objKeys.length > 3 ? ',…' : ''}}`);
+          }
+        } else {
+          parts.push(`${k}=${v}`);
+        }
+      }
+      if (parts.length > 0) {
+        msg += ` | ${parts.join(', ')}`;
+      }
     }
     if (entry.error) {
       msg += `\n  Error: ${entry.error.name}: ${entry.error.message}`;

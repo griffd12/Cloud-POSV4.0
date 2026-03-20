@@ -5,15 +5,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 const MAX_ROTATED_FILES = 3;
 
 export interface GatewayFileEntry {
-  ts: string;
-  device: string;
-  method: string;
-  url: string;
-  status: number;
-  ms: number;
-  reqBody: string | null;
-  resBody: string | null;
-  err: string | null;
+  line: string;
 }
 
 let logFilePath: string | null = null;
@@ -71,7 +63,7 @@ function rotate(): void {
 export function writeGatewayEntry(entry: GatewayFileEntry): void {
   if (!logStream || !logFilePath) return;
 
-  const line = JSON.stringify(entry) + '\n';
+  const line = entry.line + '\n';
   const lineSize = Buffer.byteLength(line, 'utf8');
 
   if (currentSize + lineSize > MAX_FILE_SIZE) {
