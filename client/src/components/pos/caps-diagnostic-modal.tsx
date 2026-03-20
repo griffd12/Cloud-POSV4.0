@@ -147,28 +147,24 @@ function TableDetail({ tableName }: { tableName: string }) {
         <Badge variant="secondary" className="text-xs">{data.count} rows</Badge>
       </div>
       <div className="overflow-x-auto max-h-64">
-        <table className="w-full text-xs">
+        <table className="text-xs min-w-max">
           <thead className="sticky top-0 bg-background border-b">
             <tr>
-              {columns.slice(0, 8).map((col) => (
-                <th key={col} className="px-2 py-1 text-left font-medium text-muted-foreground whitespace-nowrap">
+              {columns.map((col) => (
+                <th key={col} className="px-3 py-1 text-left font-medium text-muted-foreground whitespace-nowrap">
                   {col}
                 </th>
               ))}
-              {columns.length > 8 && (
-                <th className="px-2 py-1 text-left font-medium text-muted-foreground">...</th>
-              )}
             </tr>
           </thead>
           <tbody className="divide-y">
             {data.rows.slice(0, 20).map((row: any, i: number) => (
               <tr key={i} className="hover:bg-muted/30">
-                {columns.slice(0, 8).map((col) => (
-                  <td key={col} className="px-2 py-1 whitespace-nowrap max-w-[200px] truncate">
+                {columns.map((col) => (
+                  <td key={col} className="px-3 py-1 whitespace-nowrap">
                     {String(row[col] ?? "")}
                   </td>
                 ))}
-                {columns.length > 8 && <td className="px-2 py-1 text-muted-foreground">...</td>}
               </tr>
             ))}
           </tbody>
