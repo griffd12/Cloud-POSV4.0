@@ -1,0 +1,93 @@
+The rule
+
+This is an enterprise hierarchy, not a flat location database.
+
+Configuration can exist at:
+
+Enterprise
+
+Property
+
+RVC
+
+And the POS cannot just sync “whatever matches property_id” or “whatever matches rvc_id.” It has to build the effective configuration for the device by combining all 3 levels.
+
+That matches what your system is already trying to do in parts:
+
+CAPS pulls a full config payload that includes enterprise, property, revenue centers, workstations, roles, menu items, layouts, tenders, tax groups, discounts, and KDS devices.
+
+But at runtime, privilege resolution is still falling back to defaults because role/assignment scope is not being resolved correctly for the logged-in employee.
+
+That is exactly the kind of bug you get when the system is not resolving scope correctly.
+
+How to explain it in plain business terms
+
+Tell Replit:
+
+We are not syncing a single-site POS. We are syncing an enterprise POS with inheritance and overrides.
+
+Enterprise defines the defaults.
+Property can override enterprise.
+RVC can override both.
+
+The workstation must run on the final resolved dataset, not just raw rows filtered by one ID.
+
+The correct model
+
+For every configuration object, the system must decide:
+
+Is there an Enterprise default?
+
+Is there a Property override for this property?
+
+Is there an RVC override for this RVC?
+
+Use the most specific applicable value:
+
+RVC override
+
+else Property override
+
+else Enterprise default
+
+That applies to things like:
+
+roles / privileges
+
+tenders
+
+discounts
+
+taxes
+
+workstation options
+
+layout assignments
+
+print routing
+
+menu behavior
+
+check function permissions
+
+What not to do
+
+Do not just run queries like:
+
+WHERE property_id = X
+
+WHERE rvc_id = Y
+
+because that excludes enterprise-level defaults that should flow down.
+
+How Oracle-style systems think about it
+
+You do not need to know Oracle Simphony internals to explain it correctly.
+
+The important part is:
+
+central/master data exists at higher levels
+
+store/runtime data is resolved locally for the specific terminal
+
+local runtime should operate on the effective config, not raw source tables
