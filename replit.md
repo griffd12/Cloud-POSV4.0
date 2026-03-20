@@ -88,7 +88,7 @@ For pilot, CAPS is the store authority. If a workstation cannot reach CAPS, the 
 - **Enterprise Features**: Fiscal Close, Cash Management, Gift Cards, Loyalty, Online Ordering, Inventory, Forecasting.
 - **Pizza Builder Module**: Visual, full-page customization.
 - **Multi-Enterprise Architecture**: Server-side data isolation.
-- **Native Application Capabilities (Windows Electron)**: Embedded print agent, SQLite/SQLCipher, local reporting, store-and-forward, EMV terminal communication, auto-launch, kiosk mode, terminal setup wizard.
+- **Native Application Capabilities (Windows Electron)**: Embedded print agent, SQLite/SQLCipher, local reporting, store-and-forward, EMV terminal communication (real TCP via service-host EMVTerminalService), auto-launch, kiosk mode, terminal setup wizard.
 - **Configuration Inheritance & Override**: Items inherit with override capabilities via OptionBits system.
 - **Concurrency-Safe Check Numbering**: Atomic, unique, sequential check numbers with configurable per-workstation offline check number ranges.
 - **CAPS Connectivity Diagnostics**: System Diagnostics page shows real-time CAPS/Service Host status including online/offline, connected workstations, pending sync, last heartbeat, and version.
