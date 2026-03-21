@@ -17358,10 +17358,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Check if terminal has an active session
       const activeSession = await storage.getActiveTerminalSession(parsed.data.terminalDeviceId);
       if (activeSession) {
-        return res.status(409).json({ 
-          message: "Terminal has an active payment session",
-          activeSessionId: activeSession.id,
-        });
+        const isExpired = activeSession.expiresAt && new Date(activeSession.expiresAt) < new Date();
+        if (isExpired) {
+          console.log(`[terminal-sessions] Auto-expiring stale session ${activeSession.id} (expired at ${activeSession.expiresAt})`);
+          await storage.updateTerminalSession(activeSession.id, {
+            status: "expired",
+            statusMessage: "Session auto-expired due to timeout",
+            completedAt: new Date(),
+          });
+          await storage.updateTerminalDeviceStatus(activeSession.terminalDeviceId, "online");
+        } else {
+          return res.status(409).json({ 
+            message: "Terminal has an active payment session",
+            activeSessionId: activeSession.id,
+          });
+        }
       }
 
       // Get the terminal to verify it exists and is not offline

@@ -2585,7 +2585,11 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.select().from(terminalSessions)
       .where(and(
         eq(terminalSessions.terminalDeviceId, terminalDeviceId),
-        inArray(terminalSessions.status, activeStatuses)
+        inArray(terminalSessions.status, activeStatuses),
+        or(
+          isNull(terminalSessions.expiresAt),
+          gt(terminalSessions.expiresAt, new Date())
+        )
       ));
     return result;
   }

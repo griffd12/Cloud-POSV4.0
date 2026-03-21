@@ -361,7 +361,26 @@ export class PaymentController {
       };
 
       logger.info('Proxying terminal session to Cloud', { sessionId, terminalDeviceId: session.terminalDeviceId });
-      const cloudSession = await this.cloudConnection.post<any>('/api/terminal-sessions', cloudPayload);
+      let cloudSession: any;
+      try {
+        cloudSession = await this.cloudConnection.post<any>('/api/terminal-sessions', cloudPayload);
+      } catch (firstErr: any) {
+        if (firstErr.message?.includes('409') && firstErr.message?.includes('Conflict')) {
+          logger.warn('Cloud returned 409 — stale session blocking terminal, cancelling and retrying', { sessionId });
+          try {
+            const staleResp = await this.cloudConnection.get<any>(`/api/terminal-devices/${session.terminalDeviceId}/active-session`);
+            if (staleResp?.id) {
+              await this.cloudConnection.post(`/api/terminal-sessions/${staleResp.id}/cancel`, { reason: 'Auto-cleared stale session' });
+              logger.info('Stale Cloud session cancelled', { staleSessionId: staleResp.id });
+            }
+          } catch (cancelErr: any) {
+            logger.warn('Could not cancel stale Cloud session', { error: cancelErr.message });
+          }
+          cloudSession = await this.cloudConnection.post<any>('/api/terminal-sessions', cloudPayload);
+        } else {
+          throw firstErr;
+        }
+      }
 
       const cloudSessionId = cloudSession.id;
       this.db.run(
