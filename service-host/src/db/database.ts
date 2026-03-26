@@ -191,6 +191,10 @@ export class Database {
       this.migrateToV17();
     }
     
+    if (fromVersion < 18) {
+      this.migrateToV18();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -959,6 +963,43 @@ export class Database {
     console.log('[DB] v17 migration complete');
   }
   
+  private migrateToV18(): void {
+    console.log('[DB] Running v18 migration: EMC config sync gaps');
+    const cols: { table: string; name: string; def: string }[] = [
+      { table: 'properties', name: 'caps_workstation_id', def: 'TEXT' },
+      { table: 'rvcs', name: 'conversational_ordering', def: 'INTEGER DEFAULT 0' },
+      { table: 'menu_items', name: 'menu_build_enabled', def: 'INTEGER DEFAULT 0' },
+      { table: 'workstations', name: 'font_scale', def: 'INTEGER DEFAULT 100' },
+      { table: 'workstations', name: 'com_port', def: 'TEXT' },
+      { table: 'workstations', name: 'com_baud_rate', def: 'INTEGER DEFAULT 9600' },
+      { table: 'workstations', name: 'com_data_bits', def: 'INTEGER DEFAULT 8' },
+      { table: 'workstations', name: 'com_stop_bits', def: "TEXT DEFAULT '1'" },
+      { table: 'workstations', name: 'com_parity', def: "TEXT DEFAULT 'none'" },
+      { table: 'workstations', name: 'com_flow_control', def: "TEXT DEFAULT 'none'" },
+      { table: 'workstations', name: 'cash_drawer_enabled', def: 'INTEGER DEFAULT 0' },
+      { table: 'workstations', name: 'cash_drawer_printer_id', def: 'TEXT' },
+      { table: 'workstations', name: 'cash_drawer_kick_pin', def: "TEXT DEFAULT 'pin2'" },
+      { table: 'workstations', name: 'cash_drawer_pulse_duration', def: 'INTEGER DEFAULT 100' },
+      { table: 'workstations', name: 'cash_drawer_auto_open_on_cash', def: 'INTEGER DEFAULT 1' },
+      { table: 'workstations', name: 'cash_drawer_auto_open_on_drop', def: 'INTEGER DEFAULT 1' },
+      { table: 'printers', name: 'host_workstation_id', def: 'TEXT' },
+      { table: 'printers', name: 'com_port', def: 'TEXT' },
+      { table: 'printers', name: 'baud_rate', def: 'INTEGER' },
+      { table: 'printers', name: 'windows_printer_name', def: 'TEXT' },
+      { table: 'kds_devices', name: 'font_scale', def: 'INTEGER DEFAULT 100' },
+      { table: 'kds_tickets', name: 'is_preview', def: 'INTEGER DEFAULT 0' },
+    ];
+    for (const col of cols) {
+      try {
+        this.run(`ALTER TABLE ${col.table} ADD COLUMN ${col.name} ${col.def}`);
+        console.log(`[DB] Added ${col.table}.${col.name}`);
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column')) console.log(`[DB] ${col.table}.${col.name} skipped: ${e.message}`);
+      }
+    }
+    console.log('[DB] v18 migration complete — EMC config sync gaps closed');
+  }
+  
   // ==========================================================================
   // Generic query methods
   // ==========================================================================
@@ -1075,8 +1116,8 @@ export class Database {
       `INSERT OR REPLACE INTO properties (
         id, enterprise_id, name, code, address, timezone,
         business_date_rollover_time, business_date_mode, current_business_date,
-        sign_in_logo_url, auto_clock_out_enabled, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        sign_in_logo_url, auto_clock_out_enabled, caps_workstation_id, active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         property.id, property.enterpriseId, property.name, property.code,
         property.address, property.timezone || 'America/New_York',
@@ -1085,6 +1126,7 @@ export class Database {
         property.currentBusinessDate,
         property.signInLogoUrl,
         property.autoClockOutEnabled ? 1 : 0,
+        property.capsWorkstationId || null,
         property.active !== false ? 1 : 0,
       ]
     );
@@ -1099,9 +1141,10 @@ export class Database {
       `INSERT OR REPLACE INTO rvcs (
         id, property_id, name, code, fast_transaction_default,
         default_order_type, order_type_default, dynamic_order_mode, dom_send_mode,
+        conversational_ordering,
         active, receipt_print_mode, receipt_copies, kitchen_print_mode,
         void_receipt_print, require_guest_count, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         rvc.id, rvc.propertyId, rvc.name, rvc.code,
         rvc.fastTransactionDefault ? 1 : 0,
@@ -1109,6 +1152,7 @@ export class Database {
         rvc.orderTypeDefault || 'dine_in',
         rvc.dynamicOrderMode ? 1 : 0,
         rvc.domSendMode || 'fire_on_fly',
+        rvc.conversationalOrderingEnabled ? 1 : 0,
         rvc.active !== false ? 1 : 0,
         rvc.receiptPrintMode || 'auto_on_close',
         rvc.receiptCopies ?? 1,
@@ -1286,13 +1330,16 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO menu_items (
         id, enterprise_id, property_id, rvc_id, name, short_name, price,
-        tax_group_id, print_class_id, major_group_id, family_group_id, color, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        tax_group_id, print_class_id, major_group_id, family_group_id, color,
+        menu_build_enabled, active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         item.id, item.enterpriseId, item.propertyId, item.rvcId,
         item.name, item.shortName, priceInCents,
         item.taxGroupId, item.printClassId, item.majorGroupId, item.familyGroupId,
-        item.color || '#3B82F6', item.active !== false ? 1 : 0,
+        item.color || '#3B82F6',
+        item.menuBuildEnabled ? 1 : 0,
+        item.active !== false ? 1 : 0,
       ]
     );
   }
@@ -1788,8 +1835,12 @@ export class Database {
         void_printer_id, backup_void_printer_id,
         default_order_device_id, default_kds_expo_id,
         ip_address, hostname, is_online, last_seen_at,
-        auto_logout_minutes, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        auto_logout_minutes, font_scale,
+        com_port, com_baud_rate, com_data_bits, com_stop_bits, com_parity, com_flow_control,
+        cash_drawer_enabled, cash_drawer_printer_id, cash_drawer_kick_pin,
+        cash_drawer_pulse_duration, cash_drawer_auto_open_on_cash, cash_drawer_auto_open_on_drop,
+        active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         ws.id, ws.propertyId, ws.rvcId, ws.name,
         ws.deviceType || 'pos_terminal', ws.defaultOrderType || 'dine_in',
@@ -1804,7 +1855,13 @@ export class Database {
         ws.voidPrinterId, ws.backupVoidPrinterId,
         ws.defaultOrderDeviceId, ws.defaultKdsExpoId,
         ws.ipAddress, ws.hostname, ws.isOnline ? 1 : 0, ws.lastSeenAt,
-        ws.autoLogoutMinutes, ws.active !== false ? 1 : 0,
+        ws.autoLogoutMinutes, ws.fontScale ?? 100,
+        ws.comPort || null, ws.comBaudRate ?? 9600, ws.comDataBits ?? 8,
+        ws.comStopBits || '1', ws.comParity || 'none', ws.comFlowControl || 'none',
+        ws.cashDrawerEnabled ? 1 : 0, ws.cashDrawerPrinterId || null,
+        ws.cashDrawerKickPin || 'pin2', ws.cashDrawerPulseDuration ?? 100,
+        ws.cashDrawerAutoOpenOnCash !== false ? 1 : 0, ws.cashDrawerAutoOpenOnDrop !== false ? 1 : 0,
+        ws.active !== false ? 1 : 0,
       ]
     );
     if (ws.offlineCheckNumberStart && ws.offlineCheckNumberEnd) {
@@ -1829,8 +1886,9 @@ export class Database {
         ip_address, subnet_mask, port, driver_protocol, model, character_width,
         auto_cut, print_logo, print_order_header, print_order_footer,
         print_voids, print_reprints, retry_attempts, failure_handling_mode,
+        host_workstation_id, com_port, baud_rate, windows_printer_name,
         is_online, last_seen_at, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         printer.id, printer.propertyId, printer.name,
         printer.printerType || 'kitchen', printer.connectionType || 'network',
@@ -1841,6 +1899,8 @@ export class Database {
         printer.printOrderHeader !== false ? 1 : 0, printer.printOrderFooter !== false ? 1 : 0,
         printer.printVoids !== false ? 1 : 0, printer.printReprints !== false ? 1 : 0,
         printer.retryAttempts || 3, printer.failureHandlingMode || 'alert_cashier',
+        printer.hostWorkstationId || null, printer.comPort || null,
+        printer.baudRate || null, printer.windowsPrinterName || null,
         printer.isOnline ? 1 : 0, printer.lastSeenAt,
         printer.active !== false ? 1 : 0,
       ]
@@ -1929,8 +1989,9 @@ export class Database {
         color_alert_1_enabled, color_alert_1_seconds, color_alert_1_color,
         color_alert_2_enabled, color_alert_2_seconds, color_alert_2_color,
         color_alert_3_enabled, color_alert_3_seconds, color_alert_3_color,
+        font_scale,
         ws_channel, ip_address, is_online, last_seen_at, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         kds.id, kds.propertyId, kds.name, kds.stationType || 'hot',
         kds.showDraftItems ? 1 : 0, kds.showSentItemsOnly !== false ? 1 : 0,
@@ -1941,6 +2002,7 @@ export class Database {
         kds.colorAlert1Enabled !== false ? 1 : 0, kds.colorAlert1Seconds ?? 60, kds.colorAlert1Color || 'yellow',
         kds.colorAlert2Enabled !== false ? 1 : 0, kds.colorAlert2Seconds ?? 180, kds.colorAlert2Color || 'orange',
         kds.colorAlert3Enabled !== false ? 1 : 0, kds.colorAlert3Seconds ?? 300, kds.colorAlert3Color || 'red',
+        kds.fontScale ?? 100,
         kds.wsChannel, kds.ipAddress, kds.isOnline ? 1 : 0, kds.lastSeenAt,
         kds.active !== false ? 1 : 0,
       ]

@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS properties (
   current_business_date TEXT,
   sign_in_logo_url TEXT,
   auto_clock_out_enabled INTEGER DEFAULT 0,
+  caps_workstation_id TEXT,
   active INTEGER DEFAULT 1,
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS rvcs (
   order_type_default TEXT DEFAULT 'dine_in',
   dynamic_order_mode INTEGER DEFAULT 0,
   dom_send_mode TEXT DEFAULT 'fire_on_fly',
+  conversational_ordering INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
   receipt_print_mode TEXT DEFAULT 'auto_on_close',
   receipt_copies INTEGER DEFAULT 1,
@@ -231,6 +233,19 @@ CREATE TABLE IF NOT EXISTS workstations (
   is_online INTEGER DEFAULT 0,
   last_seen_at TEXT,
   auto_logout_minutes INTEGER,
+  font_scale INTEGER DEFAULT 100,
+  com_port TEXT,
+  com_baud_rate INTEGER DEFAULT 9600,
+  com_data_bits INTEGER DEFAULT 8,
+  com_stop_bits TEXT DEFAULT '1',
+  com_parity TEXT DEFAULT 'none',
+  com_flow_control TEXT DEFAULT 'none',
+  cash_drawer_enabled INTEGER DEFAULT 0,
+  cash_drawer_printer_id TEXT,
+  cash_drawer_kick_pin TEXT DEFAULT 'pin2',
+  cash_drawer_pulse_duration INTEGER DEFAULT 100,
+  cash_drawer_auto_open_on_cash INTEGER DEFAULT 1,
+  cash_drawer_auto_open_on_drop INTEGER DEFAULT 1,
   active INTEGER DEFAULT 1,
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -255,6 +270,10 @@ CREATE TABLE IF NOT EXISTS printers (
   print_reprints INTEGER DEFAULT 1,
   retry_attempts INTEGER DEFAULT 3,
   failure_handling_mode TEXT DEFAULT 'alert_cashier',
+  host_workstation_id TEXT,
+  com_port TEXT,
+  baud_rate INTEGER,
+  windows_printer_name TEXT,
   is_online INTEGER DEFAULT 0,
   last_seen_at TEXT,
   active INTEGER DEFAULT 1,
@@ -286,6 +305,7 @@ CREATE TABLE IF NOT EXISTS kds_devices (
   color_alert_3_enabled INTEGER DEFAULT 1,
   color_alert_3_seconds INTEGER DEFAULT 300,
   color_alert_3_color TEXT DEFAULT 'red',
+  font_scale INTEGER DEFAULT 100,
   ws_channel TEXT,
   ip_address TEXT,
   is_online INTEGER DEFAULT 0,
@@ -349,6 +369,7 @@ CREATE TABLE IF NOT EXISTS menu_items (
   major_group_id TEXT REFERENCES major_groups(id),
   family_group_id TEXT REFERENCES family_groups(id),
   color TEXT DEFAULT '#3B82F6',
+  menu_build_enabled INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -640,6 +661,7 @@ CREATE TABLE IF NOT EXISTS kds_tickets (
   table_number TEXT,
   items TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
+  is_preview INTEGER DEFAULT 0,
   priority INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   bumped_at TEXT,

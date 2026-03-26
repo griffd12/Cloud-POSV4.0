@@ -52,10 +52,11 @@ export class KdsController {
   
   createTicket(params: CreateTicketParams): KdsTicket {
     const id = randomUUID();
+    const isPreview = params.isPreview ? 1 : 0;
     
     this.db.run(
-      `INSERT INTO kds_tickets (id, check_id, check_number, round_number, order_type, items, station_id, status, priority)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+      `INSERT INTO kds_tickets (id, check_id, check_number, round_number, order_type, items, station_id, status, is_preview, priority)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
       [
         id,
         params.checkId,
@@ -64,6 +65,7 @@ export class KdsController {
         params.orderType,
         JSON.stringify(params.items),
         params.stationId,
+        isPreview,
         params.priority || 0,
       ]
     );
@@ -76,6 +78,7 @@ export class KdsController {
       items: params.items,
       stationId: params.stationId,
       status: 'active',
+      isPreview: !!params.isPreview,
       priority: params.priority || 0,
       createdAt: new Date().toISOString(),
     };
@@ -88,6 +91,7 @@ export class KdsController {
       orderType: params.orderType,
       itemCount: params.items.length,
       items: params.items,
+      isPreview: !!params.isPreview,
       priority: params.priority || 0,
     });
     
@@ -97,6 +101,106 @@ export class KdsController {
     });
     
     return ticket;
+  }
+  
+  updatePreviewTicketItems(checkId: string, checkItemId: string, modifiers: string[]): void {
+    const rows = this.db.all<KdsTicketRow>(
+      `SELECT * FROM kds_tickets WHERE check_id = ? AND is_preview = 1 AND status = 'active'`,
+      [checkId]
+    );
+    for (const row of rows) {
+      const items = JSON.parse(row.items);
+      let updated = false;
+      for (const item of items) {
+        if (item.checkItemId === checkItemId) {
+          item.modifiers = modifiers;
+          updated = true;
+        }
+      }
+      if (updated) {
+        this.db.run('UPDATE kds_tickets SET items = ? WHERE id = ?', [JSON.stringify(items), row.id]);
+        const ticket = this.mapTicketRow({ ...row, items: JSON.stringify(items) });
+        this.broadcastToStation(row.station_id, {
+          type: 'kds_ticket_updated',
+          ticket,
+        });
+      }
+    }
+  }
+  
+  finalizePreviewTickets(checkId: string): void {
+    const rows = this.db.all<KdsTicketRow>(
+      `SELECT * FROM kds_tickets WHERE check_id = ? AND is_preview = 1 AND status = 'active'`,
+      [checkId]
+    );
+    for (const row of rows) {
+      this.db.run('UPDATE kds_tickets SET is_preview = 0 WHERE id = ?', [row.id]);
+      const ticket = this.mapTicketRow(row);
+      ticket.isPreview = false;
+      this.broadcastToStation(row.station_id, {
+        type: 'kds_ticket_finalized',
+        ticket,
+      });
+    }
+  }
+  
+  getPreviewTicketsForCheck(checkId: string): KdsTicket[] {
+    const rows = this.db.all<KdsTicketRow>(
+      `SELECT * FROM kds_tickets WHERE check_id = ? AND is_preview = 1 AND status = 'active'`,
+      [checkId]
+    );
+    return rows.map(row => this.mapTicketRow(row));
+  }
+  
+  addItemToPreviewTicket(checkId: string, checkNumber: number, orderType: string | undefined, stationId: string | undefined, item: KdsItem): void {
+    const existing = this.db.get<KdsTicketRow>(
+      `SELECT * FROM kds_tickets WHERE check_id = ? AND is_preview = 1 AND status = 'active' AND (station_id = ? OR (station_id IS NULL AND ? IS NULL))`,
+      [checkId, stationId || null, stationId || null]
+    );
+    if (existing) {
+      const items = JSON.parse(existing.items);
+      items.push(item);
+      this.db.run('UPDATE kds_tickets SET items = ? WHERE id = ?', [JSON.stringify(items), existing.id]);
+      const ticket = this.mapTicketRow({ ...existing, items: JSON.stringify(items) });
+      this.broadcastToStation(existing.station_id, {
+        type: 'kds_ticket_updated',
+        ticket,
+      });
+    } else {
+      this.createTicket({
+        checkId,
+        checkNumber,
+        orderType,
+        stationId,
+        items: [item],
+        isPreview: true,
+      });
+    }
+  }
+  
+  removeItemFromPreviewTickets(checkId: string, checkItemId: string): void {
+    const rows = this.db.all<KdsTicketRow>(
+      `SELECT * FROM kds_tickets WHERE check_id = ? AND is_preview = 1 AND status = 'active'`,
+      [checkId]
+    );
+    for (const row of rows) {
+      const items = JSON.parse(row.items);
+      const filtered = items.filter((i: any) => i.checkItemId !== checkItemId);
+      if (filtered.length === 0) {
+        this.db.run('DELETE FROM kds_tickets WHERE id = ?', [row.id]);
+        this.broadcastToStation(row.station_id, {
+          type: 'kds_ticket_removed',
+          ticketId: row.id,
+        });
+      } else if (filtered.length < items.length) {
+        this.db.run('UPDATE kds_tickets SET items = ? WHERE id = ?', [JSON.stringify(filtered), row.id]);
+        const ticket = this.mapTicketRow({ ...row, items: JSON.stringify(filtered) });
+        this.broadcastToStation(row.station_id, {
+          type: 'kds_ticket_updated',
+          ticket,
+        });
+      }
+    }
   }
   
   // Get active tickets for a station
@@ -200,6 +304,7 @@ export class KdsController {
       items,
       stationId: row.station_id || undefined,
       status: row.status as 'active' | 'bumped' | 'recalled',
+      isPreview: !!row.is_preview,
       priority: row.priority,
       createdAt: row.created_at,
       bumpedAt: row.bumped_at || undefined,
@@ -319,6 +424,7 @@ interface CreateTicketParams {
   items: KdsItem[];
   stationId?: string;
   priority?: number;
+  isPreview?: boolean;
 }
 
 interface KdsItem {
@@ -337,6 +443,7 @@ interface KdsTicket {
   items: KdsItem[];
   stationId?: string;
   status: 'active' | 'bumped' | 'recalled';
+  isPreview: boolean;
   priority: number;
   createdAt: string;
   bumpedAt?: string;
@@ -350,6 +457,7 @@ interface KdsTicketRow {
   items: string;
   station_id: string | null;
   status: string;
+  is_preview: number;
   priority: number;
   created_at: string;
   bumped_at: string | null;

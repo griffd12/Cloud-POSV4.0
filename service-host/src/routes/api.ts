@@ -143,9 +143,82 @@ export function createApiRoutes(
 ): Router {
   const router = Router();
   const discountLog = getLogger('Discount');
+  const domLog = getLogger('DOM');
 
   if (dataDir) {
     initGatewayLogger(dataDir);
+  }
+
+  function resolveKdsStations(itemList: any[], checkRvcId: string) {
+    const stationItemsMap = new Map<string, any[]>();
+    for (const item of itemList) {
+      let targetStations: string[] = [];
+      const printClassId = (item as any).printClassId || (item as any).print_class_id;
+      if (printClassId && db) {
+        const orderDevices = db.getOrderDevicesForPrintClass(printClassId, undefined, checkRvcId);
+        for (const od of orderDevices) {
+          if (od.kds_device_id) targetStations.push(od.kds_device_id);
+          const kdsLinks = db.getOrderDeviceKds(od.id);
+          for (const link of kdsLinks) {
+            if (link.kds_device_id && !targetStations.includes(link.kds_device_id)) targetStations.push(link.kds_device_id);
+          }
+        }
+      }
+      if (targetStations.length === 0) targetStations = ['default'];
+      for (const stationId of targetStations) {
+        if (!stationItemsMap.has(stationId)) stationItemsMap.set(stationId, []);
+        stationItemsMap.get(stationId)!.push(item);
+      }
+    }
+    return stationItemsMap;
+  }
+
+  function toKdsItem(i: any) {
+    return {
+      checkItemId: i.id,
+      name: i.name,
+      quantity: i.quantity,
+      modifiers: i.modifiers?.map((m: any) => m.name || m),
+      seatNumber: i.seatNumber,
+    };
+  }
+
+  function handleDomAutoFire(check: any, rvc: any, newItems: any[], database: Database, kdsCtrl: KdsController) {
+    const domMode = rvc.dom_send_mode || 'fire_on_fly';
+    domLog.info(`DOM auto-fire: mode=${domMode}, check=${check.id}, newItems=${newItems.length}`);
+
+    if (domMode === 'fire_on_fly') {
+      const stationItemsMap = resolveKdsStations(newItems, check.rvcId);
+      for (const [stationId, stationItems] of stationItemsMap) {
+        for (const item of stationItems) {
+          kdsCtrl.addItemToPreviewTicket(
+            check.id,
+            check.checkNumber || 0,
+            check.orderType,
+            stationId === 'default' ? undefined : stationId,
+            toKdsItem(item)
+          );
+        }
+      }
+    } else if (domMode === 'fire_on_next') {
+      const allUnsent = (check.items || []).filter((i: any) => !i.voided && !i.sent && !i.sentToKitchen);
+      const previousItems = allUnsent.filter((i: any) => !newItems.some((ni: any) => ni.id === i.id));
+      if (previousItems.length > 0) {
+        domLog.info(`fire_on_next: sending ${previousItems.length} previous unsent items as preview`);
+        const stationItemsMap = resolveKdsStations(previousItems, check.rvcId);
+        for (const [stationId, stationItems] of stationItemsMap) {
+          for (const item of stationItems) {
+            kdsCtrl.addItemToPreviewTicket(
+              check.id,
+              check.checkNumber || 0,
+              check.orderType,
+              stationId === 'default' ? undefined : stationId,
+              toKdsItem(item)
+            );
+          }
+        }
+      }
+    }
   }
 
   // ============================================================================
@@ -401,44 +474,8 @@ export function createApiRoutes(
         const check = caps.getCheck(req.params.id);
         if (check && db) {
           const rvc = db.getRvc(check.rvcId);
-          if (rvc && rvc.dynamic_order_mode && rvc.dom_send_mode === 'fire_on_fly') {
-            const sendResult = caps.sendToKitchen(req.params.id, workstationId);
-            const stationItemsMap = new Map<string, any[]>();
-            for (const item of items) {
-              let targetStations: string[] = [];
-              const printClassId = (item as any).printClassId || (item as any).print_class_id;
-              if (printClassId) {
-                const orderDevices = db.getOrderDevicesForPrintClass(printClassId, undefined, check.rvcId);
-                for (const od of orderDevices) {
-                  if (od.kds_device_id) targetStations.push(od.kds_device_id);
-                  const kdsLinks = db.getOrderDeviceKds(od.id);
-                  for (const link of kdsLinks) {
-                    if (link.kds_device_id && !targetStations.includes(link.kds_device_id)) targetStations.push(link.kds_device_id);
-                  }
-                }
-              }
-              if (targetStations.length === 0) targetStations = ['default'];
-              for (const stationId of targetStations) {
-                if (!stationItemsMap.has(stationId)) stationItemsMap.set(stationId, []);
-                stationItemsMap.get(stationId)!.push(item);
-              }
-            }
-            for (const [stationId, stationItems] of stationItemsMap) {
-              kds.createTicket({
-                checkId: check.id,
-                checkNumber: check.checkNumber || 0,
-                roundNumber: sendResult.roundNumber || 0,
-                orderType: check.orderType,
-                stationId: stationId === 'default' ? undefined : stationId,
-                items: stationItems.map((i: any) => ({
-                  checkItemId: i.id,
-                  name: i.name,
-                  quantity: i.quantity,
-                  modifiers: i.modifiers?.map((m: any) => m.name || m),
-                  seatNumber: i.seatNumber,
-                })),
-              });
-            }
+          if (rvc && rvc.dynamic_order_mode) {
+            handleDomAutoFire(check, rvc, items, db, kds);
           }
         }
       } catch (kdsErr) {
@@ -471,56 +508,34 @@ export function createApiRoutes(
       const result = caps.sendToKitchen(req.params.id, workstationId);
       
       try {
-        if (preSendUnsent.length > 0 && preSendCheck) {
-          const stationItemsMap = new Map<string, typeof preSendUnsent>();
+        kds.finalizePreviewTickets(req.params.id);
 
-          for (const item of preSendUnsent) {
-            let targetStations: string[] = [];
-            const printClassId = (item as any).printClassId || (item as any).print_class_id;
-            if (printClassId && db) {
-              const orderDevices = db.getOrderDevicesForPrintClass(printClassId, undefined, preSendCheck.rvcId);
-              for (const od of orderDevices) {
-                if (od.kds_device_id) {
-                  targetStations.push(od.kds_device_id);
-                }
-                const kdsLinks = db.getOrderDeviceKds(od.id);
-                for (const link of kdsLinks) {
-                  if (link.kds_device_id && !targetStations.includes(link.kds_device_id)) {
-                    targetStations.push(link.kds_device_id);
-                  }
-                }
-              }
-            }
-            if (targetStations.length === 0) {
-              targetStations = ['default'];
-            }
-            for (const stationId of targetStations) {
-              if (!stationItemsMap.has(stationId)) {
-                stationItemsMap.set(stationId, []);
-              }
-              stationItemsMap.get(stationId)!.push(item);
+        if (preSendUnsent.length > 0 && preSendCheck) {
+          const existingPreviews = kds.getPreviewTicketsForCheck(req.params.id);
+          const alreadyCoveredItemIds = new Set<string>();
+          for (const pt of existingPreviews) {
+            for (const pi of pt.items) {
+              if (pi.checkItemId) alreadyCoveredItemIds.add(pi.checkItemId);
             }
           }
+          const uncoveredItems = preSendUnsent.filter(i => !alreadyCoveredItemIds.has(i.id));
 
-          for (const [stationId, items] of stationItemsMap) {
-            kds.createTicket({
-              checkId: preSendCheck.id,
-              checkNumber: preSendCheck.checkNumber || 0,
-              roundNumber: result.roundNumber || 0,
-              orderType: preSendCheck.orderType,
-              stationId: stationId === 'default' ? undefined : stationId,
-              items: items.map(i => ({
-                checkItemId: i.id,
-                name: i.name,
-                quantity: i.quantity,
-                modifiers: i.modifiers?.map(m => m.name || m),
-                seatNumber: i.seatNumber,
-              })),
-            });
+          if (uncoveredItems.length > 0) {
+            const stationItemsMap = resolveKdsStations(uncoveredItems, preSendCheck.rvcId);
+            for (const [stationId, items] of stationItemsMap) {
+              kds.createTicket({
+                checkId: preSendCheck.id,
+                checkNumber: preSendCheck.checkNumber || 0,
+                roundNumber: result.roundNumber || 0,
+                orderType: preSendCheck.orderType,
+                stationId: stationId === 'default' ? undefined : stationId,
+                items: items.map(i => toKdsItem(i)),
+              });
+            }
           }
         }
       } catch (kdsErr) {
-        console.error('[KDS] Failed to create ticket for check', req.params.id, kdsErr);
+        domLog.error(`Failed to create/finalize KDS ticket for check ${req.params.id}: ${kdsErr}`);
       }
       
       res.json(result);
@@ -543,7 +558,17 @@ export function createApiRoutes(
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
       }
+      const wasUnsent = item && !item.sent && !item.sent_to_kitchen;
       caps.voidItem(req.params.id, req.params.itemId, reason, workstationId);
+
+      if (wasUnsent) {
+        try {
+          kds.removeItemFromPreviewTickets(req.params.id, req.params.itemId);
+        } catch (kdsErr) {
+          domLog.error(`Failed to remove voided item from preview tickets: ${kdsErr}`);
+        }
+      }
+
       const updatedCheck = caps.getCheck(req.params.id);
       const voidedItem = updatedCheck?.items?.find((i: any) => i.id === req.params.itemId);
       res.json(voidedItem || { id: req.params.itemId, voided: true, success: true });
@@ -577,6 +602,62 @@ export function createApiRoutes(
       if (typeof paymentParams.amount === 'string') {
         paymentParams.amount = parseFloat(paymentParams.amount) || 0;
       }
+
+      try {
+        const prePayCheck = caps.getCheck(req.params.id);
+        if (prePayCheck && db) {
+          const rvc = db.getRvc(prePayCheck.rvcId);
+          if (rvc && rvc.dynamic_order_mode) {
+            const domMode = rvc.dom_send_mode || 'fire_on_fly';
+            if (domMode === 'fire_on_tender') {
+              domLog.info(`fire_on_tender: payment initiated, sending unsent items for check ${req.params.id}`);
+              const unsentItems = (prePayCheck.items || []).filter((i: any) => !i.voided && !i.sent && !i.sentToKitchen);
+              if (unsentItems.length > 0) {
+                caps.sendToKitchen(req.params.id, workstationId);
+                const stationItemsMap = resolveKdsStations(unsentItems, prePayCheck.rvcId);
+                for (const [stationId, stationItems] of stationItemsMap) {
+                  kds.createTicket({
+                    checkId: prePayCheck.id,
+                    checkNumber: prePayCheck.checkNumber || 0,
+                    orderType: prePayCheck.orderType,
+                    stationId: stationId === 'default' ? undefined : stationId,
+                    items: stationItems.map((i: any) => toKdsItem(i)),
+                  });
+                }
+              }
+            } else {
+              kds.finalizePreviewTickets(req.params.id);
+              const unsentItems = (prePayCheck.items || []).filter((i: any) => !i.voided && !i.sent && !i.sentToKitchen);
+              if (unsentItems.length > 0) {
+                caps.sendToKitchen(req.params.id, workstationId);
+                const existingPreviews = kds.getPreviewTicketsForCheck(req.params.id);
+                const coveredIds = new Set<string>();
+                for (const pt of existingPreviews) {
+                  for (const pi of pt.items) {
+                    if (pi.checkItemId) coveredIds.add(pi.checkItemId);
+                  }
+                }
+                const uncovered = unsentItems.filter((i: any) => !coveredIds.has(i.id));
+                if (uncovered.length > 0) {
+                  const stationItemsMap = resolveKdsStations(uncovered, prePayCheck.rvcId);
+                  for (const [stationId, stationItems] of stationItemsMap) {
+                    kds.createTicket({
+                      checkId: prePayCheck.id,
+                      checkNumber: prePayCheck.checkNumber || 0,
+                      orderType: prePayCheck.orderType,
+                      stationId: stationId === 'default' ? undefined : stationId,
+                      items: stationItems.map((i: any) => toKdsItem(i)),
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (domErr) {
+        domLog.error(`DOM fire_on_tender failed for check ${req.params.id}: ${domErr}`);
+      }
+
       const payment = caps.addPayment(req.params.id, paymentParams, workstationId);
       const updatedCheck = caps.getCheck(req.params.id);
       const checkPayments = updatedCheck?.payments || [];
@@ -1941,44 +2022,8 @@ export function createApiRoutes(
         const check = caps.getCheck(req.params.id);
         if (check && db) {
           const rvc = db.getRvc(check.rvcId);
-          if (rvc && rvc.dynamic_order_mode && rvc.dom_send_mode === 'fire_on_fly') {
-            const sendResult = caps.sendToKitchen(req.params.id, workstationId);
-            const stationItemsMap = new Map<string, any[]>();
-            for (const item of items) {
-              let targetStations: string[] = [];
-              const printClassId = (item as any).printClassId || (item as any).print_class_id;
-              if (printClassId) {
-                const orderDevices = db.getOrderDevicesForPrintClass(printClassId, undefined, check.rvcId);
-                for (const od of orderDevices) {
-                  if (od.kds_device_id) targetStations.push(od.kds_device_id);
-                  const kdsLinks = db.getOrderDeviceKds(od.id);
-                  for (const link of kdsLinks) {
-                    if (link.kds_device_id && !targetStations.includes(link.kds_device_id)) targetStations.push(link.kds_device_id);
-                  }
-                }
-              }
-              if (targetStations.length === 0) targetStations = ['default'];
-              for (const stationId of targetStations) {
-                if (!stationItemsMap.has(stationId)) stationItemsMap.set(stationId, []);
-                stationItemsMap.get(stationId)!.push(item);
-              }
-            }
-            for (const [stationId, stationItems] of stationItemsMap) {
-              kds.createTicket({
-                checkId: check.id,
-                checkNumber: check.checkNumber || 0,
-                roundNumber: sendResult.roundNumber || 0,
-                orderType: check.orderType,
-                stationId: stationId === 'default' ? undefined : stationId,
-                items: stationItems.map((i: any) => ({
-                  checkItemId: i.id,
-                  name: i.name,
-                  quantity: i.quantity,
-                  modifiers: i.modifiers?.map((m: any) => m.name || m),
-                  seatNumber: i.seatNumber,
-                })),
-              });
-            }
+          if (rvc && rvc.dynamic_order_mode) {
+            handleDomAutoFire(check, rvc, items, db, kds);
           }
         }
       } catch (kdsErr) {
@@ -2001,29 +2046,39 @@ export function createApiRoutes(
       if (!privCheck.allowed) {
         return res.status(403).json(privCheck.error);
       }
+      const preSendCheck = caps.getCheck(req.params.id);
+      const preSendUnsent = preSendCheck
+        ? preSendCheck.items.filter((i: any) => !i.voided && !i.sentToKitchen)
+        : [];
       const result = caps.sendToKitchen(req.params.id, workstationId);
       try {
-        const check = caps.getCheck(req.params.id);
-        if (check) {
-          const unsentItems = check.items.filter((i: any) => !i.voided);
-          if (unsentItems.length > 0) {
-            kds.createTicket({
-              checkId: check.id,
-              checkNumber: check.checkNumber || 0,
-              roundNumber: result.roundNumber || 0,
-              orderType: check.orderType,
-              items: unsentItems.map((i: any) => ({
-                checkItemId: i.id,
-                name: i.name,
-                quantity: i.quantity,
-                modifiers: i.modifiers?.map((m: any) => m.name || m),
-                seatNumber: i.seatNumber,
-              })),
-            });
+        kds.finalizePreviewTickets(req.params.id);
+
+        if (preSendUnsent.length > 0 && preSendCheck) {
+          const existingPreviews = kds.getPreviewTicketsForCheck(req.params.id);
+          const coveredIds = new Set<string>();
+          for (const pt of existingPreviews) {
+            for (const pi of pt.items) {
+              if (pi.checkItemId) coveredIds.add(pi.checkItemId);
+            }
+          }
+          const uncovered = preSendUnsent.filter((i: any) => !coveredIds.has(i.id));
+          if (uncovered.length > 0) {
+            const stationItemsMap = resolveKdsStations(uncovered, preSendCheck.rvcId);
+            for (const [stationId, items] of stationItemsMap) {
+              kds.createTicket({
+                checkId: preSendCheck.id,
+                checkNumber: preSendCheck.checkNumber || 0,
+                roundNumber: result.roundNumber || 0,
+                orderType: preSendCheck.orderType,
+                stationId: stationId === 'default' ? undefined : stationId,
+                items: items.map((i: any) => toKdsItem(i)),
+              });
+            }
           }
         }
       } catch (kdsErr) {
-        console.error('[KDS] Failed to create ticket for check', req.params.id, kdsErr);
+        domLog.error(`Failed to create/finalize KDS ticket for check ${req.params.id}: ${kdsErr}`);
       }
       const updatedCheck = caps.getCheck(req.params.id);
       res.json({ round: result.roundNumber || result.round || null, updatedItems: updatedCheck?.items || [] });
@@ -2050,6 +2105,38 @@ export function createApiRoutes(
       if (typeof paymentParams.amount === 'string') {
         paymentParams.amount = parseFloat(paymentParams.amount) || 0;
       }
+
+      try {
+        const prePayCheck = caps.getCheck(req.params.id);
+        if (prePayCheck && db) {
+          const rvc = db.getRvc(prePayCheck.rvcId);
+          if (rvc && rvc.dynamic_order_mode) {
+            const domMode = rvc.dom_send_mode || 'fire_on_fly';
+            const unsentItems = (prePayCheck.items || []).filter((i: any) => !i.voided && !i.sent && !i.sentToKitchen);
+            if (domMode === 'fire_on_tender' && unsentItems.length > 0) {
+              caps.sendToKitchen(req.params.id, workstationId);
+              const stationItemsMap = resolveKdsStations(unsentItems, prePayCheck.rvcId);
+              for (const [stationId, stationItems] of stationItemsMap) {
+                kds.createTicket({
+                  checkId: prePayCheck.id,
+                  checkNumber: prePayCheck.checkNumber || 0,
+                  orderType: prePayCheck.orderType,
+                  stationId: stationId === 'default' ? undefined : stationId,
+                  items: stationItems.map((i: any) => toKdsItem(i)),
+                });
+              }
+            } else {
+              kds.finalizePreviewTickets(req.params.id);
+              if (unsentItems.length > 0) {
+                caps.sendToKitchen(req.params.id, workstationId);
+              }
+            }
+          }
+        }
+      } catch (domErr) {
+        domLog.error(`DOM payment handling failed for check ${req.params.id}: ${domErr}`);
+      }
+
       const payment = caps.addPayment(req.params.id, paymentParams, workstationId);
       const check = caps.getCheck(req.params.id);
       if (!check) return res.status(404).json({ error: 'Check not found after payment' });
@@ -2526,7 +2613,11 @@ export function createApiRoutes(
       const checks = caps.getOpenChecks();
       for (const check of checks) {
         if (check.items?.some((i: any) => i.id === req.params.id)) {
+          const wasUnsent = itemRow && !itemRow.sent;
           caps.voidItem(check.id, req.params.id, reason, workstationId);
+          if (wasUnsent) {
+            try { kds.removeItemFromPreviewTickets(check.id, req.params.id); } catch (_) {}
+          }
           const updatedCheck = caps.getCheck(check.id);
           const voidedItem = updatedCheck?.items?.find((i: any) => i.id === req.params.id);
           if (voidedItem) return res.json(voidedItem);
@@ -2559,6 +2650,14 @@ export function createApiRoutes(
       const txnGroupId = caps.getTxnGroupId(item.check_id);
       caps.writeJournal(item.check_id, txnGroupId, '', 'update_modifiers', { itemId, modifiers });
       caps.transactionSync.queueCheck(item.check_id, 'update', caps.getCheck(item.check_id));
+
+      if (!item.sent && !item.sent_to_kitchen) {
+        try {
+          const modNames = (modifiers || []).map((m: any) => m.name || m);
+          kds.updatePreviewTicketItems(item.check_id, itemId, modNames);
+        } catch (_) {}
+      }
+
       const updatedCheck = caps.getCheck(item.check_id);
       const updatedItem = updatedCheck?.items?.find((i: any) => i.id === itemId);
       if (updatedItem) return res.json(updatedItem);
