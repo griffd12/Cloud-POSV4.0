@@ -11,7 +11,7 @@ import archiver from "archiver";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, ne, sql, inArray, and, desc } from "drizzle-orm";
-import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkPayments, checkServiceCharges, privileges, rolePrivileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts, workstationOrderDevices, posLayoutCells, posLayoutRvcAssignments, menuItemSlus, terminalDevices, printAgents, descriptorSets, descriptorLogoAssets, paymentGatewayConfig, employeeJobCodes, tipRuleJobPercentages, overtimeRules, breakRules, minorLaborRules, fiscalPeriods, cashDrawers, itemAvailability, emcOptionFlags, giftCards, loyaltyRewards, majorGroups, familyGroups, loyaltyMemberEnrollments } from "@shared/schema";
+import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkPayments, checkServiceCharges, privileges, rolePrivileges, serviceHostTransactions, printClassRouting as printClassRoutingTable, serviceHosts, workstationOrderDevices, posLayoutCells, posLayoutRvcAssignments, menuItemSlus, terminalDevices, printAgents, descriptorSets, descriptorLogoAssets, paymentGatewayConfig, employeeJobCodes, tipRuleJobPercentages, overtimeRules, breakRules, minorLaborRules, fiscalPeriods, cashDrawers, itemAvailability, emcOptionFlags, giftCards, loyaltyRewards, majorGroups, familyGroups, loyaltyMemberEnrollments, tenders } from "@shared/schema";
 import { uberEatsIntegration } from "./integrations/uber-eats";
 import { grubhubIntegration } from "./integrations/grubhub";
 import { doorDashIntegration } from "./integrations/doordash";
@@ -25408,17 +25408,25 @@ connect();
                     await storage.updateCheckPayment(existingPmt[0].id, {
                       amount: (pmt.amount || "0").toString(),
                       tipAmount: (pmt.tipAmount || pmt.tip_amount || "0").toString(),
-                      status: pmt.status || "completed",
+                      paymentStatus: pmt.paymentStatus || pmt.status || "completed",
                     });
                   } else {
+                    const pmtTenderId = pmt.tenderId || pmt.tender_id;
+                    let pmtTenderName = pmt.tenderName || pmt.tender_name || null;
+                    if (!pmtTenderName && pmtTenderId) {
+                      const tenderRow = await db.select().from(tenders).where(eq(tenders.id, pmtTenderId)).limit(1);
+                      pmtTenderName = tenderRow.length > 0 ? tenderRow[0].name : (pmt.tenderType || pmt.tender_type || "Payment");
+                    }
                     await storage.createPayment({
                       id: pmt.id,
                       checkId: cloudCheck.id,
-                      tenderId: pmt.tenderId || pmt.tender_id,
+                      tenderId: pmtTenderId,
+                      tenderName: pmtTenderName || "Payment",
                       amount: (pmt.amount || "0").toString(),
                       tipAmount: (pmt.tipAmount || pmt.tip_amount || "0").toString(),
-                      paymentType: pmt.paymentType || pmt.payment_type || "cash",
-                      status: pmt.status || "completed",
+                      paymentStatus: pmt.paymentStatus || pmt.status || "completed",
+                      businessDate: pmt.businessDate || pmt.business_date || d.businessDate || d.business_date || null,
+                      employeeId: pmt.employeeId || pmt.employee_id || d.employeeId || d.employee_id || null,
                     });
                   }
                 } catch (pmtErr: any) {
@@ -25429,6 +25437,81 @@ connect();
 
             if (cloudCheck) {
               cloudIds[tx.localId] = cloudCheck.id;
+            }
+          } else if (tx.type === "payment" || tx.type === "payment_added") {
+            const rawData = tx.data;
+            const d = rawData?.payload ? { ...rawData, ...rawData.payload } : rawData;
+            if (d) {
+              try {
+                const pmtId = d.id || d.paymentId || d.payment_id;
+                const checkId = d.checkId || d.check_id;
+                if (pmtId && checkId) {
+                  const existingPmt = await db.select().from(checkPayments)
+                    .where(eq(checkPayments.id, pmtId)).limit(1);
+                  if (existingPmt.length === 0) {
+                    const pmtTenderId = d.tenderId || d.tender_id;
+                    let pmtTenderName = d.tenderName || d.tender_name || null;
+                    if (!pmtTenderName && pmtTenderId) {
+                      const tenderRow = await db.select().from(tenders).where(eq(tenders.id, pmtTenderId)).limit(1);
+                      pmtTenderName = tenderRow.length > 0 ? tenderRow[0].name : (d.tenderType || d.tender_type || "Payment");
+                    }
+                    await storage.createPayment({
+                      id: pmtId,
+                      checkId,
+                      tenderId: pmtTenderId,
+                      tenderName: pmtTenderName || "Payment",
+                      amount: (d.amount || "0").toString(),
+                      tipAmount: (d.tipAmount || d.tip_amount || "0").toString(),
+                      paymentStatus: d.paymentStatus || d.status || "completed",
+                      businessDate: d.businessDate || d.business_date || null,
+                      employeeId: d.employeeId || d.employee_id || null,
+                    });
+                  }
+                }
+              } catch (pmtErr: any) {
+                console.warn(`Sync standalone payment error: ${pmtErr.message}`);
+              }
+            }
+          } else if (tx.type === "kds_ticket_created" && tx.data) {
+            const d = tx.data?.payload || tx.data;
+            try {
+              const ticketId = d.ticketId || d.id;
+              const checkId = d.checkId || d.check_id || tx.data.checkId;
+              if (ticketId && checkId) {
+                const existingTicket = await db.select().from(kdsTickets)
+                  .where(eq(kdsTickets.id, ticketId)).limit(1);
+                if (existingTicket.length === 0) {
+                  const checkRow = await db.select().from(checks).where(eq(checks.id, checkId)).limit(1);
+                  const rvcId = d.rvcId || d.rvc_id || tx.data.rvcId || (checkRow.length > 0 ? checkRow[0].rvcId : null);
+                  const stationId = d.stationId || d.station_id || d.kdsDeviceId || d.kds_device_id || null;
+                  await db.insert(kdsTickets).values({
+                    id: ticketId,
+                    checkId,
+                    rvcId: rvcId || null,
+                    kdsDeviceId: stationId,
+                    status: d.status || "active",
+                    originDeviceId: tx.data.deviceId || d.originDeviceId || null,
+                  });
+                  if (d.items && Array.isArray(d.items)) {
+                    for (const item of d.items) {
+                      try {
+                        const itemId = item.id || item.checkItemId || item.check_item_id;
+                        if (itemId) {
+                          await db.insert(kdsTicketItems).values({
+                            kdsTicketId: ticketId,
+                            checkItemId: itemId,
+                            status: item.status || "pending",
+                          });
+                        }
+                      } catch (itemErr: any) {
+                        console.warn(`Sync KDS ticket item error: ${itemErr.message}`);
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (kdsErr: any) {
+              console.warn(`Sync KDS ticket error: ${kdsErr.message}`);
             }
           } else if (tx.type === "time_punch" && tx.data) {
             const cloudPunch = await storage.createTimePunch({

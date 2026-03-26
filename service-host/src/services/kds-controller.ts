@@ -303,6 +303,7 @@ interface KdsItem {
   quantity: number;
   modifiers?: string[];
   seatNumber?: number;
+  checkItemId?: string;
 }
 
 interface KdsTicket {

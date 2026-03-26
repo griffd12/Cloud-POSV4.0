@@ -343,7 +343,9 @@ export class TransactionSync {
   }
   
   getStats(): SyncStats {
-    const journalStats = this.db.getJournalStats(new Date().toISOString().split('T')[0]);
+    const prop = this.db.get<any>('SELECT current_business_date FROM properties WHERE active = 1 LIMIT 1');
+    const businessDate = prop?.current_business_date || new Date().toISOString().split('T')[0];
+    const journalStats = this.db.getJournalStats(businessDate);
     return {
       queueSize: this.getQueueSize(),
       journalPending: journalStats?.pending || 0,

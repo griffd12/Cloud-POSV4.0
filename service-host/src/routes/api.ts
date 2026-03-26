@@ -431,6 +431,7 @@ export function createApiRoutes(
                 orderType: check.orderType,
                 stationId: stationId === 'default' ? undefined : stationId,
                 items: stationItems.map((i: any) => ({
+                  checkItemId: i.id,
                   name: i.name,
                   quantity: i.quantity,
                   modifiers: i.modifiers?.map((m: any) => m.name || m),
@@ -509,6 +510,7 @@ export function createApiRoutes(
               orderType: preSendCheck.orderType,
               stationId: stationId === 'default' ? undefined : stationId,
               items: items.map(i => ({
+                checkItemId: i.id,
                 name: i.name,
                 quantity: i.quantity,
                 modifiers: i.modifiers?.map(m => m.name || m),
@@ -1969,6 +1971,7 @@ export function createApiRoutes(
                 orderType: check.orderType,
                 stationId: stationId === 'default' ? undefined : stationId,
                 items: stationItems.map((i: any) => ({
+                  checkItemId: i.id,
                   name: i.name,
                   quantity: i.quantity,
                   modifiers: i.modifiers?.map((m: any) => m.name || m),
@@ -2010,6 +2013,7 @@ export function createApiRoutes(
               roundNumber: result.roundNumber || 0,
               orderType: check.orderType,
               items: unsentItems.map((i: any) => ({
+                checkItemId: i.id,
                 name: i.name,
                 quantity: i.quantity,
                 modifiers: i.modifiers?.map((m: any) => m.name || m),
@@ -3785,7 +3789,21 @@ export function createApiRoutes(
 
       const id = `caps_te_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
       const now = new Date().toISOString();
-      const businessDate = now.split('T')[0];
+      const prop = db?.get<any>('SELECT current_business_date, timezone, business_date_rollover_time FROM properties WHERE active = 1 LIMIT 1');
+      let businessDate = now.split('T')[0];
+      if (prop?.current_business_date) {
+        businessDate = prop.current_business_date;
+      } else if (prop?.timezone) {
+        const tz = prop.timezone;
+        const rolloverParts = (prop.business_date_rollover_time || '04:00').split(':');
+        const rolloverMins = parseInt(rolloverParts[0], 10) * 60 + parseInt(rolloverParts[1] || '0', 10);
+        const localDateStr = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+        const localH = parseInt(new Date().toLocaleTimeString('en-US', { timeZone: tz, hour12: false, hour: '2-digit' }), 10);
+        const localM = parseInt(new Date().toLocaleTimeString('en-US', { timeZone: tz, hour12: false, minute: '2-digit' }), 10);
+        businessDate = (localH * 60 + localM) < rolloverMins
+          ? new Date(new Date(localDateStr + 'T12:00:00').getTime() - 86400000).toISOString().split('T')[0]
+          : localDateStr;
+      }
       const jobCode = jobCodeId && db ? db.get<any>('SELECT name FROM job_codes WHERE id = ?', [jobCodeId]) : null;
 
       db?.run(
@@ -4724,7 +4742,8 @@ export function createApiRoutes(
   router.get('/sync/journal-stats', (_req, res) => {
     try {
       if (!db) return res.status(503).json({ error: 'Database not available' });
-      const businessDate = new Date().toISOString().split('T')[0];
+      const propRow = db.get<any>('SELECT current_business_date FROM properties WHERE active = 1 LIMIT 1');
+      const businessDate = propRow?.current_business_date || new Date().toISOString().split('T')[0];
       const stats = db.getJournalStats(businessDate);
       const queueItems = db.getPendingSyncItems(1000);
       res.json({
