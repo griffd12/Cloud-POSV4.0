@@ -1,0 +1,67 @@
+Complete EMC → CAPS Config Sync Audit (Every Page, Every Level)
+ENTERPRISE LEVEL
+Setting	Synced?	Used by CAPS?
+Name, Code	✅	✅
+PROPERTY LEVEL
+Setting	Synced?	Used by CAPS?
+Name, Code, Address	✅	✅
+Timezone	✅	✅
+Business Date Rollover Time	✅	✅
+Rollover Mode (auto/manual)	✅	✅
+Current Business Date	✅	✅
+Auto Clock-Out at Rollover	✅	✅
+Sign-In Logo URL	✅	✅
+CAPS Workstation ID	❌ Missing from local schema	Needed for CAPS identity
+RVC LEVEL
+Setting	Synced?	Used by CAPS?
+Name, Code, Default Order Type	✅	✅
+Fast Transaction Mode	✅	✅
+Dynamic Order Mode	✅	✅ (partially)
+DOM Send Mode	✅ stored, but only fire_on_fly works	fire_on_next and fire_on_tender not implemented
+Conversational Ordering	❌ Missing from local schema and sync	POS can't read it
+Receipt/Kitchen Print Mode	✅	✅
+Receipt Descriptors (header/trailer)	✅ via descriptor_sets	✅
+Option Bits	✅	✅
+WORKSTATIONS
+Setting	Synced?	Used by CAPS?
+Name, RVC, Device Type, Order Type	✅	✅
+All printer assignments (6 slots)	✅	✅
+KDS Expo, Order Device	✅	✅
+Fast Transaction, Begin Check, etc.	✅	✅
+Manager Approval Device	✅	✅
+Auto Logout Minutes	✅	✅
+Font Scale	❌ Missing	Display sizing won't follow EMC
+COM Port settings (6 fields)	❌ Missing	Serial devices won't work offline
+Cash Drawer settings (6 fields)	❌ Missing	Cash drawer won't pop
+PRINTERS
+Setting	Synced?	Used by CAPS?
+IP Address, Port, Connection Type	✅	✅
+Auto-cut, Logo, Print Voids, etc.	✅	✅
+Host Workstation ID	❌ Missing	Can't route to USB/serial printers
+COM Port, Baud Rate	❌ Missing	Serial printers broken offline
+Windows Printer Name	❌ Missing	Windows driver printing broken
+KDS DEVICES
+Setting	Synced?	Used by CAPS?
+All display/timer/alert settings	✅	✅
+Font Scale	❌ Missing	KDS text sizing won't follow EMC
+MENU ITEMS
+Setting	Synced?	Used by CAPS?
+Name, Price, Color, Short Name	✅	✅
+Tax Group, Print Class, Major/Family Group	✅ (via migration)	✅
+Menu Build Enabled	❌ Missing	POS won't know which items need modifier build screen
+SCHEDULING / LABOR
+Setting	Synced?	Used by CAPS?
+Fiscal Periods	✅	✅
+Job Codes, Employee Job Codes	✅	✅
+Time Punches, Break Sessions	✅	✅
+Shifts / Shift Templates	❌ Not synced	Offline scheduling reference broken
+PAYMENT
+Setting	Synced?	Used by CAPS?
+Payment Processors	✅	✅
+Payment Gateway Config	✅	✅
+Terminal Devices	✅	✅ (minor field naming diff)
+EMPLOYEES / ROLES / PRIVILEGES
+Setting	Synced?	Used by CAPS?
+Employees, Roles, Privileges	✅	✅
+Role Privileges, Employee Assignments	✅	✅
+Employee Date of Birth	❌ Missing	Minor — not operationally critical
