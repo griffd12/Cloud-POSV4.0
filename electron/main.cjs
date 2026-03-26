@@ -1346,9 +1346,9 @@ function setupIpcHandlers() {
   ipcMain.handle('rotate-logs-business-date', (event, businessDate) => {
     appLogger.info('LogRotation', `Business date rollover: archiving logs for ${businessDate}`);
     const { rotateLogsForBusinessDate } = require('./logger.cjs');
-    const moved = rotateLogsForBusinessDate(businessDate);
-    appLogger.info('LogRotation', `Archived ${moved} log files to archive/${businessDate}/`);
-    return { success: true, moved, businessDate };
+    const count = rotateLogsForBusinessDate(businessDate);
+    appLogger.info('LogRotation', `Archived ${count} log files into zip for business date ${businessDate}`);
+    return { success: true, count, businessDate };
   });
 
   ipcMain.handle('open-log-directory', () => {

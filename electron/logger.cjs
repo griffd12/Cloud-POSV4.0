@@ -207,85 +207,176 @@ class Logger {
 const ARCHIVE_DIR = path.join(LOG_DIR, 'archive');
 const ACTIVE_LOG_FILES = ['app.log', 'print-agent.log', 'offline-db.log', 'installer.log', 'updater.log', 'system.log'];
 const MAX_ARCHIVE_DAYS = 14;
+const MAX_UPGRADE_ARCHIVES = 10;
 
-function moveLogsToArchive(archiveSubDir, logFiles) {
-  ensureLogDir();
-  const destDir = path.join(ARCHIVE_DIR, archiveSubDir);
-  try {
-    if (!fs.existsSync(destDir)) {
-      fs.mkdirSync(destDir, { recursive: true });
-    }
-  } catch (e) {
-    console.error(`[Logger] Failed to create archive dir ${destDir}: ${e.message}`);
-    return 0;
-  }
-  let moved = 0;
-  for (const logFile of logFiles) {
-    const src = path.join(LOG_DIR, logFile);
-    if (fs.existsSync(src)) {
+const SERVICE_HOST_LOG_DIR = path.join(
+  process.platform === 'win32'
+    ? (process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'))
+    : os.homedir(),
+  process.platform === 'win32' ? 'Cloud POS' : '.cloudpos',
+  'data', 'service-host', 'logs'
+);
+
+function collectAllLogFiles() {
+  const files = [];
+
+  for (const logFile of ACTIVE_LOG_FILES) {
+    const filePath = path.join(LOG_DIR, logFile);
+    if (fs.existsSync(filePath)) {
       try {
-        const stats = fs.statSync(src);
-        if (stats.size > 0) {
-          const dest = path.join(destDir, logFile);
-          fs.renameSync(src, dest);
-          moved++;
-        }
-      } catch (e) {
-        console.error(`[Logger] Failed to archive ${logFile}: ${e.message}`);
+        const stats = fs.statSync(filePath);
+        if (stats.size > 0) files.push({ absPath: filePath, archiveName: `electron/${logFile}` });
+      } catch {}
+    }
+    for (let i = 1; i <= MAX_LOG_FILES; i++) {
+      const rotated = `${filePath}.${i}`;
+      if (fs.existsSync(rotated)) {
+        try {
+          const stats = fs.statSync(rotated);
+          if (stats.size > 0) files.push({ absPath: rotated, archiveName: `electron/${logFile}.${i}` });
+        } catch {}
       }
     }
   }
-  return moved;
+
+  if (fs.existsSync(SERVICE_HOST_LOG_DIR)) {
+    try {
+      const shFiles = fs.readdirSync(SERVICE_HOST_LOG_DIR);
+      for (const f of shFiles) {
+        if (f.endsWith('.log') || f.match(/\.log\.\d+$/)) {
+          const filePath = path.join(SERVICE_HOST_LOG_DIR, f);
+          try {
+            const stats = fs.statSync(filePath);
+            if (stats.size > 0) files.push({ absPath: filePath, archiveName: `service-host/${f}` });
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  return files;
 }
 
-function cleanupOldArchives() {
+function truncateActiveLogFiles() {
+  for (const logFile of ACTIVE_LOG_FILES) {
+    const filePath = path.join(LOG_DIR, logFile);
+    try {
+      if (fs.existsSync(filePath)) fs.writeFileSync(filePath, '', 'utf8');
+    } catch {}
+    for (let i = 1; i <= MAX_LOG_FILES; i++) {
+      const rotated = `${filePath}.${i}`;
+      try {
+        if (fs.existsSync(rotated)) fs.unlinkSync(rotated);
+      } catch {}
+    }
+  }
+
+  if (fs.existsSync(SERVICE_HOST_LOG_DIR)) {
+    try {
+      const shFiles = fs.readdirSync(SERVICE_HOST_LOG_DIR);
+      for (const f of shFiles) {
+        if (f.endsWith('.log') || f.match(/\.log\.\d+$/)) {
+          const filePath = path.join(SERVICE_HOST_LOG_DIR, f);
+          try {
+            if (f.match(/\.log\.\d+$/)) {
+              fs.unlinkSync(filePath);
+            } else {
+              fs.writeFileSync(filePath, '', 'utf8');
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+}
+
+function createLogZip(zipPath, logFiles) {
+  try {
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    for (const file of logFiles) {
+      const content = fs.readFileSync(file.absPath);
+      zip.addFile(file.archiveName, content);
+    }
+    const zipDir = path.dirname(zipPath);
+    if (!fs.existsSync(zipDir)) fs.mkdirSync(zipDir, { recursive: true });
+    zip.writeZip(zipPath);
+    return true;
+  } catch (e) {
+    console.error(`[Logger] Failed to create zip ${zipPath}: ${e.message}`);
+    return false;
+  }
+}
+
+function cleanupOldArchives(pattern, maxKeep) {
   try {
     if (!fs.existsSync(ARCHIVE_DIR)) return;
     const entries = fs.readdirSync(ARCHIVE_DIR)
-      .filter(d => d.match(/^\d{4}-\d{2}-\d{2}$/))
+      .filter(f => f.match(pattern))
       .sort();
-    while (entries.length > MAX_ARCHIVE_DAYS) {
+    while (entries.length > maxKeep) {
       const oldest = entries.shift();
-      const oldDir = path.join(ARCHIVE_DIR, oldest);
       try {
-        const files = fs.readdirSync(oldDir);
-        for (const f of files) fs.unlinkSync(path.join(oldDir, f));
-        fs.rmdirSync(oldDir);
+        fs.unlinkSync(path.join(ARCHIVE_DIR, oldest));
       } catch {}
     }
   } catch {}
+}
+
+function formatDateMMDDYY(dateStr) {
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    return `${parts[1]}_${parts[2]}_${parts[0].slice(2)}`;
+  }
+  const d = new Date(dateStr);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(2);
+  return `${mm}_${dd}_${yy}`;
 }
 
 function rotateLogsForBusinessDate(closedBusinessDate) {
-  const moved = moveLogsToArchive(closedBusinessDate, ACTIVE_LOG_FILES);
-  cleanupOldArchives();
-  console.log(`[Logger] Business date rotation: archived ${moved} log files to archive/${closedBusinessDate}/`);
-  return moved;
+  ensureLogDir();
+  const logFiles = collectAllLogFiles();
+  if (logFiles.length === 0) {
+    console.log(`[Logger] Business date rotation: no log files to archive`);
+    return 0;
+  }
+
+  const datePart = formatDateMMDDYY(closedBusinessDate);
+  const zipName = `logs_${datePart}.zip`;
+  const zipPath = path.join(ARCHIVE_DIR, zipName);
+
+  const success = createLogZip(zipPath, logFiles);
+  if (success) {
+    truncateActiveLogFiles();
+    cleanupOldArchives(/^logs_\d{2}_\d{2}_\d{2}\.zip$/, MAX_ARCHIVE_DAYS);
+    console.log(`[Logger] Business date rotation: archived ${logFiles.length} files to ${zipName}`);
+  }
+  return logFiles.length;
 }
 
 function rotateLogsForUpgrade(fromVersion, toVersion) {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').substring(0, 19);
-  const archiveSubDir = path.join('upgrades', `v${fromVersion}_${timestamp}`);
-  const moved = moveLogsToArchive(archiveSubDir, ACTIVE_LOG_FILES);
-  try {
-    if (!fs.existsSync(ARCHIVE_DIR)) return moved;
-    const upgradesDir = path.join(ARCHIVE_DIR, 'upgrades');
-    if (!fs.existsSync(upgradesDir)) return moved;
-    const upgradeDirs = fs.readdirSync(upgradesDir)
-      .map(d => ({ name: d, mtime: fs.statSync(path.join(upgradesDir, d)).mtimeMs }))
-      .sort((a, b) => a.mtime - b.mtime);
-    const MAX_UPGRADE_ARCHIVES = 10;
-    while (upgradeDirs.length > MAX_UPGRADE_ARCHIVES) {
-      const oldest = upgradeDirs.shift();
-      const oldDir = path.join(upgradesDir, oldest.name);
-      try {
-        const files = fs.readdirSync(oldDir);
-        for (const f of files) fs.unlinkSync(path.join(oldDir, f));
-        fs.rmdirSync(oldDir);
-      } catch {}
-    }
-  } catch {}
-  return moved;
+  ensureLogDir();
+  const logFiles = collectAllLogFiles();
+  if (logFiles.length === 0) return 0;
+
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const yy = String(now.getFullYear()).slice(2);
+  const datePart = `${mm}_${dd}_${yy}`;
+  const versionClean = (fromVersion || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '');
+  const zipName = `logs_upgrade_v${versionClean}_${datePart}.zip`;
+  const zipPath = path.join(ARCHIVE_DIR, zipName);
+
+  const success = createLogZip(zipPath, logFiles);
+  if (success) {
+    truncateActiveLogFiles();
+    cleanupOldArchives(/^logs_upgrade_v.*\.zip$/, MAX_UPGRADE_ARCHIVES);
+    console.log(`[Logger] Upgrade rotation: archived ${logFiles.length} files to ${zipName}`);
+  }
+  return logFiles.length;
 }
 
 const VERSION_MARKER_FILE = path.join(LOG_DIR, '.last-version');
