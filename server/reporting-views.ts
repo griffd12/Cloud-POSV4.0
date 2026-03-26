@@ -187,10 +187,18 @@ export async function getSalesLines(filters: ReportFilters): Promise<SalesLine[]
     const totalNet = items.reduce((s: number, it: any) => s + parseFloat(it.netLine || '0'), 0);
     if (totalNet <= 0) continue;
 
-    for (const it of items) {
+    let allocatedCents = 0;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
       const itemNet = parseFloat(it.netLine || '0');
-      const prorated = Math.round((itemNet / totalNet) * checkTax * 100) / 100;
-      it.taxAmount = String(prorated);
+      if (i === items.length - 1) {
+        const remainderCents = Math.round(checkTax * 100) - allocatedCents;
+        it.taxAmount = String(remainderCents / 100);
+      } else {
+        const proratedCents = Math.round((itemNet / totalNet) * checkTax * 100);
+        allocatedCents += proratedCents;
+        it.taxAmount = String(proratedCents / 100);
+      }
     }
   }
 
