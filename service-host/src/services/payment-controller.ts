@@ -565,6 +565,16 @@ export class PaymentController {
       const result = await this.pollCloudSession(cloudSessionId, sessionId, session, terminalDevice, amount, tip);
       return result;
     } catch (e: any) {
+      const isNetworkError = e.message?.includes('503') || e.message?.includes('ECONNREFUSED') ||
+        e.message?.includes('ETIMEDOUT') || e.message?.includes('ENOTFOUND') ||
+        e.message?.includes('fetch failed') || e.message?.includes('network');
+      if (isNetworkError) {
+        logger.warn('Cloud proxy failed with network error — trying direct Stripe fallback', { sessionId, error: e.message });
+        const directResult = await this.processViaDirectStripe(sessionId, session, terminalDevice, amount, tip);
+        if (directResult.success || !directResult.error?.includes('not available locally')) {
+          return directResult;
+        }
+      }
       logger.error('Cloud proxy terminal payment failed', e, { sessionId });
       this.db.run(
         `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,

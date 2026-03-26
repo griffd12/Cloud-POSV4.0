@@ -402,7 +402,7 @@ export function createApiRoutes(
         if (check && db) {
           const rvc = db.getRvc(check.rvcId);
           if (rvc && rvc.dynamic_order_mode && rvc.dom_send_mode === 'fire_on_fly') {
-            caps.sendToKitchen(req.params.id, workstationId);
+            const sendResult = caps.sendToKitchen(req.params.id, workstationId);
             const stationItemsMap = new Map<string, any[]>();
             for (const item of items) {
               let targetStations: string[] = [];
@@ -427,7 +427,7 @@ export function createApiRoutes(
               kds.createTicket({
                 checkId: check.id,
                 checkNumber: check.checkNumber || 0,
-                roundNumber: check.currentRound || 0,
+                roundNumber: sendResult.roundNumber || 0,
                 orderType: check.orderType,
                 stationId: stationId === 'default' ? undefined : stationId,
                 items: stationItems.map((i: any) => ({
@@ -1940,7 +1940,7 @@ export function createApiRoutes(
         if (check && db) {
           const rvc = db.getRvc(check.rvcId);
           if (rvc && rvc.dynamic_order_mode && rvc.dom_send_mode === 'fire_on_fly') {
-            caps.sendToKitchen(req.params.id, workstationId);
+            const sendResult = caps.sendToKitchen(req.params.id, workstationId);
             const stationItemsMap = new Map<string, any[]>();
             for (const item of items) {
               let targetStations: string[] = [];
@@ -1965,7 +1965,7 @@ export function createApiRoutes(
               kds.createTicket({
                 checkId: check.id,
                 checkNumber: check.checkNumber || 0,
-                roundNumber: check.currentRound || 0,
+                roundNumber: sendResult.roundNumber || 0,
                 orderType: check.orderType,
                 stationId: stationId === 'default' ? undefined : stationId,
                 items: stationItems.map((i: any) => ({
