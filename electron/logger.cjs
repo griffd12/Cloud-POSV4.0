@@ -217,8 +217,9 @@ const SERVICE_HOST_LOG_DIR = path.join(
   'data', 'service-host', 'logs'
 );
 
-function collectAllLogFiles() {
+function collectAllLogFiles(overrideShLogDir) {
   const files = [];
+  const shLogDir = overrideShLogDir || SERVICE_HOST_LOG_DIR;
 
   for (const logFile of ACTIVE_LOG_FILES) {
     const filePath = path.join(LOG_DIR, logFile);
@@ -239,12 +240,12 @@ function collectAllLogFiles() {
     }
   }
 
-  if (fs.existsSync(SERVICE_HOST_LOG_DIR)) {
+  if (fs.existsSync(shLogDir)) {
     try {
-      const shFiles = fs.readdirSync(SERVICE_HOST_LOG_DIR);
+      const shFiles = fs.readdirSync(shLogDir);
       for (const f of shFiles) {
         if (f.endsWith('.log') || f.match(/\.log\.\d+$/)) {
-          const filePath = path.join(SERVICE_HOST_LOG_DIR, f);
+          const filePath = path.join(shLogDir, f);
           try {
             const stats = fs.statSync(filePath);
             if (stats.size > 0) files.push({ absPath: filePath, archiveName: `service-host/${f}` });
@@ -330,20 +331,25 @@ function cleanupOldArchives(pattern, maxKeep) {
 }
 
 function formatDateMMDDYY(dateStr) {
-  const parts = dateStr.split('-');
-  if (parts.length === 3) {
+  const cleaned = String(dateStr).split('T')[0];
+  const parts = cleaned.split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
     return `${parts[1]}_${parts[2]}_${parts[0].slice(2)}`;
   }
-  const d = new Date(dateStr);
+  const d = new Date(cleaned);
+  if (isNaN(d.getTime())) {
+    const now = new Date();
+    return `${String(now.getMonth() + 1).padStart(2, '0')}_${String(now.getDate()).padStart(2, '0')}_${String(now.getFullYear()).slice(2)}`;
+  }
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   const yy = String(d.getFullYear()).slice(2);
   return `${mm}_${dd}_${yy}`;
 }
 
-function rotateLogsForBusinessDate(closedBusinessDate) {
+function rotateLogsForBusinessDate(closedBusinessDate, options) {
   ensureLogDir();
-  const logFiles = collectAllLogFiles();
+  const logFiles = collectAllLogFiles(options?.serviceHostLogDir);
   if (logFiles.length === 0) {
     console.log(`[Logger] Business date rotation: no log files to archive`);
     return 0;
@@ -364,9 +370,9 @@ function rotateLogsForBusinessDate(closedBusinessDate) {
   return logFiles.length;
 }
 
-function rotateLogsForUpgrade(fromVersion, toVersion) {
+function rotateLogsForUpgrade(fromVersion, toVersion, options) {
   ensureLogDir();
-  const logFiles = collectAllLogFiles();
+  const logFiles = collectAllLogFiles(options?.serviceHostLogDir);
   if (logFiles.length === 0) return 0;
 
   const now = new Date();
