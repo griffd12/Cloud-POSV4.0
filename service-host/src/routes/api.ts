@@ -4241,11 +4241,12 @@ export function createApiRoutes(
       const openChecks = checks.filter(c => c.status === 'open');
       let grossSales = 0, taxTotal = 0, discountTotal = 0, totalPayments = 0, totalTips = 0;
       let totalRefunds = 0, refundCount = 0, refundedTax = 0, refundedSales = 0;
-      for (const c of closedChecks) {
+      let serviceChargeTotal = 0;
+      for (const c of checks) {
         grossSales += parseFloat(c.subtotal || '0');
         taxTotal += parseFloat(c.tax || '0');
         discountTotal += parseFloat(c.discount_total || '0');
-        totalPayments += parseFloat(c.total || '0');
+        serviceChargeTotal += parseFloat(c.service_charge_total || '0');
       }
       const payments: any[] = db?.all(
         `SELECT cp.*, cp.tip_amount FROM check_payments cp JOIN checks c ON cp.check_id = c.id WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND cp.voided = 0`,
@@ -4264,6 +4265,7 @@ export function createApiRoutes(
         refundedSales += parseFloat(r.subtotal || '0');
       }
       const netSales = grossSales - discountTotal;
+      const checksWithItems = checks.filter(c => parseFloat(c.subtotal || '0') > 0);
       res.json({
         grossSales,
         netSales,
@@ -4279,10 +4281,11 @@ export function createApiRoutes(
         totalRefunds,
         refundCount,
         discountTotal,
+        serviceChargeTotal,
         checksStarted: checks.length,
         checksClosed: closedChecks.length,
         checksOutstanding: openChecks.length,
-        avgCheck: closedChecks.length > 0 ? (grossSales / closedChecks.length) : 0,
+        avgCheck: checksWithItems.length > 0 ? (grossSales / checksWithItems.length) : 0,
       });
     } catch (e) {
       console.error('[CAPS] sales-summary error:', e);

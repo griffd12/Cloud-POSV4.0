@@ -623,7 +623,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       );
       const netCashCollected = round2(cashTendered - changeDue);
       const netCollected = round2(totalCollected - changeDue);
-      const reconciliationDelta = round2(netCollected - checkTotals);
+      const reconciliationDelta = round2(netCollected - customerTotal);
       const balanced = Math.abs(reconciliationDelta) <= 0.02;
 
       res.json({

@@ -147,10 +147,12 @@ export async function getSalesLines(filters: ReportFilters): Promise<SalesLine[]
       (ci.unit_price * ci.quantity) AS "grossLine",
       COALESCE(ci.discount_amount, 0) AS "discountAmount",
       (ci.unit_price * ci.quantity - COALESCE(ci.discount_amount, 0)) AS "netLine",
+      ci.tax_amount AS "rawTaxAmount",
       COALESCE(ci.tax_amount, 0) AS "taxAmount",
       COALESCE(ci.taxable_amount, 0) AS "taxableAmount",
       c.business_date AS "businessDate",
       c.rvc_id AS "rvcId",
+      c.tax_total AS "checkTaxTotal",
       mg.name AS "majorGroupName"
     FROM check_items ci
     JOIN checks c ON c.id = ci.check_id
@@ -166,7 +168,49 @@ export async function getSalesLines(filters: ReportFilters): Promise<SalesLine[]
     ORDER BY c.id, ci.id
   `);
 
-  return result.rows as unknown as SalesLine[];
+  const rows = result.rows as any[];
+
+  const checkGroups = new Map<string, any[]>();
+  for (const row of rows) {
+    const group = checkGroups.get(row.checkId) || [];
+    group.push(row);
+    checkGroups.set(row.checkId, group);
+  }
+
+  for (const [, items] of checkGroups) {
+    const allNull = items.every((it: any) => it.rawTaxAmount === null || it.rawTaxAmount === undefined);
+    if (!allNull) continue;
+
+    const checkTax = parseFloat(items[0].checkTaxTotal || '0');
+    if (checkTax <= 0) continue;
+
+    const totalNet = items.reduce((s: number, it: any) => s + parseFloat(it.netLine || '0'), 0);
+    if (totalNet <= 0) continue;
+
+    for (const it of items) {
+      const itemNet = parseFloat(it.netLine || '0');
+      const prorated = Math.round((itemNet / totalNet) * checkTax * 100) / 100;
+      it.taxAmount = String(prorated);
+    }
+  }
+
+  return rows.map((r: any) => ({
+    checkId: r.checkId,
+    checkItemId: r.checkItemId,
+    employeeId: r.employeeId,
+    menuItemId: r.menuItemId,
+    itemName: r.itemName,
+    quantity: r.quantity,
+    unitPrice: r.unitPrice,
+    grossLine: r.grossLine,
+    discountAmount: r.discountAmount,
+    netLine: r.netLine,
+    taxAmount: r.taxAmount,
+    taxableAmount: r.taxableAmount,
+    businessDate: r.businessDate,
+    rvcId: r.rvcId,
+    majorGroupName: r.majorGroupName,
+  })) as SalesLine[];
 }
 
 export async function getCheckDiscounts(filters: ReportFilters): Promise<CheckDiscountLine[]> {
