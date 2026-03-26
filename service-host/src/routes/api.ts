@@ -174,11 +174,18 @@ export function createApiRoutes(
   }
 
   function toKdsItem(i: any) {
+    let modifiers: string[] = [];
+    if (Array.isArray(i.modifiers) && i.modifiers.length > 0) {
+      modifiers = i.modifiers.map((m: any) => {
+        if (typeof m === 'string') return m;
+        return m.name || m.modifierName || m.label || JSON.stringify(m);
+      });
+    }
     return {
       checkItemId: i.id,
-      name: i.name,
+      name: i.name || i.menuItemName,
       quantity: i.quantity,
-      modifiers: i.modifiers?.map((m: any) => m.name || m),
+      modifiers,
       seatNumber: i.seatNumber,
     };
   }
@@ -508,16 +515,17 @@ export function createApiRoutes(
       const result = caps.sendToKitchen(req.params.id, workstationId);
       
       try {
+        const previewTickets = kds.getPreviewTicketsForCheck(req.params.id);
+        const alreadyCoveredItemIds = new Set<string>();
+        for (const pt of previewTickets) {
+          for (const pi of pt.items) {
+            if (pi.checkItemId) alreadyCoveredItemIds.add(pi.checkItemId);
+          }
+        }
+
         kds.finalizePreviewTickets(req.params.id);
 
         if (preSendUnsent.length > 0 && preSendCheck) {
-          const existingPreviews = kds.getPreviewTicketsForCheck(req.params.id);
-          const alreadyCoveredItemIds = new Set<string>();
-          for (const pt of existingPreviews) {
-            for (const pi of pt.items) {
-              if (pi.checkItemId) alreadyCoveredItemIds.add(pi.checkItemId);
-            }
-          }
           const uncoveredItems = preSendUnsent.filter(i => !alreadyCoveredItemIds.has(i.id));
 
           if (uncoveredItems.length > 0) {
@@ -626,17 +634,19 @@ export function createApiRoutes(
                 }
               }
             } else {
+              const previewTickets = kds.getPreviewTicketsForCheck(req.params.id);
+              const coveredIds = new Set<string>();
+              for (const pt of previewTickets) {
+                for (const pi of pt.items) {
+                  if (pi.checkItemId) coveredIds.add(pi.checkItemId);
+                }
+              }
+
               kds.finalizePreviewTickets(req.params.id);
+
               const unsentItems = (prePayCheck.items || []).filter((i: any) => !i.voided && !i.sent && !i.sentToKitchen);
               if (unsentItems.length > 0) {
                 caps.sendToKitchen(req.params.id, workstationId);
-                const existingPreviews = kds.getPreviewTicketsForCheck(req.params.id);
-                const coveredIds = new Set<string>();
-                for (const pt of existingPreviews) {
-                  for (const pi of pt.items) {
-                    if (pi.checkItemId) coveredIds.add(pi.checkItemId);
-                  }
-                }
                 const uncovered = unsentItems.filter((i: any) => !coveredIds.has(i.id));
                 if (uncovered.length > 0) {
                   const stationItemsMap = resolveKdsStations(uncovered, prePayCheck.rvcId);
@@ -788,6 +798,14 @@ export function createApiRoutes(
       );
       
       caps.recalculateTotals(itemRow.check_id);
+
+      try {
+        const fullItem = db?.get<any>('SELECT * FROM check_items WHERE id = ?', [itemId]);
+        if (fullItem && !fullItem.sent && !fullItem.sent_to_kitchen) {
+          const modNames = (modifiers || []).map((m: any) => m.name || m);
+          kds.updatePreviewTicketItems(itemRow.check_id, itemId, modNames);
+        }
+      } catch (_) {}
       
       const check = caps.getCheck(itemRow.check_id);
       const updatedItem = check?.items.find(i => i.id === itemId);
@@ -815,6 +833,14 @@ export function createApiRoutes(
       );
       
       caps.recalculateTotals(itemRow.check_id);
+
+      try {
+        const fullItem = db?.get<any>('SELECT * FROM check_items WHERE id = ?', [itemId]);
+        if (fullItem && !fullItem.sent && !fullItem.sent_to_kitchen) {
+          const modNames = (modifiers || []).map((m: any) => m.name || m);
+          kds.updatePreviewTicketItems(itemRow.check_id, itemId, modNames);
+        }
+      } catch (_) {}
       
       const check = caps.getCheck(itemRow.check_id);
       const updatedItem = check?.items.find(i => i.id === itemId);
@@ -2052,16 +2078,17 @@ export function createApiRoutes(
         : [];
       const result = caps.sendToKitchen(req.params.id, workstationId);
       try {
+        const previewTickets = kds.getPreviewTicketsForCheck(req.params.id);
+        const coveredIds = new Set<string>();
+        for (const pt of previewTickets) {
+          for (const pi of pt.items) {
+            if (pi.checkItemId) coveredIds.add(pi.checkItemId);
+          }
+        }
+
         kds.finalizePreviewTickets(req.params.id);
 
         if (preSendUnsent.length > 0 && preSendCheck) {
-          const existingPreviews = kds.getPreviewTicketsForCheck(req.params.id);
-          const coveredIds = new Set<string>();
-          for (const pt of existingPreviews) {
-            for (const pi of pt.items) {
-              if (pi.checkItemId) coveredIds.add(pi.checkItemId);
-            }
-          }
           const uncovered = preSendUnsent.filter((i: any) => !coveredIds.has(i.id));
           if (uncovered.length > 0) {
             const stationItemsMap = resolveKdsStations(uncovered, preSendCheck.rvcId);
