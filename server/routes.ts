@@ -25448,7 +25448,13 @@ connect();
                 if (pmtId && checkId) {
                   const existingPmt = await db.select().from(checkPayments)
                     .where(eq(checkPayments.id, pmtId)).limit(1);
-                  if (existingPmt.length === 0) {
+                  if (existingPmt.length > 0) {
+                    await storage.updateCheckPayment(existingPmt[0].id, {
+                      amount: (d.amount || "0").toString(),
+                      tipAmount: (d.tipAmount || d.tip_amount || "0").toString(),
+                      paymentStatus: d.paymentStatus || d.status || "completed",
+                    });
+                  } else {
                     const pmtTenderId = d.tenderId || d.tender_id;
                     let pmtTenderName = d.tenderName || d.tender_name || null;
                     if (!pmtTenderName && pmtTenderId) {
