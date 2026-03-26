@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
@@ -1189,7 +1189,8 @@ CREATE TABLE IF NOT EXISTS fiscal_periods (
   notes TEXT,
   cloud_synced INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
-  closed_at TEXT
+  closed_at TEXT,
+  updated_at TEXT DEFAULT (datetime('now'))
 );
 
 -- =============================================================================

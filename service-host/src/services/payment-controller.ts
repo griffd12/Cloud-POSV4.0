@@ -323,6 +323,164 @@ export class PaymentController {
     return this.processViaRawTcp(sessionId, session, terminalDevice, amount, tip);
   }
 
+  private async processViaDirectStripe(
+    sessionId: string,
+    session: any,
+    terminalDevice: any,
+    amount: number,
+    tip: number
+  ): Promise<PaymentResult> {
+    const processorId = terminalDevice.payment_processor_id;
+    if (!processorId) {
+      logger.warn('No payment_processor_id on terminal device — cannot use direct Stripe fallback', { sessionId });
+      return { success: false, error: 'No payment processor linked to terminal device. Configure in EMC.' };
+    }
+    const processor = this.db.getPaymentProcessor(processorId);
+    if (!processor) {
+      logger.warn('Payment processor not found in local DB', { sessionId, processorId });
+      return { success: false, error: 'Payment processor not synced to local device.' };
+    }
+    let stripeSecretKey: string | null = null;
+    if (processor.credentials) {
+      try {
+        const creds = typeof processor.credentials === 'string' ? JSON.parse(processor.credentials) : processor.credentials;
+        stripeSecretKey = creds.secretKey || creds.secret_key || creds.apiKey || creds.api_key || null;
+      } catch { /* ignore parse error */ }
+    }
+    if (!stripeSecretKey) {
+      logger.warn('No Stripe secret key in payment processor credentials — direct fallback unavailable', { sessionId, processorId });
+      return { success: false, error: 'Stripe credentials not available locally. Cloud connection required.' };
+    }
+    const stripeReaderId = terminalDevice.cloud_device_id || terminalDevice.terminal_id;
+    if (!stripeReaderId) {
+      logger.warn('No Stripe reader ID on terminal device', { sessionId });
+      return { success: false, error: 'Stripe reader ID not configured on terminal device.' };
+    }
+    logger.info('Attempting direct Stripe Terminal payment (YELLOW mode)', { sessionId, readerId: stripeReaderId });
+    this.db.run(
+      `UPDATE terminal_sessions SET status = 'waiting_for_card', data = ?, updated_at = datetime('now') WHERE id = ?`,
+      [JSON.stringify({ ...session, status: 'waiting_for_card', directStripe: true, updatedAt: new Date().toISOString() }), sessionId]
+    );
+    const totalCents = Math.round((amount + tip) * 100);
+    const stripeHeaders = {
+      'Authorization': `Bearer ${stripeSecretKey}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Stripe-Version': '2024-04-10',
+    };
+    try {
+      const piBody = new URLSearchParams({
+        'amount': String(totalCents),
+        'currency': session.currency || 'usd',
+        'payment_method_types[]': 'card_present',
+        'capture_method': 'automatic',
+      });
+      const piResp = await fetch('https://api.stripe.com/v1/payment_intents', {
+        method: 'POST',
+        headers: stripeHeaders,
+        body: piBody.toString(),
+      });
+      if (!piResp.ok) {
+        const errBody = await piResp.text();
+        logger.error('Stripe PaymentIntent creation failed', undefined, { sessionId, status: piResp.status, body: errBody });
+        return this.handleTerminalFailure(sessionId, session, amount, tip, `Stripe API error: ${piResp.status}`);
+      }
+      const paymentIntent = await piResp.json() as any;
+      logger.info('Stripe PaymentIntent created directly', { sessionId, piId: paymentIntent.id });
+      const processBody = new URLSearchParams({ 'payment_intent': paymentIntent.id });
+      const processResp = await fetch(`https://api.stripe.com/v1/terminal/readers/${stripeReaderId}/process_payment_intent`, {
+        method: 'POST',
+        headers: stripeHeaders,
+        body: processBody.toString(),
+      });
+      if (!processResp.ok) {
+        const errBody = await processResp.text();
+        logger.error('Stripe reader process_payment_intent failed', undefined, { sessionId, status: processResp.status, body: errBody });
+        try {
+          await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntent.id}/cancel`, { method: 'POST', headers: stripeHeaders });
+        } catch { /* best effort cancel */ }
+        return this.handleTerminalFailure(sessionId, session, amount, tip, `Stripe reader error: ${processResp.status}`);
+      }
+      logger.info('Stripe reader processing payment — polling for result', { sessionId, readerId: stripeReaderId });
+      const STRIPE_POLL_INTERVAL = 2000;
+      const STRIPE_POLL_TIMEOUT = 120000;
+      const pollStart = Date.now();
+      while (Date.now() - pollStart < STRIPE_POLL_TIMEOUT) {
+        await new Promise(r => setTimeout(r, STRIPE_POLL_INTERVAL));
+        const localRow = this.db.get<any>('SELECT status FROM terminal_sessions WHERE id = ?', [sessionId]);
+        if (localRow && localRow.status === 'cancelled') {
+          try {
+            await fetch(`https://api.stripe.com/v1/terminal/readers/${stripeReaderId}/cancel_action`, { method: 'POST', headers: stripeHeaders });
+            await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntent.id}/cancel`, { method: 'POST', headers: stripeHeaders });
+          } catch { /* best effort */ }
+          return { success: false, error: 'Payment cancelled' };
+        }
+        try {
+          const piCheck = await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntent.id}`, { headers: stripeHeaders });
+          if (!piCheck.ok) continue;
+          const piStatus = await piCheck.json() as any;
+          if (piStatus.status === 'succeeded' || piStatus.status === 'requires_capture') {
+            const charge = piStatus.latest_charge ? piStatus.charges?.data?.[0] : null;
+            const cardDetails = charge?.payment_method_details?.card_present || {};
+            const transactionId = randomUUID();
+            const tenderId = this.resolveCardTenderId(session.tenderId, terminalDevice.property_id);
+            if (!tenderId) {
+              logger.error('No card tender for direct Stripe approved payment', undefined, { sessionId });
+              return { success: false, error: 'No card tender configured in EMC.' };
+            }
+            this.db.run(
+              `INSERT INTO check_payments (id, check_id, tender_id, tender_type, amount, tip_amount, reference_number, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'authorized')`,
+              [transactionId, session.checkId, tenderId, 'credit', amount + tip, tip,
+                JSON.stringify({
+                  authCode: charge?.authorization_code || piStatus.id,
+                  cardLast4: cardDetails.last4 || '****',
+                  cardBrand: cardDetails.brand || 'unknown',
+                  stripePaymentIntentId: piStatus.id,
+                  directStripe: true,
+                })]
+            );
+            this.transactionSync.queuePayment(transactionId, {
+              id: transactionId, checkId: session.checkId, amount: amount + tip, tip,
+              authCode: charge?.authorization_code || piStatus.id,
+              cardLast4: cardDetails.last4 || '****', cardBrand: cardDetails.brand || 'unknown',
+              status: 'authorized',
+            });
+            this.db.run(
+              `UPDATE terminal_sessions SET status = 'completed', data = ?, updated_at = datetime('now') WHERE id = ?`,
+              [JSON.stringify({
+                ...session, status: 'approved', paymentTransactionId: transactionId,
+                approvalCode: charge?.authorization_code || piStatus.id,
+                cardLast4: cardDetails.last4 || '****', cardBrand: cardDetails.brand || 'unknown',
+                directStripe: true, processedAt: new Date().toISOString(),
+              }), sessionId]
+            );
+            logger.info('Direct Stripe payment approved (YELLOW mode)', { sessionId, transactionId, piId: piStatus.id });
+            return {
+              success: true, transactionId,
+              authCode: charge?.authorization_code || piStatus.id,
+              cardLast4: cardDetails.last4 || '****', cardBrand: cardDetails.brand || 'unknown',
+              amount: amount + tip, tip,
+            };
+          }
+          if (piStatus.status === 'canceled' || piStatus.last_payment_error) {
+            const errMsg = piStatus.last_payment_error?.message || 'Card declined';
+            this.db.run(
+              `UPDATE terminal_sessions SET status = 'declined', data = ?, updated_at = datetime('now') WHERE id = ?`,
+              [JSON.stringify({ ...session, status: 'declined', statusMessage: errMsg, directStripe: true, processedAt: new Date().toISOString() }), sessionId]
+            );
+            return { success: false, error: errMsg };
+          }
+        } catch (pollErr: any) {
+          logger.warn('Stripe direct poll error (retrying)', { sessionId, error: pollErr.message });
+        }
+      }
+      return this.handleTerminalFailure(sessionId, session, amount, tip, 'Direct Stripe payment timed out (120s)');
+    } catch (e: any) {
+      logger.error('Direct Stripe Terminal payment failed', e, { sessionId });
+      return this.handleTerminalFailure(sessionId, session, amount, tip, e.message || 'Direct Stripe communication error');
+    }
+  }
+
   private async processViaCloudProxy(
     sessionId: string,
     session: any,
@@ -331,7 +489,12 @@ export class PaymentController {
     tip: number
   ): Promise<PaymentResult> {
     if (!this.cloudConnection.isConnected()) {
-      logger.error('Cloud not connected — cannot process card payment via Cloud proxy', undefined, { sessionId });
+      logger.warn('Cloud not connected — attempting direct Stripe Terminal fallback (YELLOW mode)', { sessionId });
+      const directResult = await this.processViaDirectStripe(sessionId, session, terminalDevice, amount, tip);
+      if (directResult.success || !directResult.error?.includes('not available locally')) {
+        return directResult;
+      }
+      logger.error('Direct Stripe fallback unavailable — no local credentials', undefined, { sessionId });
       this.db.run(
         `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
         [
@@ -428,6 +591,8 @@ export class PaymentController {
     tip: number
   ): Promise<PaymentResult> {
     const startTime = Date.now();
+    const MAX_CONSECUTIVE_FAILURES = 5;
+    let consecutiveFailures = 0;
 
     while (Date.now() - startTime < CLOUD_POLL_TIMEOUT_MS) {
       await new Promise(resolve => setTimeout(resolve, CLOUD_POLL_INTERVAL_MS));
@@ -440,6 +605,7 @@ export class PaymentController {
 
       try {
         const cloudStatus = await this.cloudConnection.get<any>(`/api/terminal-sessions/${cloudSessionId}`);
+        consecutiveFailures = 0;
         const status = cloudStatus.status;
 
         if (status === 'completed' || status === 'approved') {
@@ -497,7 +663,34 @@ export class PaymentController {
           ]
         );
       } catch (pollErr: any) {
-        logger.warn('Cloud poll error (retrying)', { cloudSessionId, error: pollErr.message });
+        consecutiveFailures++;
+        const isNetworkError = pollErr.message?.includes('503') || pollErr.message?.includes('ECONNREFUSED') ||
+          pollErr.message?.includes('ETIMEDOUT') || pollErr.message?.includes('ENOTFOUND') ||
+          pollErr.message?.includes('fetch failed') || pollErr.message?.includes('network');
+        logger.warn('Cloud poll error', {
+          cloudSessionId,
+          error: pollErr.message,
+          consecutiveFailures,
+          isNetworkError,
+        });
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          const failMsg = `Cloud unreachable after ${consecutiveFailures} consecutive poll failures. Payment could not be confirmed.`;
+          logger.error(failMsg, undefined, { localSessionId, cloudSessionId });
+          this.db.run(
+            `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
+            [
+              JSON.stringify({
+                ...session,
+                status: 'error',
+                cloudSessionId,
+                statusMessage: failMsg,
+                processedAt: new Date().toISOString(),
+              }),
+              localSessionId,
+            ]
+          );
+          return { success: false, error: failMsg };
+        }
       }
     }
 

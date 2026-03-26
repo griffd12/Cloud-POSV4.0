@@ -396,6 +396,54 @@ export function createApiRoutes(
     try {
       const { workstationId } = req.body;
       const items = caps.addItems(req.params.id, req.body.items || [req.body], workstationId);
+
+      try {
+        const check = caps.getCheck(req.params.id);
+        if (check && db) {
+          const rvc = db.getRvc(check.rvcId);
+          if (rvc && rvc.dynamic_order_mode && rvc.dom_send_mode === 'fire_on_fly') {
+            caps.sendToKitchen(req.params.id, workstationId);
+            const stationItemsMap = new Map<string, any[]>();
+            for (const item of items) {
+              let targetStations: string[] = [];
+              const printClassId = (item as any).printClassId || (item as any).print_class_id;
+              if (printClassId) {
+                const orderDevices = db.getOrderDevicesForPrintClass(printClassId, undefined, check.rvcId);
+                for (const od of orderDevices) {
+                  if (od.kds_device_id) targetStations.push(od.kds_device_id);
+                  const kdsLinks = db.getOrderDeviceKds(od.id);
+                  for (const link of kdsLinks) {
+                    if (link.kds_device_id && !targetStations.includes(link.kds_device_id)) targetStations.push(link.kds_device_id);
+                  }
+                }
+              }
+              if (targetStations.length === 0) targetStations = ['default'];
+              for (const stationId of targetStations) {
+                if (!stationItemsMap.has(stationId)) stationItemsMap.set(stationId, []);
+                stationItemsMap.get(stationId)!.push(item);
+              }
+            }
+            for (const [stationId, stationItems] of stationItemsMap) {
+              kds.createTicket({
+                checkId: check.id,
+                checkNumber: check.checkNumber || 0,
+                roundNumber: check.currentRound || 0,
+                orderType: check.orderType,
+                stationId: stationId === 'default' ? undefined : stationId,
+                items: stationItems.map((i: any) => ({
+                  name: i.name,
+                  quantity: i.quantity,
+                  modifiers: i.modifiers?.map((m: any) => m.name || m),
+                  seatNumber: i.seatNumber,
+                })),
+              });
+            }
+          }
+        }
+      } catch (kdsErr) {
+        console.error('[KDS] Auto-fire failed for check', req.params.id, kdsErr);
+      }
+
       res.status(201).json(items[0]);
     } catch (e) {
       const error = e as Error;
@@ -1886,6 +1934,54 @@ export function createApiRoutes(
     try {
       const { workstationId } = req.body;
       const items = caps.addItems(req.params.id, req.body.items || [req.body], workstationId);
+
+      try {
+        const check = caps.getCheck(req.params.id);
+        if (check && db) {
+          const rvc = db.getRvc(check.rvcId);
+          if (rvc && rvc.dynamic_order_mode && rvc.dom_send_mode === 'fire_on_fly') {
+            caps.sendToKitchen(req.params.id, workstationId);
+            const stationItemsMap = new Map<string, any[]>();
+            for (const item of items) {
+              let targetStations: string[] = [];
+              const printClassId = (item as any).printClassId || (item as any).print_class_id;
+              if (printClassId) {
+                const orderDevices = db.getOrderDevicesForPrintClass(printClassId, undefined, check.rvcId);
+                for (const od of orderDevices) {
+                  if (od.kds_device_id) targetStations.push(od.kds_device_id);
+                  const kdsLinks = db.getOrderDeviceKds(od.id);
+                  for (const link of kdsLinks) {
+                    if (link.kds_device_id && !targetStations.includes(link.kds_device_id)) targetStations.push(link.kds_device_id);
+                  }
+                }
+              }
+              if (targetStations.length === 0) targetStations = ['default'];
+              for (const stationId of targetStations) {
+                if (!stationItemsMap.has(stationId)) stationItemsMap.set(stationId, []);
+                stationItemsMap.get(stationId)!.push(item);
+              }
+            }
+            for (const [stationId, stationItems] of stationItemsMap) {
+              kds.createTicket({
+                checkId: check.id,
+                checkNumber: check.checkNumber || 0,
+                roundNumber: check.currentRound || 0,
+                orderType: check.orderType,
+                stationId: stationId === 'default' ? undefined : stationId,
+                items: stationItems.map((i: any) => ({
+                  name: i.name,
+                  quantity: i.quantity,
+                  modifiers: i.modifiers?.map((m: any) => m.name || m),
+                  seatNumber: i.seatNumber,
+                })),
+              });
+            }
+          }
+        }
+      } catch (kdsErr) {
+        console.error('[KDS] Auto-fire failed for check', req.params.id, kdsErr);
+      }
+
       const lastItem = Array.isArray(items) && items.length > 0 ? items[items.length - 1] : null;
       res.status(201).json({ ...(lastItem || {}), items });
     } catch (e) {
@@ -3536,10 +3632,16 @@ export function createApiRoutes(
     try {
       const rvcId = req.params.id;
       const limit = parseInt(req.query.limit as string) || 50;
-      const closedRows = db ? db.all<any>(
-        `SELECT id FROM checks WHERE rvc_id = ? AND status = 'closed' ORDER BY closed_at DESC LIMIT ?`,
-        [rvcId, limit]
-      ) : [];
+      const businessDate = req.query.businessDate as string | undefined;
+      let sql = `SELECT id FROM checks WHERE rvc_id = ? AND status = 'closed'`;
+      const params: any[] = [rvcId];
+      if (businessDate) {
+        sql += ` AND business_date = ?`;
+        params.push(businessDate);
+      }
+      sql += ` ORDER BY closed_at DESC LIMIT ?`;
+      params.push(limit);
+      const closedRows = db ? db.all<any>(sql, params) : [];
       const checks = closedRows.map((r: any) => caps.getCheck(r.id)).filter(Boolean);
       res.json(checks);
     } catch (e) {

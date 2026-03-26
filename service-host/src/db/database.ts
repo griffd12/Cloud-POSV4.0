@@ -187,6 +187,10 @@ export class Database {
       this.migrateToV16();
     }
     
+    if (fromVersion < 17) {
+      this.migrateToV17();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -942,6 +946,17 @@ export class Database {
       }
     }
     console.log('[DB] v16 migration complete');
+  }
+  
+  private migrateToV17(): void {
+    console.log('[DB] Running v17 migration: fiscal_periods.updated_at column');
+    try {
+      this.run('ALTER TABLE fiscal_periods ADD COLUMN updated_at TEXT DEFAULT (datetime(\'now\'))');
+      console.log('[DB] Added fiscal_periods.updated_at');
+    } catch (e: any) {
+      if (!e.message?.includes('duplicate column')) console.log(`[DB] fiscal_periods.updated_at skipped: ${e.message}`);
+    }
+    console.log('[DB] v17 migration complete');
   }
   
   // ==========================================================================
