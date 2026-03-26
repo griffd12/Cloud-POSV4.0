@@ -168,9 +168,29 @@ export async function getSalesLines(filters: ReportFilters): Promise<SalesLine[]
     ORDER BY c.id, ci.id
   `);
 
-  const rows = result.rows as any[];
+  interface SalesLineRow {
+    checkId: string;
+    checkItemId: string;
+    employeeId: string;
+    menuItemId: string | null;
+    itemName: string;
+    quantity: number;
+    unitPrice: string;
+    grossLine: string;
+    discountAmount: string;
+    netLine: string;
+    rawTaxAmount: string | null;
+    taxAmount: string;
+    taxableAmount: string;
+    businessDate: string;
+    rvcId: string;
+    checkTaxTotal: string | null;
+    majorGroupName: string | null;
+  }
 
-  const checkGroups = new Map<string, any[]>();
+  const rows = result.rows as SalesLineRow[];
+
+  const checkGroups = new Map<string, SalesLineRow[]>();
   for (const row of rows) {
     const group = checkGroups.get(row.checkId) || [];
     group.push(row);
@@ -178,31 +198,38 @@ export async function getSalesLines(filters: ReportFilters): Promise<SalesLine[]
   }
 
   for (const [, items] of checkGroups) {
-    const allNull = items.every((it: any) => it.rawTaxAmount === null || it.rawTaxAmount === undefined);
-    if (!allNull) continue;
+    const nullItems = items.filter(it => it.rawTaxAmount === null || it.rawTaxAmount === undefined);
+    if (nullItems.length === 0) continue;
 
     const checkTax = parseFloat(items[0].checkTaxTotal || '0');
     if (checkTax <= 0) continue;
 
-    const totalNet = items.reduce((s: number, it: any) => s + parseFloat(it.netLine || '0'), 0);
-    if (totalNet <= 0) continue;
+    const knownTaxSum = items
+      .filter(it => it.rawTaxAmount !== null && it.rawTaxAmount !== undefined)
+      .reduce((s, it) => s + parseFloat(it.taxAmount || '0'), 0);
+
+    const residualTax = checkTax - knownTaxSum;
+    if (residualTax <= 0) continue;
+
+    const nullNet = nullItems.reduce((s, it) => s + parseFloat(it.netLine || '0'), 0);
+    if (nullNet <= 0) continue;
 
     let allocatedCents = 0;
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
+    for (let i = 0; i < nullItems.length; i++) {
+      const it = nullItems[i];
       const itemNet = parseFloat(it.netLine || '0');
-      if (i === items.length - 1) {
-        const remainderCents = Math.round(checkTax * 100) - allocatedCents;
+      if (i === nullItems.length - 1) {
+        const remainderCents = Math.round(residualTax * 100) - allocatedCents;
         it.taxAmount = String(remainderCents / 100);
       } else {
-        const proratedCents = Math.round((itemNet / totalNet) * checkTax * 100);
+        const proratedCents = Math.round((itemNet / nullNet) * residualTax * 100);
         allocatedCents += proratedCents;
         it.taxAmount = String(proratedCents / 100);
       }
     }
   }
 
-  return rows.map((r: any) => ({
+  return rows.map(r => ({
     checkId: r.checkId,
     checkItemId: r.checkItemId,
     employeeId: r.employeeId,

@@ -4249,7 +4249,7 @@ export function createApiRoutes(
         serviceChargeTotal += parseFloat(c.service_charge_total || '0');
       }
       const payments: any[] = db?.all(
-        `SELECT cp.*, cp.tip_amount FROM check_payments cp JOIN checks c ON cp.check_id = c.id WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND cp.voided = 0 AND cp.status IN ('completed','settled')`,
+        `SELECT cp.*, cp.tip_amount FROM check_payments cp JOIN checks c ON cp.check_id = c.id WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND cp.voided = 0 AND cp.status IN ('completed','settled') AND c.status = 'closed'`,
         [rvcId, fromDate, toDate]
       ) || [];
       totalTips = payments.reduce((sum, p) => sum + parseFloat(p.tip_amount || '0'), 0);
@@ -4304,7 +4304,7 @@ export function createApiRoutes(
          FROM check_payments cp
          JOIN tenders t ON cp.tender_id = t.id
          JOIN checks c ON cp.check_id = c.id
-         WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND cp.voided = 0 AND cp.status IN ('completed','settled')
+         WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND cp.voided = 0 AND cp.status IN ('completed','settled') AND c.status = 'closed'
          GROUP BY t.name ORDER BY amount DESC`,
         [rvcId, fromDate, toDate]
       ) || [];
@@ -4346,7 +4346,7 @@ export function createApiRoutes(
         emp.netSales += parseFloat(c.subtotal || '0') - parseFloat(c.discount_total || '0');
       }
       const payments: any[] = db?.all(
-        `SELECT cp.*, t.is_cash_media, t.is_card_media FROM check_payments cp JOIN tenders t ON cp.tender_id = t.id JOIN checks c ON cp.check_id = c.id WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND cp.voided = 0 AND cp.status IN ('completed','settled')`,
+        `SELECT cp.*, t.is_cash_media, t.is_card_media FROM check_payments cp JOIN tenders t ON cp.tender_id = t.id JOIN checks c ON cp.check_id = c.id WHERE c.rvc_id = ? AND c.business_date >= ? AND c.business_date <= ? AND cp.voided = 0 AND cp.status IN ('completed','settled') AND c.status = 'closed'`,
         [rvcId, fromDate, toDate]
       ) || [];
       for (const p of payments) {
