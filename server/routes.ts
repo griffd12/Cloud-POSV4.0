@@ -25407,7 +25407,7 @@ connect();
                   if (existingPmt.length > 0) {
                     await storage.updateCheckPayment(existingPmt[0].id, {
                       amount: (pmt.amount || "0").toString(),
-                      tipAmount: (pmt.tipAmount || pmt.tip_amount || "0").toString(),
+                      tipAmount: (pmt.tipAmount || pmt.tip_amount || pmt.tip || "0").toString(),
                       paymentStatus: pmt.paymentStatus || pmt.status || "completed",
                     });
                   } else {
@@ -25423,7 +25423,7 @@ connect();
                       tenderId: pmtTenderId,
                       tenderName: pmtTenderName || "Payment",
                       amount: (pmt.amount || "0").toString(),
-                      tipAmount: (pmt.tipAmount || pmt.tip_amount || "0").toString(),
+                      tipAmount: (pmt.tipAmount || pmt.tip_amount || pmt.tip || "0").toString(),
                       paymentStatus: pmt.paymentStatus || pmt.status || "completed",
                       businessDate: pmt.businessDate || pmt.business_date || d.businessDate || d.business_date || null,
                       employeeId: pmt.employeeId || pmt.employee_id || d.employeeId || d.employee_id || null,
@@ -25451,7 +25451,7 @@ connect();
                   if (existingPmt.length > 0) {
                     await storage.updateCheckPayment(existingPmt[0].id, {
                       amount: (d.amount || "0").toString(),
-                      tipAmount: (d.tipAmount || d.tip_amount || "0").toString(),
+                      tipAmount: (d.tipAmount || d.tip_amount || d.tip || "0").toString(),
                       paymentStatus: d.paymentStatus || d.status || "completed",
                     });
                   } else {
@@ -25467,7 +25467,7 @@ connect();
                       tenderId: pmtTenderId,
                       tenderName: pmtTenderName || "Payment",
                       amount: (d.amount || "0").toString(),
-                      tipAmount: (d.tipAmount || d.tip_amount || "0").toString(),
+                      tipAmount: (d.tipAmount || d.tip_amount || d.tip || "0").toString(),
                       paymentStatus: d.paymentStatus || d.status || "completed",
                       businessDate: d.businessDate || d.business_date || null,
                       employeeId: d.employeeId || d.employee_id || null,

@@ -195,6 +195,10 @@ export class Database {
       this.migrateToV18();
     }
     
+    if (fromVersion < 19) {
+      this.migrateToV19();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -1000,6 +1004,39 @@ export class Database {
     console.log('[DB] v18 migration complete — EMC config sync gaps closed');
   }
   
+  private migrateToV19(): void {
+    console.log('[DB] Running v19 migration: tax snapshots on check_items, role discount limits');
+    const checkItemCols = [
+      { name: 'tax_rate_at_sale', def: 'REAL' },
+      { name: 'tax_mode_at_sale', def: 'TEXT' },
+      { name: 'tax_amount', def: 'INTEGER DEFAULT 0' },
+      { name: 'taxable_amount', def: 'INTEGER DEFAULT 0' },
+    ];
+    for (const col of checkItemCols) {
+      try {
+        this.run(`ALTER TABLE check_items ADD COLUMN ${col.name} ${col.def}`);
+        console.log(`[DB] Added check_items.${col.name}`);
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column')) console.log(`[DB] check_items.${col.name} skipped: ${e.message}`);
+      }
+    }
+    const roleCols = [
+      { name: 'max_item_discount_pct', def: 'INTEGER DEFAULT 0' },
+      { name: 'max_check_discount_pct', def: 'INTEGER DEFAULT 0' },
+      { name: 'max_item_discount_amt', def: 'TEXT DEFAULT "0"' },
+      { name: 'max_check_discount_amt', def: 'TEXT DEFAULT "0"' },
+    ];
+    for (const col of roleCols) {
+      try {
+        this.run(`ALTER TABLE roles ADD COLUMN ${col.name} ${col.def}`);
+        console.log(`[DB] Added roles.${col.name}`);
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column')) console.log(`[DB] roles.${col.name} skipped: ${e.message}`);
+      }
+    }
+    console.log('[DB] v19 migration complete');
+  }
+  
   // ==========================================================================
   // Generic query methods
   // ==========================================================================
@@ -1260,11 +1297,18 @@ export class Database {
   upsertRole(role: any): void {
     this.run(
       `INSERT OR REPLACE INTO roles (
-        id, enterprise_id, property_id, rvc_id, name, code, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        id, enterprise_id, property_id, rvc_id, name, code,
+        max_item_discount_pct, max_check_discount_pct, max_item_discount_amt, max_check_discount_amt,
+        active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         role.id, role.enterpriseId, role.propertyId, role.rvcId,
-        role.name, role.code, role.active !== false ? 1 : 0,
+        role.name, role.code,
+        role.maxItemDiscountPct ?? 0,
+        role.maxCheckDiscountPct ?? 0,
+        String(role.maxItemDiscountAmt ?? '0'),
+        String(role.maxCheckDiscountAmt ?? '0'),
+        role.active !== false ? 1 : 0,
       ]
     );
   }

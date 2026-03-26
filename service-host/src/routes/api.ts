@@ -3254,7 +3254,12 @@ export function createApiRoutes(
     const scopeChain: { level: string; id: string }[] = [];
     if (rvcId) scopeChain.push({ level: 'rvc', id: rvcId });
     if (propertyId) scopeChain.push({ level: 'property', id: propertyId });
-    scopeChain.push({ level: 'enterprise', id: '*' });
+    let enterpriseId = '*';
+    if (propertyId) {
+      const prop = db.getProperty(propertyId);
+      if (prop?.enterprise_id) enterpriseId = prop.enterprise_id;
+    }
+    scopeChain.push({ level: 'enterprise', id: enterpriseId });
     const value = db.resolveOptionFlag('system', 'global', optionKey, scopeChain);
     if (value === null) return true;
     return value === 'true' || value === '1';

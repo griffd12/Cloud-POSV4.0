@@ -770,6 +770,9 @@ export class PaymentController {
     const cardBrand = cloudStatus.cardBrand || 'unknown';
     const entryMethod = cloudStatus.entryMethod || 'chip';
 
+    const amountDollars = amount / 100;
+    const tipDollars = tip / 100;
+
     this.db.run(
       `INSERT INTO check_payments (id, check_id, tender_id, tender_type, amount, tip_amount, reference_number, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'authorized')`,
@@ -778,8 +781,8 @@ export class PaymentController {
         session.checkId,
         tenderId,
         session.transactionType === 'debit' ? 'debit' : 'credit',
-        amount + tip,
-        tip,
+        Math.round((amountDollars + tipDollars) * 100),
+        Math.round(tipDollars * 100),
         JSON.stringify({
           authCode,
           cardLast4,
@@ -794,8 +797,8 @@ export class PaymentController {
     this.transactionSync.queuePayment(transactionId, {
       id: transactionId,
       checkId: session.checkId,
-      amount: amount + tip,
-      tip,
+      amount: amountDollars + tipDollars,
+      tipAmount: tipDollars,
       authCode,
       cardLast4,
       cardBrand,
@@ -809,6 +812,7 @@ export class PaymentController {
         JSON.stringify({
           ...session,
           status: 'approved',
+          paymentRecorded: true,
           paymentTransactionId: transactionId,
           approvalCode: authCode,
           cardLast4,
@@ -836,8 +840,8 @@ export class PaymentController {
       authCode,
       cardLast4,
       cardBrand,
-      amount: amount + tip,
-      tip,
+      amount: amountDollars + tipDollars,
+      tip: tipDollars,
     };
   }
 
@@ -883,6 +887,10 @@ export class PaymentController {
           return { success: false, error: 'No card tender configured in EMC.' };
         }
 
+        const totalDollars = amount + tip;
+        const totalCentsStored = Math.round(totalDollars * 100);
+        const tipCentsStored = Math.round(tip * 100);
+
         this.db.run(
           `INSERT INTO check_payments (id, check_id, tender_id, tender_type, amount, tip_amount, reference_number, status)
            VALUES (?, ?, ?, ?, ?, ?, ?, 'authorized')`,
@@ -891,8 +899,8 @@ export class PaymentController {
             session.checkId,
             tenderId,
             session.transactionType === 'debit' ? 'debit' : 'credit',
-            amount + tip,
-            tip,
+            totalCentsStored,
+            tipCentsStored,
             JSON.stringify({
               authCode: terminalResponse.authCode,
               cardLast4: terminalResponse.lastFour,
@@ -906,8 +914,8 @@ export class PaymentController {
         this.transactionSync.queuePayment(transactionId, {
           id: transactionId,
           checkId: session.checkId,
-          amount: amount + tip,
-          tip,
+          amount: totalDollars,
+          tipAmount: tip,
           authCode: terminalResponse.authCode,
           cardLast4: terminalResponse.lastFour,
           cardBrand: terminalResponse.cardType,
@@ -920,7 +928,7 @@ export class PaymentController {
           authCode: terminalResponse.authCode,
           cardLast4: terminalResponse.lastFour,
           cardBrand: terminalResponse.cardType,
-          amount: amount + tip,
+          amount: totalDollars,
           tip,
         };
 
@@ -931,6 +939,7 @@ export class PaymentController {
             JSON.stringify({
               ...session,
               status: 'approved',
+              paymentRecorded: true,
               paymentTransactionId: transactionId,
               approvalCode: terminalResponse.authCode,
               cardLast4: terminalResponse.lastFour,

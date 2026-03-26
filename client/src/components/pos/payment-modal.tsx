@@ -784,7 +784,7 @@ export function PaymentModal({
             : session.status;
         if (normalizedStatus === "approved") {
           setTerminalPolling(false);
-          if (cardTender) {
+          if (cardTender && !session.paymentRecorded) {
             const emvTipDollars = session.tipAmount ? session.tipAmount / 100 : 0;
             const effectiveTip = emvTipDollars > 0 ? emvTipDollars : confirmedTipAmount;
             onPayment(cardTender.id, cardAmount, false, session.paymentTransactionId || undefined, effectiveTip);

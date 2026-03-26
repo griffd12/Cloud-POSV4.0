@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { formatInTimeZone } from "date-fns-tz";
 import { getAuthHeaders } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -307,12 +308,8 @@ export function POSReportsModal({
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return "-";
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
+    const tz = businessDateInfo?.timezone || "America/New_York";
+    return formatInTimeZone(new Date(dateStr), tz, "h:mm a");
   };
 
   const filteredEmployeeBalances = useMemo(() => {

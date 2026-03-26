@@ -182,8 +182,6 @@ export class CapsService {
       [id, txnGroupId, checkNumber, params.rvcId, params.employeeId, params.workstationId || null, params.orderType || 'dine_in', params.tableNumber, params.guestCount || 1, businessDate]
     );
     
-    const check = this.getCheck(id)!;
-    
     this.writeJournal(id, txnGroupId, params.rvcId, 'check_opened', {
       checkNumber,
       employeeId: params.employeeId,
@@ -193,6 +191,10 @@ export class CapsService {
       workstationId: params.workstationId,
     });
     
+    this.applyAutoServiceCharges(id);
+    this.recalculateTotals(id);
+
+    const check = this.getCheck(id)!;
     this.transactionSync.queueCheck(id, 'create', check);
     
     return check;
@@ -290,9 +292,27 @@ export class CapsService {
       const modifiersJson = JSON.stringify(item.modifiers || []);
       const now = new Date().toISOString();
       
+      let taxRateAtSale: number | null = null;
+      let taxModeAtSale: string | null = null;
+      let taxAmountCents = 0;
+      let taxableAmountCents = 0;
+      if (menuItem.tax_group_id) {
+        const taxGroup = this.db.getTaxGroup(menuItem.tax_group_id);
+        if (taxGroup) {
+          taxRateAtSale = parseFloat(taxGroup.rate) || 0;
+          taxModeAtSale = taxGroup.tax_mode || 'exclusive';
+          taxableAmountCents = totalPrice;
+          if (taxModeAtSale === 'inclusive') {
+            taxAmountCents = Math.round(totalPrice - (totalPrice / (1 + taxRateAtSale)));
+          } else {
+            taxAmountCents = Math.round(totalPrice * taxRateAtSale);
+          }
+        }
+      }
+
       this.db.run(
-        `INSERT INTO check_items (id, check_id, round_number, menu_item_id, name, quantity, unit_price, total_price, print_class_id, tax_group_id, modifiers, modifiers_json, seat_number, sent_to_kitchen, sent, voided, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?)`,
+        `INSERT INTO check_items (id, check_id, round_number, menu_item_id, name, quantity, unit_price, total_price, print_class_id, tax_group_id, modifiers, modifiers_json, seat_number, sent_to_kitchen, sent, voided, tax_rate_at_sale, tax_mode_at_sale, tax_amount, taxable_amount, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?)`,
         [
           id,
           checkId,
@@ -307,6 +327,10 @@ export class CapsService {
           modifiersJson,
           modifiersJson,
           item.seatNumber,
+          taxRateAtSale,
+          taxModeAtSale,
+          taxAmountCents,
+          taxableAmountCents,
           now,
         ]
       );
@@ -341,6 +365,7 @@ export class CapsService {
       });
     }
     
+    this.applyAutoServiceCharges(checkId);
     this.recalculateTotals(checkId);
     
     const updatedCheck = this.getCheck(checkId)!;
@@ -405,6 +430,43 @@ export class CapsService {
     this.recalculateTotals(checkId);
   }
   
+  private applyAutoServiceCharges(checkId: string): void {
+    const check = this.getCheck(checkId);
+    if (!check || check.status !== 'open') return;
+
+    const rvc = this.db.getRvc(check.rvcId);
+    if (!rvc?.property_id) return;
+
+    const autoCharges = this.db.getAutoApplyServiceCharges(rvc.property_id, check.guestCount);
+    for (const sc of autoCharges) {
+      const existing = this.db.get<{ id: string }>(
+        `SELECT id FROM check_service_charges WHERE check_id = ? AND service_charge_id = ? AND voided = 0`,
+        [checkId, sc.id]
+      );
+      if (existing) continue;
+
+      if (sc.min_check_amount && check.subtotal < sc.min_check_amount) continue;
+      if (sc.min_guest_count && check.guestCount < sc.min_guest_count) continue;
+
+      let chargeAmountCents = 0;
+      if (sc.charge_type === 'percent') {
+        const rate = parseFloat(sc.amount) || 0;
+        chargeAmountCents = Math.round(this.db.toCents(check.subtotal) * rate / 100);
+      } else {
+        chargeAmountCents = this.db.toCents(parseFloat(sc.amount) || 0);
+      }
+
+      if (chargeAmountCents > 0) {
+        const scId = `caps_sc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        this.db.run(
+          `INSERT INTO check_service_charges (id, check_id, service_charge_id, name, charge_type, amount, auto_applied, voided)
+           VALUES (?, ?, ?, ?, ?, ?, 1, 0)`,
+          [scId, checkId, sc.id, sc.name, sc.charge_type, chargeAmountCents]
+        );
+      }
+    }
+  }
+
   addDiscount(checkId: string, params: {
     discountId?: string;
     checkItemId?: string;
@@ -417,6 +479,34 @@ export class CapsService {
   }): { id: string; amount: number } {
     const check = this.getCheck(checkId);
     if (!check) throw new Error('Check not found');
+
+    if (params.employeeId) {
+      const employee = this.db.getEmployee(params.employeeId);
+      if (employee?.role_id) {
+        const role = this.db.getRole(employee.role_id);
+        if (role) {
+          const isItemDiscount = !!params.checkItemId;
+          const maxPct = isItemDiscount ? (role.max_item_discount_pct || 0) : (role.max_check_discount_pct || 0);
+          const maxAmt = parseFloat(isItemDiscount ? (role.max_item_discount_amt || '0') : (role.max_check_discount_amt || '0'));
+          
+          let discountPct = 0;
+          if (isItemDiscount && params.checkItemId) {
+            const item = (check.items || []).find(i => i.id === params.checkItemId);
+            const itemPriceDollars = item?.totalPrice ? item.totalPrice : 0;
+            if (itemPriceDollars > 0) {
+              discountPct = (params.amount / itemPriceDollars) * 100;
+            }
+          } else if (check.subtotal > 0) {
+            discountPct = (params.amount / check.subtotal) * 100;
+          }
+          
+          const exceedsLimit = (maxPct > 0 && discountPct > maxPct) || (maxAmt > 0 && params.amount > maxAmt);
+          if (exceedsLimit && !params.managerEmployeeId) {
+            throw new Error(`Discount exceeds role limit (max ${maxPct}% / $${maxAmt}). Manager approval required.`);
+          }
+        }
+      }
+    }
 
     const id = `caps_disc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const amountCents = this.db.toCents(params.amount);
@@ -448,6 +538,17 @@ export class CapsService {
     if (!check) throw new Error('Check not found');
     if (check.status !== 'open') throw new Error('Check is not open');
     this.validateLock(checkId, workstationId);
+
+    if (params.reference) {
+      const existingPmt = this.db.get<{ id: string }>(
+        `SELECT id FROM check_payments WHERE check_id = ? AND reference_number = ? AND status != 'voided' AND voided = 0`,
+        [checkId, params.reference]
+      );
+      if (existingPmt) {
+        const payment = this.getCheckPayments(checkId).find(p => p.id === existingPmt.id);
+        if (payment) return { ...payment, popDrawer: false, printCheck: false };
+      }
+    }
     
     const tender = this.db.getTender(params.tenderId);
     
@@ -504,7 +605,7 @@ export class CapsService {
       tenderId: params.tenderId,
       tenderType: params.tenderType,
       amount: params.amount,
-      tip: params.tip || 0,
+      tipAmount: params.tip || 0,
       reference: params.reference,
       isCashMedia: payment.isCashMedia,
       isCardMedia: payment.isCardMedia,
@@ -664,8 +765,8 @@ export class CapsService {
   }
   
   recalculateTotals(checkId: string): void {
-    const items = this.db.all<{ quantity: number; unit_price: number; tax_group_id: string | null }>(
-      `SELECT quantity, unit_price, tax_group_id FROM check_items WHERE check_id = ? AND voided = 0`,
+    const items = this.db.all<{ quantity: number; unit_price: number; tax_group_id: string | null; tax_rate_at_sale: number | null; tax_mode_at_sale: string | null }>(
+      `SELECT quantity, unit_price, tax_group_id, tax_rate_at_sale, tax_mode_at_sale FROM check_items WHERE check_id = ? AND voided = 0`,
       [checkId]
     );
     
@@ -677,15 +778,19 @@ export class CapsService {
       subtotalCents += lineTotalCents;
       
       if (item.tax_group_id) {
-        const taxGroup = this.db.getTaxGroup(item.tax_group_id);
-        if (taxGroup) {
-          const rate = parseFloat(taxGroup.rate) || 0;
-          if (taxGroup.tax_mode === 'inclusive') {
-            const taxPortionCents = Math.round(lineTotalCents - (lineTotalCents / (1 + rate)));
-            totalTaxCents += taxPortionCents;
-          } else {
-            totalTaxCents += Math.round(lineTotalCents * rate);
-          }
+        const rate = item.tax_rate_at_sale != null ? item.tax_rate_at_sale : (() => {
+          const taxGroup = this.db.getTaxGroup(item.tax_group_id!);
+          return taxGroup ? (parseFloat(taxGroup.rate) || 0) : 0;
+        })();
+        const mode = item.tax_mode_at_sale || (() => {
+          const taxGroup = this.db.getTaxGroup(item.tax_group_id!);
+          return taxGroup?.tax_mode || 'exclusive';
+        })();
+        
+        if (mode === 'inclusive') {
+          totalTaxCents += Math.round(lineTotalCents - (lineTotalCents / (1 + rate)));
+        } else {
+          totalTaxCents += Math.round(lineTotalCents * rate);
         }
       }
     }
@@ -696,11 +801,29 @@ export class CapsService {
     );
     const discountTotalCents = Math.round(discountResult?.total || 0);
     
-    const serviceChargeResult = this.db.get<{ total: number }>(
-      `SELECT COALESCE(SUM(amount), 0) as total FROM check_service_charges WHERE check_id = ? AND voided = 0`,
+    if (subtotalCents > 0 && discountTotalCents > 0) {
+      const discountRatio = discountTotalCents / subtotalCents;
+      totalTaxCents = Math.round(totalTaxCents * (1 - discountRatio));
+    }
+    
+    const serviceChargeRows = this.db.all<{ amount: number; service_charge_id: string }>(
+      `SELECT amount, service_charge_id FROM check_service_charges WHERE check_id = ? AND voided = 0`,
       [checkId]
     );
-    const serviceChargeTotalCents = Math.round(serviceChargeResult?.total || 0);
+    let serviceChargeTotalCents = 0;
+    let serviceChargeTaxCents = 0;
+    for (const sc of serviceChargeRows) {
+      serviceChargeTotalCents += Math.round(sc.amount);
+      const scConfig = this.db.getServiceCharge(sc.service_charge_id);
+      if (scConfig?.taxable && scConfig?.tax_group_id) {
+        const taxGroup = this.db.getTaxGroup(scConfig.tax_group_id);
+        if (taxGroup) {
+          const scTaxRate = parseFloat(taxGroup.rate) || 0;
+          serviceChargeTaxCents += Math.round(sc.amount * scTaxRate);
+        }
+      }
+    }
+    totalTaxCents += serviceChargeTaxCents;
     
     const totalCents = Math.max(0, subtotalCents + totalTaxCents - discountTotalCents + serviceChargeTotalCents);
     
@@ -847,11 +970,19 @@ interface CheckItemRow {
   name: string;
   quantity: number;
   unit_price: number;
+  total_price: number;
   modifiers: string;
   seat_number: number | null;
+  print_class_id: string | null;
+  tax_group_id: string | null;
   sent_to_kitchen: number;
+  sent: number;
   voided: number;
   void_reason: string | null;
+  discount_id: string | null;
+  discount_name: string | null;
+  discount_amount: number;
+  discount_type: string | null;
 }
 
 interface PaymentRow {
