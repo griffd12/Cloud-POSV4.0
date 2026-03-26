@@ -313,11 +313,17 @@ function cleanupOldArchives(pattern, maxKeep) {
     if (!fs.existsSync(ARCHIVE_DIR)) return;
     const entries = fs.readdirSync(ARCHIVE_DIR)
       .filter(f => f.match(pattern))
-      .sort();
+      .map(f => {
+        const fullPath = path.join(ARCHIVE_DIR, f);
+        let mtime = 0;
+        try { mtime = fs.statSync(fullPath).mtimeMs; } catch {}
+        return { name: f, mtime };
+      })
+      .sort((a, b) => a.mtime - b.mtime);
     while (entries.length > maxKeep) {
       const oldest = entries.shift();
       try {
-        fs.unlinkSync(path.join(ARCHIVE_DIR, oldest));
+        fs.unlinkSync(path.join(ARCHIVE_DIR, oldest.name));
       } catch {}
     }
   } catch {}
@@ -348,11 +354,13 @@ function rotateLogsForBusinessDate(closedBusinessDate) {
   const zipPath = path.join(ARCHIVE_DIR, zipName);
 
   const success = createLogZip(zipPath, logFiles);
-  if (success) {
-    truncateActiveLogFiles();
-    cleanupOldArchives(/^logs_\d{2}_\d{2}_\d{2}\.zip$/, MAX_ARCHIVE_DAYS);
-    console.log(`[Logger] Business date rotation: archived ${logFiles.length} files to ${zipName}`);
+  if (!success) {
+    console.error(`[Logger] Business date rotation: zip creation failed for ${zipName}`);
+    return 0;
   }
+  truncateActiveLogFiles();
+  cleanupOldArchives(/^logs_\d{2}_\d{2}_\d{2}\.zip$/, MAX_ARCHIVE_DAYS);
+  console.log(`[Logger] Business date rotation: archived ${logFiles.length} files to ${zipName}`);
   return logFiles.length;
 }
 
@@ -371,11 +379,13 @@ function rotateLogsForUpgrade(fromVersion, toVersion) {
   const zipPath = path.join(ARCHIVE_DIR, zipName);
 
   const success = createLogZip(zipPath, logFiles);
-  if (success) {
-    truncateActiveLogFiles();
-    cleanupOldArchives(/^logs_upgrade_v.*\.zip$/, MAX_UPGRADE_ARCHIVES);
-    console.log(`[Logger] Upgrade rotation: archived ${logFiles.length} files to ${zipName}`);
+  if (!success) {
+    console.error(`[Logger] Upgrade rotation: zip creation failed for ${zipName}`);
+    return 0;
   }
+  truncateActiveLogFiles();
+  cleanupOldArchives(/^logs_upgrade_v.*\.zip$/, MAX_UPGRADE_ARCHIVES);
+  console.log(`[Logger] Upgrade rotation: archived ${logFiles.length} files to ${zipName}`);
   return logFiles.length;
 }
 
