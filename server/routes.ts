@@ -24999,6 +24999,8 @@ connect();
         allOnlineOrderSources,
         allItemAvailability,
         allEmcOptionFlags,
+        allIngredientPrefixes,
+        allMenuItemRecipeIngredients,
       ] = await Promise.all([
         storage.getRvcs().then(all => all.filter(r => r.propertyId === propertyId)),
         storage.getEmployees().then(all => all.filter(e => !e.propertyId || e.propertyId === propertyId)),
@@ -25053,6 +25055,8 @@ connect();
         storage.getOnlineOrderSources(propertyId),
         storage.getItemAvailability(propertyId),
         db.select().from(emcOptionFlags).where(eq(emcOptionFlags.enterpriseId, enterpriseId)),
+        storage.getIngredientPrefixes(),
+        storage.getMenuItemRecipeIngredients(),
       ]);
 
       const menuItems = allMenuItems.filter((i: any) => i.enterpriseId === enterpriseId);
@@ -25167,6 +25171,8 @@ connect();
           onlineOrderSources: allOnlineOrderSources,
           itemAvailability: allItemAvailability,
           emcOptionFlags: allEmcOptionFlags,
+          ingredientPrefixes: allIngredientPrefixes,
+          menuItemRecipeIngredients: allMenuItemRecipeIngredients,
         },
       });
     } catch (error: any) {

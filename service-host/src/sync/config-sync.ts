@@ -98,6 +98,8 @@ interface FullConfigResponse {
   
   cashDrawers?: any[];
   onlineOrderSources?: any[];
+  ingredientPrefixes?: any[];
+  menuItemRecipeIngredients?: any[];
 }
 
 interface DeltaConfigResponse {
@@ -266,6 +268,8 @@ export class ConfigSync {
         paymentGatewayConfig: innerData.paymentGatewayConfig,
         cashDrawers: innerData.cashDrawers,
         onlineOrderSources: innerData.onlineOrderSources,
+        ingredientPrefixes: innerData.ingredientPrefixes,
+        menuItemRecipeIngredients: innerData.menuItemRecipeIngredients,
       };
       
       const arraySizes = Object.entries(config)
@@ -757,6 +761,8 @@ export class ConfigSync {
     syncGroup('EMC option flags', config.emcOptionFlags, this.db.upsertOptionFlag);
     syncGroup('descriptor sets', config.descriptorSets, this.db.upsertDescriptorSet);
     syncGroup('descriptor logo assets', config.descriptorLogoAssets, this.db.upsertDescriptorLogoAsset);
+    syncGroup('ingredient prefixes', config.ingredientPrefixes, this.db.upsertIngredientPrefix);
+    syncGroup('menu item recipe ingredients', config.menuItemRecipeIngredients, this.db.upsertMenuItemRecipeIngredient);
 
     return count;
   }
@@ -1058,6 +1064,13 @@ export class ConfigSync {
         this.db.upsertMinorLaborRule(data);
         break;
         
+      case 'ingredientPrefix':
+        this.db.upsertIngredientPrefix(data);
+        break;
+      case 'menuItemRecipeIngredient':
+        this.db.upsertMenuItemRecipeIngredient(data);
+        break;
+        
       default:
         console.warn(`Unknown config entity type: ${entityType}`);
     }
@@ -1099,6 +1112,7 @@ export class ConfigSync {
       minorLaborRule: 'minor_labor_rules',
       printAgent: 'print_agents',
       paymentGatewayConfig: 'payment_gateway_config',
+      ingredientPrefix: 'ingredient_prefixes',
     };
     
     const hardDeleteTables: Record<string, string> = {
@@ -1124,6 +1138,7 @@ export class ConfigSync {
       giftCardTransaction: 'gift_card_transactions',
       itemAvailability: 'item_availability',
       emcOptionFlag: 'emc_option_flags',
+      menuItemRecipeIngredient: 'menu_item_recipe_ingredients',
       fiscalPeriod: 'fiscal_periods',
       drawerAssignment: 'drawer_assignments',
       cashDrawer: 'cash_drawers',

@@ -144,6 +144,7 @@ export function createApiRoutes(
   const router = Router();
   const discountLog = getLogger('Discount');
   const domLog = getLogger('DOM');
+  const capsLog = getLogger('CAPS');
 
   if (dataDir) {
     initGatewayLogger(dataDir);
@@ -3659,6 +3660,130 @@ export function createApiRoutes(
       res.json([]);
     }
   });
+  // ==========================================================================
+  // Ingredient Prefixes (COM / Conversational Ordering)
+  // ==========================================================================
+  router.get('/ingredient-prefixes', (req, res) => {
+    try {
+      const enterpriseId = req.query.enterpriseId as string | undefined;
+      const prefixes = db?.getIngredientPrefixes(enterpriseId) || [];
+      res.json(prefixes);
+    } catch (e) {
+      capsLog.error('[CAPS] ingredient-prefixes error:', (e as Error).message);
+      res.json([]);
+    }
+  });
+
+  // ==========================================================================
+  // Menu Item Recipe Ingredients (COM / Conversational Ordering)
+  // ==========================================================================
+  router.get('/menu-items/:menuItemId/recipe-ingredients', (req, res) => {
+    try {
+      const { menuItemId } = req.params;
+      const ingredients = db?.getMenuItemRecipeIngredients(menuItemId) || [];
+      res.json(ingredients);
+    } catch (e) {
+      capsLog.error('[CAPS] recipe-ingredients error:', (e as Error).message);
+      res.json([]);
+    }
+  });
+
+  // ==========================================================================
+  // Timecards (Runtime — CAPS creates, syncs up)
+  // ==========================================================================
+  router.get('/timecards', (req, res) => {
+    try {
+      const propertyId = req.query.propertyId as string;
+      const businessDate = req.query.businessDate as string | undefined;
+      if (!propertyId) return res.status(400).json({ error: 'propertyId required' });
+      const timecards = db?.getTimecards(propertyId, businessDate) || [];
+      res.json(timecards);
+    } catch (e) {
+      capsLog.error('[CAPS] timecards GET error:', (e as Error).message);
+      res.json([]);
+    }
+  });
+
+  router.post('/timecards', (req, res) => {
+    try {
+      const timecard = db?.createTimecard(req.body);
+      res.json(timecard);
+    } catch (e) {
+      capsLog.error('[CAPS] timecards POST error:', (e as Error).message);
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.patch('/timecards/:id', (req, res) => {
+    try {
+      const timecard = db?.updateTimecard(req.params.id, req.body);
+      res.json(timecard);
+    } catch (e) {
+      capsLog.error('[CAPS] timecards PATCH error:', (e as Error).message);
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/timecards/employee/:employeeId/open', (req, res) => {
+    try {
+      const timecard = db?.getEmployeeOpenTimecard(req.params.employeeId);
+      res.json(timecard || null);
+    } catch (e) {
+      capsLog.error('[CAPS] open timecard error:', (e as Error).message);
+      res.json(null);
+    }
+  });
+
+  // ==========================================================================
+  // Break Attestations (Runtime — CAPS creates, syncs up)
+  // ==========================================================================
+  router.get('/break-attestations', (req, res) => {
+    try {
+      const propertyId = req.query.propertyId as string;
+      const businessDate = req.query.businessDate as string | undefined;
+      if (!propertyId) return res.status(400).json({ error: 'propertyId required' });
+      res.json(db?.getBreakAttestations(propertyId, businessDate) || []);
+    } catch (e) {
+      capsLog.error('[CAPS] break-attestations GET error:', (e as Error).message);
+      res.json([]);
+    }
+  });
+
+  router.post('/break-attestations', (req, res) => {
+    try {
+      const attestation = db?.createBreakAttestation(req.body);
+      res.json(attestation);
+    } catch (e) {
+      capsLog.error('[CAPS] break-attestations POST error:', (e as Error).message);
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  // ==========================================================================
+  // Break Violations (Runtime — CAPS creates, syncs up)
+  // ==========================================================================
+  router.get('/break-violations', (req, res) => {
+    try {
+      const propertyId = req.query.propertyId as string;
+      const businessDate = req.query.businessDate as string | undefined;
+      if (!propertyId) return res.status(400).json({ error: 'propertyId required' });
+      res.json(db?.getBreakViolations(propertyId, businessDate) || []);
+    } catch (e) {
+      capsLog.error('[CAPS] break-violations GET error:', (e as Error).message);
+      res.json([]);
+    }
+  });
+
+  router.post('/break-violations', (req, res) => {
+    try {
+      const violation = db?.createBreakViolation(req.body);
+      res.json(violation);
+    } catch (e) {
+      capsLog.error('[CAPS] break-violations POST error:', (e as Error).message);
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
   router.post('/system-status/workstation/heartbeat', (_req, res) => {
     res.json({ status: 'caps', offline: true });
   });
@@ -4925,6 +5050,8 @@ export function createApiRoutes(
           major_groups: counts.major_groups || 0,
           family_groups: counts.family_groups || 0,
           print_classes: counts.print_classes || 0,
+          ingredient_prefixes: counts.ingredient_prefixes || 0,
+          menu_item_recipe_ingredients: counts.menu_item_recipe_ingredients || 0,
         },
         'Devices & Routing': {
           workstations: counts.workstations || 0,
@@ -4981,6 +5108,70 @@ export function createApiRoutes(
           item_availability: counts.item_availability || 0,
           emc_option_flags: counts.emc_option_flags || 0,
         },
+        'Runtime (CAPS-owned)': {
+          timecards: counts.timecards || 0,
+          terminal_sessions: counts.terminal_sessions || 0,
+          break_attestations: counts.break_attestations || 0,
+          break_violations: counts.break_violations || 0,
+        },
+      };
+
+      const capsExpectedTables = [
+        'enterprises', 'properties', 'rvcs', 'menu_items', 'menu_item_slus',
+        'modifier_groups', 'modifiers', 'modifier_group_modifiers',
+        'menu_item_modifier_groups', 'slus', 'major_groups', 'family_groups',
+        'print_classes', 'employees', 'roles', 'privileges', 'role_privileges',
+        'employee_assignments', 'job_codes', 'employee_job_codes', 'workstations',
+        'printers', 'kds_devices', 'order_devices', 'order_device_printers',
+        'order_device_kds', 'print_class_routing', 'terminal_devices',
+        'tax_groups', 'tenders', 'discounts', 'service_charges',
+        'pos_layouts', 'pos_layout_cells', 'pos_layout_rvc_assignments',
+        'payment_processors', 'payment_gateway_config',
+        'loyalty_programs', 'loyalty_members', 'loyalty_member_enrollments', 'loyalty_rewards',
+        'gift_cards', 'fiscal_periods', 'item_availability', 'emc_option_flags',
+        'overtime_rules', 'break_rules', 'tip_rules', 'tip_rule_job_percentages',
+        'minor_labor_rules', 'descriptor_sets', 'descriptor_logo_assets',
+        'print_agents', 'cash_drawers', 'online_order_sources',
+        'ingredient_prefixes', 'menu_item_recipe_ingredients',
+        'timecards', 'terminal_sessions', 'break_attestations', 'break_violations',
+        'checks', 'check_items', 'check_payments', 'check_service_charges',
+        'kds_tickets', 'kds_ticket_items', 'time_punches', 'break_sessions',
+        'loyalty_transactions', 'loyalty_redemptions', 'gift_card_transactions',
+        'drawer_assignments', 'cash_transactions', 'safe_counts',
+        'audit_logs', 'time_entries', 'sync_metadata', 'schema_version',
+      ];
+      const cloudOnlyTables = [
+        'emc_sessions', 'emc_users', 'stress_test_results',
+        'cal_event_templates', 'cal_events', 'cal_event_assignees', 'cal_event_swaps',
+        'service_host_registrations', 'service_host_heartbeats',
+        'registered_devices', 'gl_mappings', 'idempotency_keys',
+        'shift_templates', 'shift_assignments',
+        'manager_alerts', 'pay_periods', 'print_jobs',
+        'rvc_counters', 'sales_forecasts', 'labor_forecasts', 'labor_snapshots',
+        'sync_notifications', 'workstation_order_devices', 'workstation_service_bindings',
+        'device_heartbeats', 'device_commands',
+      ];
+      const missingNotYetImplemented = [
+        'employee_availability', 'employee_minor_status', 'role_rules',
+        'availability_exceptions', 'tip_pool_policies', 'recipes',
+        'prep_items', 'inventory_items',
+        'timecard_edits', 'timecard_exceptions', 'time_off_requests',
+        'tip_allocations', 'tip_pool_runs',
+        'inventory_stock', 'inventory_transactions',
+      ];
+
+      const existingTables = Object.keys(counts);
+      const presentTables = capsExpectedTables.filter(t => existingTables.includes(t));
+      const missingTables = capsExpectedTables.filter(t => !existingTables.includes(t));
+
+      const tableParity = {
+        capsExpected: capsExpectedTables.length,
+        capsPresent: presentTables.length,
+        capsMissing: missingTables,
+        cloudOnlyCount: cloudOnlyTables.length,
+        cloudOnly: cloudOnlyTables,
+        notYetImplemented: missingNotYetImplemented,
+        parityPct: Math.round((presentTables.length / capsExpectedTables.length) * 100),
       };
       
       const totalRecords = Object.values(counts).reduce((sum, c) => sum + (c > 0 ? c : 0), 0);
@@ -4994,6 +5185,7 @@ export function createApiRoutes(
         },
         totalRecords,
         sections,
+        tableParity,
         rawCounts: counts,
       });
     } catch (e) {

@@ -16,6 +16,8 @@ import {
   Search,
   User,
   Shield,
+  BarChart3,
+  AlertTriangle,
 } from "lucide-react";
 
 interface CAPSDiagnosticModalProps {
@@ -322,10 +324,86 @@ function EmployeePrivilegeInspector() {
   );
 }
 
+function TableParityView({ parity }: { parity: any }) {
+  if (!parity) return <div className="text-sm text-muted-foreground">No parity data available</div>;
+
+  const barColor = parity.parityPct >= 90 ? "bg-green-500" : parity.parityPct >= 70 ? "bg-amber-500" : "bg-red-500";
+
+  return (
+    <div className="space-y-4" data-testid="table-parity-view">
+      <div className="border rounded-lg p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">CAPS Table Parity</span>
+          <Badge variant={parity.parityPct >= 90 ? "default" : "destructive"} className="text-xs" data-testid="text-parity-pct">
+            {parity.parityPct}%
+          </Badge>
+        </div>
+        <div className="w-full bg-muted rounded-full h-2">
+          <div className={`${barColor} rounded-full h-2 transition-all`} style={{ width: `${parity.parityPct}%` }} />
+        </div>
+        <div className="grid grid-cols-3 gap-3 text-xs">
+          <div className="text-center">
+            <div className="text-muted-foreground">Expected</div>
+            <div className="font-medium text-lg" data-testid="text-expected-count">{parity.capsExpected}</div>
+          </div>
+          <div className="text-center">
+            <div className="text-muted-foreground">Present</div>
+            <div className="font-medium text-lg text-green-600" data-testid="text-present-count">{parity.capsPresent}</div>
+          </div>
+          <div className="text-center">
+            <div className="text-muted-foreground">Missing</div>
+            <div className="font-medium text-lg text-red-600" data-testid="text-missing-count">{parity.capsMissing?.length || 0}</div>
+          </div>
+        </div>
+      </div>
+
+      {parity.capsMissing?.length > 0 && (
+        <div className="border rounded-lg overflow-hidden">
+          <div className="p-2 bg-red-50 dark:bg-red-950/20 border-b flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-red-500" />
+            <span className="text-xs font-medium text-red-700 dark:text-red-400">Missing from CAPS ({parity.capsMissing.length})</span>
+          </div>
+          <div className="p-2 flex flex-wrap gap-1">
+            {parity.capsMissing.map((t: string) => (
+              <Badge key={t} variant="outline" className="text-xs font-mono text-red-600">{t}</Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {parity.notYetImplemented?.length > 0 && (
+        <div className="border rounded-lg overflow-hidden">
+          <div className="p-2 bg-amber-50 dark:bg-amber-950/20 border-b flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-500" />
+            <span className="text-xs font-medium text-amber-700 dark:text-amber-400">Planned — Not Yet Implemented ({parity.notYetImplemented.length})</span>
+          </div>
+          <div className="p-2 flex flex-wrap gap-1">
+            {parity.notYetImplemented.map((t: string) => (
+              <Badge key={t} variant="outline" className="text-xs font-mono text-amber-600">{t}</Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="border rounded-lg overflow-hidden">
+        <div className="p-2 bg-muted/50 border-b flex items-center gap-2">
+          <Database className="w-4 h-4 text-muted-foreground" />
+          <span className="text-xs font-medium">Cloud-Only Tables ({parity.cloudOnlyCount})</span>
+        </div>
+        <div className="p-2 flex flex-wrap gap-1">
+          {parity.cloudOnly?.map((t: string) => (
+            <Badge key={t} variant="outline" className="text-xs font-mono text-muted-foreground">{t}</Badge>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function CAPSDiagnosticModal({ open, onClose }: CAPSDiagnosticModalProps) {
   const { data: summary, isLoading, refetch } = useDiagnosticSummary();
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"tables" | "privileges">("tables");
+  const [activeTab, setActiveTab] = useState<"tables" | "privileges" | "parity">("tables");
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -402,6 +480,15 @@ export function CAPSDiagnosticModal({ open, onClose }: CAPSDiagnosticModalProps)
                   <Shield className="w-4 h-4 mr-1" />
                   Privilege Inspector
                 </Button>
+                <Button
+                  variant={activeTab === "parity" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setActiveTab("parity")}
+                  data-testid="button-tab-parity"
+                >
+                  <BarChart3 className="w-4 h-4 mr-1" />
+                  Table Parity
+                </Button>
                 <div className="flex-1" />
                 <Button
                   variant="ghost"
@@ -435,6 +522,8 @@ export function CAPSDiagnosticModal({ open, onClose }: CAPSDiagnosticModalProps)
               )}
 
               {activeTab === "privileges" && <EmployeePrivilegeInspector />}
+
+              {activeTab === "parity" && <TableParityView parity={summary.tableParity} />}
             </div>
           </ScrollArea>
         ) : (

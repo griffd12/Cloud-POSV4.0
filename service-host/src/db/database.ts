@@ -199,6 +199,10 @@ export class Database {
       this.migrateToV19();
     }
     
+    if (fromVersion < 20) {
+      this.migrateToV20();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -1037,6 +1041,88 @@ export class Database {
     console.log('[DB] v19 migration complete');
   }
   
+  private migrateToV20(): void {
+    console.log('[DB] Running v20 migration: ingredient_prefixes, recipe_ingredients, timecards, terminal_sessions, break compliance');
+    const newTables = [
+      `CREATE TABLE IF NOT EXISTS ingredient_prefixes (
+        id TEXT PRIMARY KEY, enterprise_id TEXT, property_id TEXT, rvc_id TEXT,
+        name TEXT NOT NULL, code TEXT NOT NULL, print_name TEXT,
+        price_factor REAL DEFAULT 1.0, display_order INTEGER DEFAULT 0,
+        active INTEGER DEFAULT 1, updated_at TEXT DEFAULT (datetime('now'))
+      )`,
+      `CREATE TABLE IF NOT EXISTS menu_item_recipe_ingredients (
+        id TEXT PRIMARY KEY, menu_item_id TEXT NOT NULL, ingredient_name TEXT NOT NULL,
+        ingredient_category TEXT, default_quantity INTEGER DEFAULT 1,
+        is_default INTEGER DEFAULT 1, price_per_unit REAL DEFAULT 0.0,
+        display_order INTEGER DEFAULT 0, active INTEGER DEFAULT 1,
+        modifier_id TEXT, default_prefix_id TEXT, sort_order INTEGER DEFAULT 0,
+        updated_at TEXT DEFAULT (datetime('now'))
+      )`,
+      `CREATE TABLE IF NOT EXISTS timecards (
+        id TEXT PRIMARY KEY, property_id TEXT NOT NULL, employee_id TEXT NOT NULL,
+        business_date TEXT NOT NULL, job_code_id TEXT, pay_rate REAL,
+        clock_in_time TEXT, clock_out_time TEXT,
+        regular_hours REAL DEFAULT 0, overtime_hours REAL DEFAULT 0,
+        double_time_hours REAL DEFAULT 0, break_minutes INTEGER DEFAULT 0,
+        paid_break_minutes INTEGER DEFAULT 0, unpaid_break_minutes INTEGER DEFAULT 0,
+        total_hours REAL DEFAULT 0, regular_pay REAL DEFAULT 0,
+        overtime_pay REAL DEFAULT 0, total_pay REAL DEFAULT 0, tips REAL DEFAULT 0,
+        status TEXT DEFAULT 'open', approved_by_id TEXT, approved_at TEXT,
+        cloud_synced INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
+      )`,
+      `CREATE TABLE IF NOT EXISTS terminal_sessions (
+        id TEXT PRIMARY KEY, terminal_device_id TEXT NOT NULL,
+        check_id TEXT, tender_id TEXT, employee_id TEXT, workstation_id TEXT,
+        amount INTEGER NOT NULL, tip_amount INTEGER DEFAULT 0,
+        currency TEXT DEFAULT 'usd', status TEXT DEFAULT 'pending',
+        status_message TEXT, processor_reference TEXT, payment_transaction_id TEXT,
+        initiated_at TEXT DEFAULT (datetime('now')), completed_at TEXT,
+        expires_at TEXT, metadata TEXT, cloud_synced INTEGER DEFAULT 0
+      )`,
+      `CREATE TABLE IF NOT EXISTS break_attestations (
+        id TEXT PRIMARY KEY, property_id TEXT NOT NULL, employee_id TEXT NOT NULL,
+        timecard_id TEXT, business_date TEXT NOT NULL,
+        attestation_type TEXT NOT NULL DEFAULT 'clock_out',
+        breaks_provided INTEGER NOT NULL, missed_meal_break INTEGER DEFAULT 0,
+        missed_rest_break INTEGER DEFAULT 0, missed_break_reason TEXT,
+        employee_signature TEXT, cloud_synced INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
+      )`,
+      `CREATE TABLE IF NOT EXISTS break_violations (
+        id TEXT PRIMARY KEY, property_id TEXT NOT NULL, employee_id TEXT NOT NULL,
+        timecard_id TEXT, break_session_id TEXT, business_date TEXT NOT NULL,
+        violation_type TEXT NOT NULL, violation_reason TEXT,
+        shift_start_time TEXT, shift_end_time TEXT, hours_worked REAL,
+        break_deadline_time TEXT, premium_pay_amount REAL DEFAULT 0,
+        premium_pay_minutes INTEGER DEFAULT 0, severity TEXT DEFAULT 'warning',
+        acknowledged INTEGER DEFAULT 0, acknowledged_by_id TEXT, acknowledged_at TEXT,
+        cloud_synced INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
+      )`,
+    ];
+    for (const sql of newTables) {
+      try {
+        this.run(sql);
+      } catch (e: any) {
+        console.log(`[DB] V20 table creation skipped: ${e.message}`);
+      }
+    }
+    const indexes = [
+      'CREATE INDEX IF NOT EXISTS idx_ingredient_prefixes_enterprise ON ingredient_prefixes(enterprise_id)',
+      'CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_menu_item ON menu_item_recipe_ingredients(menu_item_id)',
+      'CREATE INDEX IF NOT EXISTS idx_timecards_employee ON timecards(employee_id)',
+      'CREATE INDEX IF NOT EXISTS idx_timecards_date ON timecards(business_date)',
+      'CREATE INDEX IF NOT EXISTS idx_terminal_sessions_device ON terminal_sessions(terminal_device_id)',
+      'CREATE INDEX IF NOT EXISTS idx_break_attestations_employee ON break_attestations(employee_id)',
+      'CREATE INDEX IF NOT EXISTS idx_break_violations_employee ON break_violations(employee_id)',
+    ];
+    for (const idx of indexes) {
+      try { this.run(idx); } catch { /* index may exist */ }
+    }
+    console.log('[DB] v20 migration complete');
+  }
+  
   // ==========================================================================
   // Generic query methods
   // ==========================================================================
@@ -1414,6 +1500,255 @@ export class Database {
     );
   }
   
+  // ==========================================================================
+  // Ingredient Prefixes (COM / Conversational Ordering)
+  // ==========================================================================
+
+  upsertIngredientPrefix(prefix: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO ingredient_prefixes (
+        id, enterprise_id, property_id, rvc_id, name, code, print_name,
+        price_factor, display_order, active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        prefix.id, prefix.enterpriseId, prefix.propertyId, prefix.rvcId,
+        prefix.name, prefix.code, prefix.printName,
+        prefix.priceFactor != null ? parseFloat(prefix.priceFactor) : 1.0,
+        prefix.displayOrder || 0, prefix.active !== false ? 1 : 0,
+      ]
+    );
+  }
+
+  getIngredientPrefixes(enterpriseId?: string): any[] {
+    if (enterpriseId) {
+      return this.all(
+        'SELECT * FROM ingredient_prefixes WHERE enterprise_id = ? AND active = 1 ORDER BY display_order',
+        [enterpriseId]
+      );
+    }
+    return this.all('SELECT * FROM ingredient_prefixes WHERE active = 1 ORDER BY display_order', []);
+  }
+
+  // ==========================================================================
+  // Menu Item Recipe Ingredients (COM / Conversational Ordering)
+  // ==========================================================================
+
+  upsertMenuItemRecipeIngredient(ingredient: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO menu_item_recipe_ingredients (
+        id, menu_item_id, ingredient_name, ingredient_category, default_quantity,
+        is_default, price_per_unit, display_order, active, modifier_id,
+        default_prefix_id, sort_order, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        ingredient.id, ingredient.menuItemId, ingredient.ingredientName,
+        ingredient.ingredientCategory, ingredient.defaultQuantity || 1,
+        ingredient.isDefault !== false ? 1 : 0,
+        ingredient.pricePerUnit != null ? parseFloat(ingredient.pricePerUnit) : 0.0,
+        ingredient.displayOrder || 0, ingredient.active !== false ? 1 : 0,
+        ingredient.modifierId || null, ingredient.defaultPrefixId || null,
+        ingredient.sortOrder || 0,
+      ]
+    );
+  }
+
+  getMenuItemRecipeIngredients(menuItemId: string): any[] {
+    return this.all(
+      'SELECT * FROM menu_item_recipe_ingredients WHERE menu_item_id = ? AND active = 1 ORDER BY sort_order, display_order',
+      [menuItemId]
+    );
+  }
+
+  getAllRecipeIngredients(): any[] {
+    return this.all('SELECT * FROM menu_item_recipe_ingredients WHERE active = 1', []);
+  }
+
+  // ==========================================================================
+  // Timecards (Runtime — CAPS creates, syncs up)
+  // ==========================================================================
+
+  createTimecard(tc: any): any {
+    const id = tc.id || crypto.randomUUID();
+    this.run(
+      `INSERT INTO timecards (
+        id, property_id, employee_id, business_date, job_code_id, pay_rate,
+        clock_in_time, clock_out_time, regular_hours, overtime_hours,
+        double_time_hours, break_minutes, paid_break_minutes, unpaid_break_minutes,
+        total_hours, regular_pay, overtime_pay, total_pay, tips, status,
+        approved_by_id, approved_at, cloud_synced
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [
+        id, tc.propertyId, tc.employeeId, tc.businessDate, tc.jobCodeId || null,
+        tc.payRate || null, tc.clockInTime || null, tc.clockOutTime || null,
+        tc.regularHours || 0, tc.overtimeHours || 0, tc.doubleTimeHours || 0,
+        tc.breakMinutes || 0, tc.paidBreakMinutes || 0, tc.unpaidBreakMinutes || 0,
+        tc.totalHours || 0, tc.regularPay || 0, tc.overtimePay || 0,
+        tc.totalPay || 0, tc.tips || 0, tc.status || 'open',
+        tc.approvedById || null, tc.approvedAt || null,
+      ]
+    );
+    return this.get('SELECT * FROM timecards WHERE id = ?', [id]);
+  }
+
+  updateTimecard(id: string, updates: any): any {
+    const fields: string[] = [];
+    const values: any[] = [];
+    const mappings: Record<string, string> = {
+      clockOutTime: 'clock_out_time', status: 'status',
+      regularHours: 'regular_hours', overtimeHours: 'overtime_hours',
+      totalHours: 'total_hours', breakMinutes: 'break_minutes',
+      regularPay: 'regular_pay', overtimePay: 'overtime_pay',
+      totalPay: 'total_pay', tips: 'tips',
+      approvedById: 'approved_by_id', approvedAt: 'approved_at',
+    };
+    for (const [key, col] of Object.entries(mappings)) {
+      if (updates[key] !== undefined) {
+        fields.push(`${col} = ?`);
+        values.push(updates[key]);
+      }
+    }
+    if (fields.length === 0) return this.get('SELECT * FROM timecards WHERE id = ?', [id]);
+    fields.push("updated_at = datetime('now')", 'cloud_synced = 0');
+    values.push(id);
+    this.run(`UPDATE timecards SET ${fields.join(', ')} WHERE id = ?`, values);
+    return this.get('SELECT * FROM timecards WHERE id = ?', [id]);
+  }
+
+  getTimecards(propertyId: string, businessDate?: string): any[] {
+    if (businessDate) {
+      return this.all(
+        'SELECT * FROM timecards WHERE property_id = ? AND business_date = ? ORDER BY clock_in_time',
+        [propertyId, businessDate]
+      );
+    }
+    return this.all('SELECT * FROM timecards WHERE property_id = ? ORDER BY business_date DESC, clock_in_time', [propertyId]);
+  }
+
+  getEmployeeOpenTimecard(employeeId: string): any | null {
+    return this.get("SELECT * FROM timecards WHERE employee_id = ? AND status = 'open' ORDER BY clock_in_time DESC LIMIT 1", [employeeId]) || null;
+  }
+
+  // ==========================================================================
+  // Terminal Sessions (Runtime — CAPS creates, syncs up)
+  // ==========================================================================
+
+  createTerminalSession(session: any): any {
+    const id = session.id || crypto.randomUUID();
+    this.run(
+      `INSERT INTO terminal_sessions (
+        id, terminal_device_id, check_id, tender_id, employee_id, workstation_id,
+        amount, tip_amount, currency, status, status_message,
+        processor_reference, payment_transaction_id, completed_at, expires_at, metadata, cloud_synced
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [
+        id, session.terminalDeviceId, session.checkId || null,
+        session.tenderId || null, session.employeeId || null,
+        session.workstationId || null, session.amount,
+        session.tipAmount || 0, session.currency || 'usd',
+        session.status || 'pending', session.statusMessage || null,
+        session.processorReference || null, session.paymentTransactionId || null,
+        session.completedAt || null, session.expiresAt || null,
+        session.metadata ? JSON.stringify(session.metadata) : null,
+      ]
+    );
+    return this.get('SELECT * FROM terminal_sessions WHERE id = ?', [id]);
+  }
+
+  updateTerminalSession(id: string, updates: any): any {
+    const fields: string[] = [];
+    const values: any[] = [];
+    const mappings: Record<string, string> = {
+      status: 'status', statusMessage: 'status_message',
+      processorReference: 'processor_reference',
+      paymentTransactionId: 'payment_transaction_id',
+      completedAt: 'completed_at', tipAmount: 'tip_amount',
+    };
+    for (const [key, col] of Object.entries(mappings)) {
+      if (updates[key] !== undefined) {
+        fields.push(`${col} = ?`);
+        values.push(updates[key]);
+      }
+    }
+    if (fields.length === 0) return this.get('SELECT * FROM terminal_sessions WHERE id = ?', [id]);
+    fields.push('cloud_synced = 0');
+    values.push(id);
+    this.run(`UPDATE terminal_sessions SET ${fields.join(', ')} WHERE id = ?`, values);
+    return this.get('SELECT * FROM terminal_sessions WHERE id = ?', [id]);
+  }
+
+  getTerminalSession(id: string): any | null {
+    return this.get('SELECT * FROM terminal_sessions WHERE id = ?', [id]) || null;
+  }
+
+  // ==========================================================================
+  // Break Attestations (Runtime — CAPS creates, syncs up)
+  // ==========================================================================
+
+  createBreakAttestation(att: any): any {
+    const id = att.id || crypto.randomUUID();
+    this.run(
+      `INSERT INTO break_attestations (
+        id, property_id, employee_id, timecard_id, business_date,
+        attestation_type, breaks_provided, missed_meal_break, missed_rest_break,
+        missed_break_reason, employee_signature, cloud_synced
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [
+        id, att.propertyId, att.employeeId, att.timecardId || null,
+        att.businessDate, att.attestationType || 'clock_out',
+        att.breaksProvided ? 1 : 0, att.missedMealBreak ? 1 : 0,
+        att.missedRestBreak ? 1 : 0, att.missedBreakReason || null,
+        att.employeeSignature || null,
+      ]
+    );
+    return this.get('SELECT * FROM break_attestations WHERE id = ?', [id]);
+  }
+
+  getBreakAttestations(propertyId: string, businessDate?: string): any[] {
+    if (businessDate) {
+      return this.all(
+        'SELECT * FROM break_attestations WHERE property_id = ? AND business_date = ?',
+        [propertyId, businessDate]
+      );
+    }
+    return this.all('SELECT * FROM break_attestations WHERE property_id = ?', [propertyId]);
+  }
+
+  // ==========================================================================
+  // Break Violations (Runtime — CAPS creates, syncs up)
+  // ==========================================================================
+
+  createBreakViolation(viol: any): any {
+    const id = viol.id || crypto.randomUUID();
+    this.run(
+      `INSERT INTO break_violations (
+        id, property_id, employee_id, timecard_id, break_session_id, business_date,
+        violation_type, violation_reason, shift_start_time, shift_end_time,
+        hours_worked, break_deadline_time, premium_pay_amount, premium_pay_minutes,
+        severity, acknowledged, acknowledged_by_id, acknowledged_at, cloud_synced
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [
+        id, viol.propertyId, viol.employeeId, viol.timecardId || null,
+        viol.breakSessionId || null, viol.businessDate,
+        viol.violationType, viol.violationReason || null,
+        viol.shiftStartTime || null, viol.shiftEndTime || null,
+        viol.hoursWorked || null, viol.breakDeadlineTime || null,
+        viol.premiumPayAmount || 0, viol.premiumPayMinutes || 0,
+        viol.severity || 'warning', 0, null, null,
+      ]
+    );
+    return this.get('SELECT * FROM break_violations WHERE id = ?', [id]);
+  }
+
+  getBreakViolations(propertyId: string, businessDate?: string): any[] {
+    if (businessDate) {
+      return this.all(
+        'SELECT * FROM break_violations WHERE property_id = ? AND business_date = ?',
+        [propertyId, businessDate]
+      );
+    }
+    return this.all('SELECT * FROM break_violations WHERE property_id = ?', [propertyId]);
+  }
+
   // ==========================================================================
   // SLUs (Screen Lookup Units)
   // ==========================================================================
@@ -2753,6 +3088,8 @@ export class Database {
       'fiscal_periods', 'cash_drawers', 'online_order_sources',
       'item_availability', 'emc_option_flags',
       'job_codes',
+      'ingredient_prefixes', 'menu_item_recipe_ingredients',
+      'timecards', 'terminal_sessions', 'break_attestations', 'break_violations',
     ];
     const counts: Record<string, number> = {};
     for (const table of tables) {
@@ -2787,6 +3124,8 @@ export class Database {
       'fiscal_periods', 'cash_drawers', 'online_order_sources',
       'item_availability', 'emc_option_flags',
       'job_codes', 'checks', 'check_items', 'check_payments',
+      'ingredient_prefixes', 'menu_item_recipe_ingredients',
+      'timecards', 'terminal_sessions', 'break_attestations', 'break_violations',
     ]);
     if (!allowedTables.has(tableName)) {
       return [];

@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
@@ -196,6 +196,40 @@ CREATE TABLE IF NOT EXISTS print_classes (
   code TEXT NOT NULL,
   display_order INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- =============================================================================
+-- INGREDIENT PREFIXES & RECIPE INGREDIENTS (COM / Conversational Ordering)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS ingredient_prefixes (
+  id TEXT PRIMARY KEY,
+  enterprise_id TEXT REFERENCES enterprises(id),
+  property_id TEXT REFERENCES properties(id),
+  rvc_id TEXT REFERENCES rvcs(id),
+  name TEXT NOT NULL,
+  code TEXT NOT NULL,
+  print_name TEXT,
+  price_factor REAL DEFAULT 1.0,
+  display_order INTEGER DEFAULT 0,
+  active INTEGER DEFAULT 1,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS menu_item_recipe_ingredients (
+  id TEXT PRIMARY KEY,
+  menu_item_id TEXT NOT NULL REFERENCES menu_items(id),
+  ingredient_name TEXT NOT NULL,
+  ingredient_category TEXT,
+  default_quantity INTEGER DEFAULT 1,
+  is_default INTEGER DEFAULT 1,
+  price_per_unit REAL DEFAULT 0.0,
+  display_order INTEGER DEFAULT 0,
+  active INTEGER DEFAULT 1,
+  modifier_id TEXT REFERENCES modifiers(id),
+  default_prefix_id TEXT REFERENCES ingredient_prefixes(id),
+  sort_order INTEGER DEFAULT 0,
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -1680,6 +1714,108 @@ CREATE INDEX IF NOT EXISTS idx_emc_option_flags_key
   ON emc_option_flags (enterprise_id, option_key);
 
 -- =============================================================================
+-- TIMECARDS (Runtime — CAPS creates, syncs up to Cloud)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS timecards (
+  id TEXT PRIMARY KEY,
+  property_id TEXT NOT NULL REFERENCES properties(id),
+  employee_id TEXT NOT NULL REFERENCES employees(id),
+  business_date TEXT NOT NULL,
+  job_code_id TEXT REFERENCES job_codes(id),
+  pay_rate REAL,
+  clock_in_time TEXT,
+  clock_out_time TEXT,
+  regular_hours REAL DEFAULT 0,
+  overtime_hours REAL DEFAULT 0,
+  double_time_hours REAL DEFAULT 0,
+  break_minutes INTEGER DEFAULT 0,
+  paid_break_minutes INTEGER DEFAULT 0,
+  unpaid_break_minutes INTEGER DEFAULT 0,
+  total_hours REAL DEFAULT 0,
+  regular_pay REAL DEFAULT 0,
+  overtime_pay REAL DEFAULT 0,
+  total_pay REAL DEFAULT 0,
+  tips REAL DEFAULT 0,
+  status TEXT DEFAULT 'open',
+  approved_by_id TEXT REFERENCES employees(id),
+  approved_at TEXT,
+  cloud_synced INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- =============================================================================
+-- TERMINAL SESSIONS (Runtime — CAPS creates, syncs up to Cloud)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS terminal_sessions (
+  id TEXT PRIMARY KEY,
+  terminal_device_id TEXT NOT NULL REFERENCES terminal_devices(id),
+  check_id TEXT REFERENCES checks(id),
+  tender_id TEXT REFERENCES tenders(id),
+  employee_id TEXT REFERENCES employees(id),
+  workstation_id TEXT REFERENCES workstations(id),
+  amount INTEGER NOT NULL,
+  tip_amount INTEGER DEFAULT 0,
+  currency TEXT DEFAULT 'usd',
+  status TEXT DEFAULT 'pending',
+  status_message TEXT,
+  processor_reference TEXT,
+  payment_transaction_id TEXT REFERENCES payment_transactions(id),
+  initiated_at TEXT DEFAULT (datetime('now')),
+  completed_at TEXT,
+  expires_at TEXT,
+  metadata TEXT,
+  cloud_synced INTEGER DEFAULT 0
+);
+
+-- =============================================================================
+-- BREAK COMPLIANCE (Runtime — CAPS creates, syncs up to Cloud)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS break_attestations (
+  id TEXT PRIMARY KEY,
+  property_id TEXT NOT NULL REFERENCES properties(id),
+  employee_id TEXT NOT NULL REFERENCES employees(id),
+  timecard_id TEXT REFERENCES timecards(id),
+  business_date TEXT NOT NULL,
+  attestation_type TEXT NOT NULL DEFAULT 'clock_out',
+  breaks_provided INTEGER NOT NULL,
+  missed_meal_break INTEGER DEFAULT 0,
+  missed_rest_break INTEGER DEFAULT 0,
+  missed_break_reason TEXT,
+  employee_signature TEXT,
+  cloud_synced INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS break_violations (
+  id TEXT PRIMARY KEY,
+  property_id TEXT NOT NULL REFERENCES properties(id),
+  employee_id TEXT NOT NULL REFERENCES employees(id),
+  timecard_id TEXT REFERENCES timecards(id),
+  break_session_id TEXT REFERENCES break_sessions(id),
+  business_date TEXT NOT NULL,
+  violation_type TEXT NOT NULL,
+  violation_reason TEXT,
+  shift_start_time TEXT,
+  shift_end_time TEXT,
+  hours_worked REAL,
+  break_deadline_time TEXT,
+  premium_pay_amount REAL DEFAULT 0,
+  premium_pay_minutes INTEGER DEFAULT 0,
+  severity TEXT DEFAULT 'warning',
+  acknowledged INTEGER DEFAULT 0,
+  acknowledged_by_id TEXT REFERENCES employees(id),
+  acknowledged_at TEXT,
+  cloud_synced INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- =============================================================================
 -- INDEXES
 -- =============================================================================
 
@@ -1795,4 +1931,28 @@ CREATE INDEX IF NOT EXISTS idx_offline_order_queue_rvc ON offline_order_queue(rv
 CREATE INDEX IF NOT EXISTS idx_online_orders_property ON online_orders(property_id);
 CREATE INDEX IF NOT EXISTS idx_online_orders_status ON online_orders(status);
 CREATE INDEX IF NOT EXISTS idx_online_orders_external ON online_orders(external_order_id);
+
+CREATE INDEX IF NOT EXISTS idx_ingredient_prefixes_enterprise ON ingredient_prefixes(enterprise_id);
+CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_menu_item ON menu_item_recipe_ingredients(menu_item_id);
+CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_modifier ON menu_item_recipe_ingredients(modifier_id);
+
+CREATE INDEX IF NOT EXISTS idx_timecards_property ON timecards(property_id);
+CREATE INDEX IF NOT EXISTS idx_timecards_employee ON timecards(employee_id);
+CREATE INDEX IF NOT EXISTS idx_timecards_date ON timecards(business_date);
+CREATE INDEX IF NOT EXISTS idx_timecards_cloud_synced ON timecards(cloud_synced);
+
+CREATE INDEX IF NOT EXISTS idx_terminal_sessions_device ON terminal_sessions(terminal_device_id);
+CREATE INDEX IF NOT EXISTS idx_terminal_sessions_check ON terminal_sessions(check_id);
+CREATE INDEX IF NOT EXISTS idx_terminal_sessions_status ON terminal_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_terminal_sessions_cloud_synced ON terminal_sessions(cloud_synced);
+
+CREATE INDEX IF NOT EXISTS idx_break_attestations_property ON break_attestations(property_id);
+CREATE INDEX IF NOT EXISTS idx_break_attestations_employee ON break_attestations(employee_id);
+CREATE INDEX IF NOT EXISTS idx_break_attestations_date ON break_attestations(business_date);
+CREATE INDEX IF NOT EXISTS idx_break_attestations_cloud_synced ON break_attestations(cloud_synced);
+
+CREATE INDEX IF NOT EXISTS idx_break_violations_property ON break_violations(property_id);
+CREATE INDEX IF NOT EXISTS idx_break_violations_employee ON break_violations(employee_id);
+CREATE INDEX IF NOT EXISTS idx_break_violations_date ON break_violations(business_date);
+CREATE INDEX IF NOT EXISTS idx_break_violations_cloud_synced ON break_violations(cloud_synced);
 `;
