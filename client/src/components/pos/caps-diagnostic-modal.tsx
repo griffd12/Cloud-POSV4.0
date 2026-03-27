@@ -325,9 +325,10 @@ function EmployeePrivilegeInspector() {
 }
 
 function TableParityView({ parity }: { parity: any }) {
+  const [showCloudOnly, setShowCloudOnly] = useState(false);
+
   if (!parity) return <div className="text-sm text-muted-foreground">No parity data available</div>;
 
-  const [showCloudOnly, setShowCloudOnly] = useState(false);
   const barColor = parity.parity ? "bg-green-500" : parity.parityPct >= 70 ? "bg-amber-500" : "bg-red-500";
 
   return (
