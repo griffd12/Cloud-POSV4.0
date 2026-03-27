@@ -107,33 +107,42 @@ The development server starts both the Vite frontend dev server and the Express 
 
 The application requires a PostgreSQL `DATABASE_URL` connection string. Additional configuration for payment gateways, delivery platforms, and other integrations can be set through environment variables.
 
+## Current Version
+
+**v3.1.111** | Schema Version 22 | March 27, 2026
+
+Latest changes: Shift scheduling sync (shift_templates + shifts), employee date-of-birth sync. See `electron/RELEASE_NOTES_v3.1.111.md` for full details.
+
 ## Building the Windows Desktop App
+
+The Electron build produces a Windows installer (`.exe`) that packages the React frontend, Express backend, and CAPS service-host engine into a single desktop application.
 
 ### Quick Build
 
 ```bash
-# Bump version
-node electron/bump-version.cjs major  # or minor/patch
-
-# Build web app + Windows installer
-./scripts/build-windows.sh
+node electron/bump-version.cjs patch && npm run build && npx electron-builder --config electron/electron-builder.json --win
 ```
 
-### Manual Build
+### Step-by-Step Build
 
 ```bash
-# 1. Build the web application
+# 1. Bump version (updates build-info.json, electron-builder.json, service-host-embedded.cjs)
+node electron/bump-version.cjs patch   # 3.1.110 → 3.1.111
+
+# 2. Build the web application (React frontend + Express backend → dist/)
 npm run build
 
-# 2. Build Windows installer
+# 3. Build the Electron installer
 npx electron-builder --config electron/electron-builder.json --win
 ```
 
-The installer will be output to `electron-dist/Cloud-POS-3.0.0-Setup.exe`.
+The installer will be output to `electron-dist/Cloud POS-{version}-Setup.exe`.
 
 ### CI/CD Build
 
 The repository includes a GitHub Actions workflow (`.github/workflows/electron-build.yml`) that builds the Windows installer on `windows-latest` and uploads it to GitHub Releases. It can be triggered manually via workflow_dispatch or automatically on release publication.
+
+See `electron/BUILD.md` for the complete build guide including architecture diagrams, native dependencies, troubleshooting, and the three-layer runtime architecture.
 
 ## Service-Host (CAPS)
 
@@ -179,9 +188,10 @@ The system supports three levels of offline resilience:
 ## Documentation
 
 - `DATABASE_SCHEMA.md` — Complete database schema reference
-- `electron/BUILD.md` — Detailed Electron build instructions
-- `RELEASE_NOTES_v3.0.0.md` — V3.0 release notes
-- `electron/RELEASE_NOTES_v3.0.0.md` — Desktop-specific release notes
+- `electron/BUILD.md` — Detailed Electron build guide with architecture diagrams and process flow
+- `electron/RELEASE_NOTES_v3.1.111.md` — Latest release notes (v3.1.111)
+- `electron/TEST_SCRIPT_v3.1.110.md` — QA test script (29 test cases)
+- `docs/phase4-complex-tables-design.md` — Phase 4 complex tables design document
 
 ## License
 
