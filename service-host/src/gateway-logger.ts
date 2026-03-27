@@ -8,6 +8,18 @@ export interface GatewayFileEntry {
   line: string;
 }
 
+export interface GatewayStructuredEntry {
+  ts: string;
+  device: string;
+  method: string;
+  url: string;
+  status: number;
+  ms: number;
+  reqBody?: string | null;
+  resBody?: string | null;
+  err?: string | null;
+}
+
 let logFilePath: string | null = null;
 let logStream: fs.WriteStream | null = null;
 let currentSize = 0;
@@ -60,10 +72,17 @@ function rotate(): void {
   openStream();
 }
 
-export function writeGatewayEntry(entry: GatewayFileEntry): void {
+export function writeGatewayEntry(entry: GatewayFileEntry | GatewayStructuredEntry): void {
   if (!logStream || !logFilePath) return;
 
-  const line = entry.line + '\n';
+  let lineContent: string;
+  if ('line' in entry && typeof entry.line === 'string') {
+    lineContent = entry.line;
+  } else {
+    lineContent = JSON.stringify(entry);
+  }
+
+  const line = lineContent + '\n';
   const lineSize = Buffer.byteLength(line, 'utf8');
 
   if (currentSize + lineSize > MAX_FILE_SIZE) {

@@ -41,10 +41,18 @@ export function usePosWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUnmountedRef = useRef(false);
+  const reconnectAttemptRef = useRef(0);
+  const connIdRef = useRef(0);
 
   useEffect(() => {
     isUnmountedRef.current = false;
     
+    const getBackoffDelay = () => {
+      const attempt = reconnectAttemptRef.current;
+      const base = Math.min(3000 * Math.pow(1.5, attempt), 30000);
+      return base + Math.random() * 1000;
+    };
+
     const connect = () => {
       if (isUnmountedRef.current) return;
       
@@ -70,15 +78,23 @@ export function usePosWebSocket() {
         wsUrl = `${protocol}//${window.location.host}/ws`;
       }
       
+      if (wsRef.current) {
+        try { wsRef.current.close(); } catch {}
+        wsRef.current = null;
+      }
+
+      const thisConnId = ++connIdRef.current;
+
       try {
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
-          if (isUnmountedRef.current) {
+          if (isUnmountedRef.current || thisConnId !== connIdRef.current) {
             ws.close();
             return;
           }
+          reconnectAttemptRef.current = 0;
           const deviceToken = getDeviceToken();
           ws.send(JSON.stringify({ 
             type: "subscribe", 
@@ -98,26 +114,39 @@ export function usePosWebSocket() {
         };
 
         ws.onclose = () => {
+          if (thisConnId !== connIdRef.current) return;
           wsRef.current = null;
           if (!isUnmountedRef.current) {
-            reconnectTimeoutRef.current = setTimeout(connect, 3000);
+            reconnectAttemptRef.current++;
+            const delay = getBackoffDelay();
+            if (reconnectAttemptRef.current <= 3) {
+              console.warn(`WebSocket disconnected, reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttemptRef.current})`);
+            }
+            reconnectTimeoutRef.current = setTimeout(connect, delay);
           }
         };
 
-        ws.onerror = (error) => {
-          console.error("WebSocket error:", error);
-          ws.close();
+        ws.onerror = () => {
+          if (thisConnId !== connIdRef.current) return;
+          if (reconnectAttemptRef.current === 0) {
+            console.warn("WebSocket connection error, will reconnect");
+          }
+          try { ws.close(); } catch {}
         };
       } catch (error) {
-        console.error("Failed to connect WebSocket:", error);
+        if (reconnectAttemptRef.current === 0) {
+          console.error("Failed to connect WebSocket:", error);
+        }
         if (!isUnmountedRef.current) {
-          reconnectTimeoutRef.current = setTimeout(connect, 3000);
+          reconnectAttemptRef.current++;
+          reconnectTimeoutRef.current = setTimeout(connect, getBackoffDelay());
         }
       }
     };
 
     const modeUnsub = apiClient.onModeChange((newMode) => {
       if (newMode === 'red') {
+        connIdRef.current++;
         if (wsRef.current) {
           wsRef.current.close();
           wsRef.current = null;
@@ -126,7 +155,9 @@ export function usePosWebSocket() {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;
         }
+        reconnectAttemptRef.current = 0;
       } else if (!wsRef.current && !reconnectTimeoutRef.current) {
+        reconnectAttemptRef.current = 0;
         connect();
       }
     });
@@ -136,6 +167,7 @@ export function usePosWebSocket() {
     return () => {
       isUnmountedRef.current = true;
       modeUnsub();
+      connIdRef.current++;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
