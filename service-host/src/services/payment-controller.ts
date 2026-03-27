@@ -309,7 +309,7 @@ export class PaymentController {
     });
 
     this.db.run(
-      `UPDATE terminal_sessions SET status = 'waiting_for_card', data = ?, updated_at = datetime('now') WHERE id = ?`,
+      `UPDATE terminal_sessions SET status = 'waiting_for_card', data = ?, updated_at = local_now() WHERE id = ?`,
       [
         JSON.stringify({ ...session, status: 'waiting_for_card', updatedAt: new Date().toISOString() }),
         sessionId,
@@ -358,7 +358,7 @@ export class PaymentController {
     }
     logger.info('Attempting direct Stripe Terminal payment (YELLOW mode)', { sessionId, readerId: stripeReaderId });
     this.db.run(
-      `UPDATE terminal_sessions SET status = 'waiting_for_card', data = ?, updated_at = datetime('now') WHERE id = ?`,
+      `UPDATE terminal_sessions SET status = 'waiting_for_card', data = ?, updated_at = local_now() WHERE id = ?`,
       [JSON.stringify({ ...session, status: 'waiting_for_card', directStripe: true, updatedAt: new Date().toISOString() }), sessionId]
     );
     const totalCents = Math.round((amount + tip) * 100);
@@ -446,7 +446,7 @@ export class PaymentController {
               status: 'authorized',
             });
             this.db.run(
-              `UPDATE terminal_sessions SET status = 'completed', data = ?, updated_at = datetime('now') WHERE id = ?`,
+              `UPDATE terminal_sessions SET status = 'completed', data = ?, updated_at = local_now() WHERE id = ?`,
               [JSON.stringify({
                 ...session, status: 'approved', paymentTransactionId: transactionId,
                 approvalCode: charge?.authorization_code || piStatus.id,
@@ -465,7 +465,7 @@ export class PaymentController {
           if (piStatus.status === 'canceled' || piStatus.last_payment_error) {
             const errMsg = piStatus.last_payment_error?.message || 'Card declined';
             this.db.run(
-              `UPDATE terminal_sessions SET status = 'declined', data = ?, updated_at = datetime('now') WHERE id = ?`,
+              `UPDATE terminal_sessions SET status = 'declined', data = ?, updated_at = local_now() WHERE id = ?`,
               [JSON.stringify({ ...session, status: 'declined', statusMessage: errMsg, directStripe: true, processedAt: new Date().toISOString() }), sessionId]
             );
             return { success: false, error: errMsg };
@@ -496,7 +496,7 @@ export class PaymentController {
       }
       logger.error('Direct Stripe fallback unavailable — no local credentials', undefined, { sessionId });
       this.db.run(
-        `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
+        `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = local_now() WHERE id = ?`,
         [
           JSON.stringify({
             ...session,
@@ -547,7 +547,7 @@ export class PaymentController {
 
       const cloudSessionId = cloudSession.id;
       this.db.run(
-        `UPDATE terminal_sessions SET cloud_session_id = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+        `UPDATE terminal_sessions SET cloud_session_id = ?, data = ?, updated_at = local_now() WHERE id = ?`,
         [
           cloudSessionId,
           JSON.stringify({
@@ -577,7 +577,7 @@ export class PaymentController {
       }
       logger.error('Cloud proxy terminal payment failed', e, { sessionId });
       this.db.run(
-        `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
+        `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = local_now() WHERE id = ?`,
         [
           JSON.stringify({
             ...session,
@@ -625,7 +625,7 @@ export class PaymentController {
         if (status === 'declined') {
           logger.info('Cloud terminal payment declined', { localSessionId, cloudSessionId });
           this.db.run(
-            `UPDATE terminal_sessions SET status = 'declined', data = ?, updated_at = datetime('now') WHERE id = ?`,
+            `UPDATE terminal_sessions SET status = 'declined', data = ?, updated_at = local_now() WHERE id = ?`,
             [
               JSON.stringify({
                 ...session,
@@ -643,7 +643,7 @@ export class PaymentController {
         if (status === 'error' || status === 'cancelled' || status === 'expired') {
           logger.warn('Cloud terminal session ended', { localSessionId, cloudSessionId, status });
           this.db.run(
-            `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+            `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = local_now() WHERE id = ?`,
             [
               status,
               JSON.stringify({
@@ -660,7 +660,7 @@ export class PaymentController {
         }
 
         this.db.run(
-          `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+          `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = local_now() WHERE id = ?`,
           [
             status,
             JSON.stringify({
@@ -687,7 +687,7 @@ export class PaymentController {
           const failMsg = `Cloud unreachable after ${consecutiveFailures} consecutive poll failures. Payment could not be confirmed.`;
           logger.error(failMsg, undefined, { localSessionId, cloudSessionId });
           this.db.run(
-            `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
+            `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = local_now() WHERE id = ?`,
             [
               JSON.stringify({
                 ...session,
@@ -706,7 +706,7 @@ export class PaymentController {
 
     logger.error('Cloud terminal session timed out', undefined, { localSessionId, cloudSessionId });
     this.db.run(
-      `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
+      `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = local_now() WHERE id = ?`,
       [
         JSON.stringify({
           ...session,
@@ -746,7 +746,7 @@ export class PaymentController {
         localSessionId,
       });
       this.db.run(
-        `UPDATE terminal_sessions SET status = 'error', cloud_session_id = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+        `UPDATE terminal_sessions SET status = 'error', cloud_session_id = ?, data = ?, updated_at = local_now() WHERE id = ?`,
         [
           cloudStatus.id,
           JSON.stringify({
@@ -806,7 +806,7 @@ export class PaymentController {
     });
 
     this.db.run(
-      `UPDATE terminal_sessions SET status = 'completed', cloud_session_id = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+      `UPDATE terminal_sessions SET status = 'completed', cloud_session_id = ?, data = ?, updated_at = local_now() WHERE id = ?`,
       [
         cloudStatus.id,
         JSON.stringify({
@@ -933,7 +933,7 @@ export class PaymentController {
         };
 
         this.db.run(
-          `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+          `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = local_now() WHERE id = ?`,
           [
             'completed',
             JSON.stringify({
@@ -967,7 +967,7 @@ export class PaymentController {
         });
 
         this.db.run(
-          `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = datetime('now') WHERE id = ?`,
+          `UPDATE terminal_sessions SET status = ?, data = ?, updated_at = local_now() WHERE id = ?`,
           [
             'declined',
             JSON.stringify({
@@ -1005,7 +1005,7 @@ export class PaymentController {
     logger.warn('Terminal failure — returning error (no offline fallback for card)', { sessionId, reason });
 
     this.db.run(
-      `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = datetime('now') WHERE id = ?`,
+      `UPDATE terminal_sessions SET status = 'error', data = ?, updated_at = local_now() WHERE id = ?`,
       [
         JSON.stringify({
           ...session,
@@ -1029,7 +1029,7 @@ export class PaymentController {
       ) as any[];
       for (const row of pending) {
         const claimed = this.db.run(
-          `UPDATE terminal_sessions SET status = 'processing', updated_at = datetime('now') WHERE id = ? AND status = 'pending'`,
+          `UPDATE terminal_sessions SET status = 'processing', updated_at = local_now() WHERE id = ? AND status = 'pending'`,
           [row.id]
         );
         if (!claimed || (claimed as any).changes === 0) continue;
@@ -1041,7 +1041,7 @@ export class PaymentController {
         } catch (e: any) {
           logger.error('Terminal session processing failed', e, { sessionId: row.id });
           this.db.run(
-            `UPDATE terminal_sessions SET status = 'error', updated_at = datetime('now') WHERE id = ?`,
+            `UPDATE terminal_sessions SET status = 'error', updated_at = local_now() WHERE id = ?`,
             [row.id]
           );
           failed++;

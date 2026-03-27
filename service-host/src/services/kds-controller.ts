@@ -113,7 +113,7 @@ export class KdsController {
       let updated = false;
       for (const item of items) {
         if (item.checkItemId === checkItemId) {
-          item.modifiers = modifiers;
+          item.modifiers = modifiers.map((m: any) => typeof m === 'string' ? { name: m } : m);
           updated = true;
         }
       }
@@ -224,7 +224,7 @@ export class KdsController {
     const ticket = this.getTicket(ticketId);
     
     this.db.run(
-      `UPDATE kds_tickets SET status = 'bumped', bumped_at = datetime('now') WHERE id = ?`,
+      `UPDATE kds_tickets SET status = 'bumped', bumped_at = local_now() WHERE id = ?`,
       [ticketId]
     );
     
@@ -320,6 +320,68 @@ export class KdsController {
     return rows.map(row => this.mapTicketRow(row));
   }
   
+  markCheckPaid(checkId: string): void {
+    const rows = this.db.all<KdsTicketRow>(
+      `SELECT * FROM kds_tickets WHERE check_id = ? AND status = 'active'`,
+      [checkId]
+    );
+    for (const row of rows) {
+      this.db.run(
+        `UPDATE kds_tickets SET status = 'bumped', bumped_at = local_now() WHERE id = ?`,
+        [row.id]
+      );
+      this.broadcastToStation(row.station_id, {
+        type: 'kds_ticket_bumped',
+        ticketId: row.id,
+        reason: 'check_paid',
+      });
+    }
+    if (rows.length > 0) {
+      this.broadcastToAll({
+        type: 'kds_check_paid',
+        checkId,
+        ticketIds: rows.map(r => r.id),
+      });
+    }
+  }
+
+  markCheckVoided(checkId: string): void {
+    const rows = this.db.all<KdsTicketRow>(
+      `SELECT * FROM kds_tickets WHERE check_id = ? AND status = 'active'`,
+      [checkId]
+    );
+    for (const row of rows) {
+      this.db.run(
+        `UPDATE kds_tickets SET status = 'bumped', bumped_at = local_now() WHERE id = ?`,
+        [row.id]
+      );
+      this.broadcastToStation(row.station_id, {
+        type: 'kds_ticket_bumped',
+        ticketId: row.id,
+        reason: 'check_voided',
+      });
+    }
+    const previewRows = this.db.all<KdsTicketRow>(
+      `SELECT * FROM kds_tickets WHERE check_id = ? AND is_preview = 1`,
+      [checkId]
+    );
+    for (const row of previewRows) {
+      this.db.run('DELETE FROM kds_tickets WHERE id = ?', [row.id]);
+      this.broadcastToStation(row.station_id, {
+        type: 'kds_ticket_removed',
+        ticketId: row.id,
+        reason: 'check_voided',
+      });
+    }
+    if (rows.length > 0 || previewRows.length > 0) {
+      this.broadcastToAll({
+        type: 'kds_check_voided',
+        checkId,
+        ticketIds: [...rows, ...previewRows].map(r => r.id),
+      });
+    }
+  }
+
   // Priority bump - increase ticket priority
   priorityBump(ticketId: string): void {
     this.db.run(
@@ -430,7 +492,7 @@ interface CreateTicketParams {
 interface KdsItem {
   name: string;
   quantity: number;
-  modifiers?: string[];
+  modifiers?: (string | { name: string })[];
   seatNumber?: number;
   checkItemId?: string;
 }

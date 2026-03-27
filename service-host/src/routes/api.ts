@@ -175,11 +175,11 @@ export function createApiRoutes(
   }
 
   function toKdsItem(i: any) {
-    let modifiers: string[] = [];
+    let modifiers: { name: string }[] = [];
     if (Array.isArray(i.modifiers) && i.modifiers.length > 0) {
       modifiers = i.modifiers.map((m: any) => {
-        if (typeof m === 'string') return m;
-        return m.name || m.modifierName || m.label || JSON.stringify(m);
+        if (typeof m === 'string') return { name: m };
+        return { name: m.name || m.modifierName || m.label || JSON.stringify(m) };
       });
     }
     return {
@@ -510,24 +510,24 @@ export function createApiRoutes(
       }
       const preSendCheck = caps.getCheck(req.params.id);
       const preSendUnsent = preSendCheck
-        ? preSendCheck.items.filter(i => !i.voided && !i.sentToKitchen)
+        ? preSendCheck.items.filter((i: any) => !i.voided && !i.sent && !i.sentToKitchen)
         : [];
+
+      const previewTickets = kds.getPreviewTicketsForCheck(req.params.id);
+      const alreadyCoveredItemIds = new Set<string>();
+      for (const pt of previewTickets) {
+        for (const pi of pt.items) {
+          if (pi.checkItemId) alreadyCoveredItemIds.add(pi.checkItemId);
+        }
+      }
+
+      kds.finalizePreviewTickets(req.params.id);
 
       const result = caps.sendToKitchen(req.params.id, workstationId);
       
       try {
-        const previewTickets = kds.getPreviewTicketsForCheck(req.params.id);
-        const alreadyCoveredItemIds = new Set<string>();
-        for (const pt of previewTickets) {
-          for (const pi of pt.items) {
-            if (pi.checkItemId) alreadyCoveredItemIds.add(pi.checkItemId);
-          }
-        }
-
-        kds.finalizePreviewTickets(req.params.id);
-
         if (preSendUnsent.length > 0 && preSendCheck) {
-          const uncoveredItems = preSendUnsent.filter(i => !alreadyCoveredItemIds.has(i.id));
+          const uncoveredItems = preSendUnsent.filter((i: any) => !alreadyCoveredItemIds.has(i.id));
 
           if (uncoveredItems.length > 0) {
             const stationItemsMap = resolveKdsStations(uncoveredItems, preSendCheck.rvcId);
@@ -538,7 +538,7 @@ export function createApiRoutes(
                 roundNumber: result.roundNumber || 0,
                 orderType: preSendCheck.orderType,
                 stationId: stationId === 'default' ? undefined : stationId,
-                items: items.map(i => toKdsItem(i)),
+                items: items.map((i: any) => toKdsItem(i)),
               });
             }
           }
@@ -675,6 +675,11 @@ export function createApiRoutes(
       const paidAmount = checkPayments.filter((p: any) => p.status !== 'voided' && p.paymentStatus !== 'voided').reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0);
       const checkTotal = updatedCheck?.total || 0;
       const changeDue = Math.max(0, paidAmount - checkTotal);
+
+      if (paidAmount >= checkTotal - 0.05 && checkTotal > 0) {
+        try { kds.markCheckPaid(req.params.id); } catch (_) {}
+      }
+
       res.json({
         ...updatedCheck,
         paidAmount,
@@ -701,6 +706,7 @@ export function createApiRoutes(
     try {
       const { workstationId } = req.body;
       caps.closeCheck(req.params.id, workstationId);
+      try { kds.markCheckPaid(req.params.id); } catch (_) {}
       res.json({ success: true });
     } catch (e) {
       const error = e as Error;
@@ -724,6 +730,7 @@ export function createApiRoutes(
         return res.status(403).json(privCheck.error);
       }
       caps.voidCheck(req.params.id, reason, workstationId);
+      try { kds.markCheckVoided(req.params.id); } catch (_) {}
       res.json({ success: true });
     } catch (e) {
       const error = e as Error;
@@ -761,6 +768,7 @@ export function createApiRoutes(
       if (previouslySentItems.length === 0) {
         caps.closeCheck(req.params.id, workstationId);
       }
+      try { kds.markCheckVoided(req.params.id); } catch (_) {}
       
       const updatedCheck = caps.getCheck(req.params.id);
       res.json({
@@ -2025,7 +2033,7 @@ export function createApiRoutes(
       }
       caps.db.run(
         `INSERT INTO check_service_charges (id, check_id, service_charge_id, name, charge_type, amount, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+         VALUES (?, ?, ?, ?, ?, ?, local_now())`,
         [scId, req.params.id, serviceChargeId, sc.name, sc.charge_type || 'percent', computedAmount]
       );
       caps.recalculateTotals(req.params.id);
@@ -2075,20 +2083,21 @@ export function createApiRoutes(
       }
       const preSendCheck = caps.getCheck(req.params.id);
       const preSendUnsent = preSendCheck
-        ? preSendCheck.items.filter((i: any) => !i.voided && !i.sentToKitchen)
+        ? preSendCheck.items.filter((i: any) => !i.voided && !i.sent && !i.sentToKitchen)
         : [];
+
+      const previewTickets = kds.getPreviewTicketsForCheck(req.params.id);
+      const coveredIds = new Set<string>();
+      for (const pt of previewTickets) {
+        for (const pi of pt.items) {
+          if (pi.checkItemId) coveredIds.add(pi.checkItemId);
+        }
+      }
+
+      kds.finalizePreviewTickets(req.params.id);
+
       const result = caps.sendToKitchen(req.params.id, workstationId);
       try {
-        const previewTickets = kds.getPreviewTicketsForCheck(req.params.id);
-        const coveredIds = new Set<string>();
-        for (const pt of previewTickets) {
-          for (const pi of pt.items) {
-            if (pi.checkItemId) coveredIds.add(pi.checkItemId);
-          }
-        }
-
-        kds.finalizePreviewTickets(req.params.id);
-
         if (preSendUnsent.length > 0 && preSendCheck) {
           const uncovered = preSendUnsent.filter((i: any) => !coveredIds.has(i.id));
           if (uncovered.length > 0) {
@@ -2198,6 +2207,7 @@ export function createApiRoutes(
       const tolerance = 0.05;
       if (paidAmount >= total - tolerance && total > 0) {
         caps.closeCheck(req.params.id, workstationId);
+        try { kds.markCheckPaid(req.params.id); } catch (_) {}
         const closedCheck = caps.getCheck(req.params.id);
         if (closedCheck) {
           const { items: ci, payments: cp, ...closedData } = closedCheck;
@@ -2216,6 +2226,7 @@ export function createApiRoutes(
     try {
       const { workstationId } = req.body;
       caps.closeCheck(req.params.id, workstationId);
+      try { kds.markCheckPaid(req.params.id); } catch (_) {}
       res.json({ success: true });
     } catch (e) {
       const error = e as Error;
@@ -2236,6 +2247,7 @@ export function createApiRoutes(
         return res.status(403).json(privCheck.error);
       }
       caps.voidCheck(req.params.id, reason, workstationId);
+      try { kds.markCheckVoided(req.params.id); } catch (_) {}
       res.json({ success: true });
     } catch (e) {
       const error = e as Error;
@@ -2260,6 +2272,7 @@ export function createApiRoutes(
       const activeItems = (check.items || []).filter((i: any) => !i.voided);
       const voidedCount = activeItems.length;
       caps.voidCheck(req.params.id, reason || 'cancelled', workstationId);
+      try { kds.markCheckVoided(req.params.id); } catch (_) {}
       res.json({ success: true, voidedCount, remainingActiveItems: 0 });
     } catch (e) {
       res.status(400).json({ error: (e as Error).message });
@@ -2450,7 +2463,7 @@ export function createApiRoutes(
         const sourceCheck = caps.getCheck(sourceId);
         if (!sourceCheck) continue;
         caps.db.run('UPDATE check_items SET check_id = ? WHERE check_id = ?', [targetCheckId, sourceId]);
-        caps.db.run("UPDATE checks SET status = 'closed', closed_at = datetime('now') WHERE id = ?", [sourceId]);
+        caps.db.run("UPDATE checks SET status = 'closed', closed_at = local_now() WHERE id = ?", [sourceId]);
         const txnGroupId = caps.getTxnGroupId(sourceId);
         caps.writeJournal(sourceId, txnGroupId, sourceCheck.rvcId || '', 'merge_check', { targetCheckId });
         caps.transactionSync.queueCheck(sourceId, 'update', caps.getCheck(sourceId));
@@ -4702,7 +4715,7 @@ export function createApiRoutes(
         workingCheckId = randomUUID();
         db?.run(
           `INSERT INTO checks (id, rvc_id, employee_id, check_number, order_type, status, subtotal, tax, discount_total, service_charge_total, total, business_date, opened_at, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now(), local_now())`,
           [workingCheckId, rvcId, employeeId, checkNumber, 'take_out', 'open', '0', '0', '0', '0', '0', businessDate]
         );
         createdCheck = db?.get('SELECT * FROM checks WHERE id = ?', [workingCheckId]);
@@ -4756,7 +4769,7 @@ export function createApiRoutes(
         workingCheckId = randomUUID();
         db?.run(
           `INSERT INTO checks (id, rvc_id, employee_id, check_number, order_type, status, subtotal, tax, discount_total, service_charge_total, total, business_date, opened_at, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now(), local_now())`,
           [workingCheckId, rvcId, employeeId, checkNumber, 'take_out', 'open', '0', '0', '0', '0', '0', businessDate]
         );
         createdCheck = db?.get('SELECT * FROM checks WHERE id = ?', [workingCheckId]);
@@ -4956,7 +4969,7 @@ export function createApiRoutes(
           );
           if (existing.length > 0) {
             db.run(
-              `UPDATE sync_queue SET payload = ?, next_attempt_at = datetime('now') WHERE entity_type = 'check' AND entity_id = ? AND attempts < max_attempts`,
+              `UPDATE sync_queue SET payload = ?, next_attempt_at = local_now() WHERE entity_type = 'check' AND entity_id = ? AND attempts < max_attempts`,
               [JSON.stringify(check), check.id]
             );
             console.log(`[CAPS Sync] Updated existing sync_queue entry for check ${check.id}`);

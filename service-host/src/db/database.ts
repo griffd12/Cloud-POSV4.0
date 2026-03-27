@@ -61,6 +61,7 @@ export class Database {
     this.db = new BetterSqlite3(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
+    this.registerLocalNow();
     this.createSchema();
     this.ensureCriticalTables();
     this.checkSchemaVersion();
@@ -72,6 +73,33 @@ export class Database {
 
   getDb(): any {
     return this.db;
+  }
+
+  private registerLocalNow(): void {
+    try {
+      const self = this;
+      this.db.function('local_now', () => {
+        try {
+          const prop = self.db.prepare(
+            "SELECT timezone FROM properties WHERE active = 1 LIMIT 1"
+          ).get() as { timezone: string } | undefined;
+          const tz = prop?.timezone || 'America/New_York';
+          const now = new Date();
+          const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: tz,
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+            hour12: false,
+          }).formatToParts(now);
+          const get = (t: string) => parts.find(p => p.type === t)?.value || '00';
+          return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
+        } catch {
+          return new Date().toISOString().replace('T', ' ').substring(0, 19);
+        }
+      });
+    } catch (e: any) {
+      console.warn(`[DB] Failed to register local_now(): ${e.message}`);
+    }
   }
   
   private createSchema(): void {
@@ -86,12 +114,12 @@ export class Database {
     const criticalTables = [
       `CREATE TABLE IF NOT EXISTS schema_version (
         version INTEGER PRIMARY KEY,
-        applied_at TEXT DEFAULT (datetime('now'))
+        applied_at TEXT DEFAULT (local_now())
       )`,
       `CREATE TABLE IF NOT EXISTS sync_metadata (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
-        updated_at TEXT DEFAULT (datetime('now'))
+        updated_at TEXT DEFAULT (local_now())
       )`,
       `CREATE TABLE IF NOT EXISTS config_cache (
         key TEXT PRIMARY KEY,
@@ -99,7 +127,7 @@ export class Database {
         entity_type TEXT,
         entity_id TEXT,
         version INTEGER DEFAULT 1,
-        updated_at TEXT DEFAULT (datetime('now'))
+        updated_at TEXT DEFAULT (local_now())
       )`,
       `CREATE TABLE IF NOT EXISTS sync_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,7 +141,7 @@ export class Database {
         last_attempt_at TEXT,
         next_attempt_at TEXT,
         error_message TEXT,
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT (local_now())
       )`,
     ];
     for (const sql of criticalTables) {
@@ -265,8 +293,8 @@ export class Database {
         value_text TEXT,
         scope_level TEXT NOT NULL,
         scope_id TEXT NOT NULL,
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT (local_now()),
+        updated_at TEXT DEFAULT (local_now())
       )
     `);
     this.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_emc_option_flags_unique ON emc_option_flags (enterprise_id, entity_type, entity_id, option_key, scope_level, scope_id)`);
@@ -302,7 +330,7 @@ export class Database {
         event_type TEXT NOT NULL,
         payload_json TEXT NOT NULL,
         config_version TEXT,
-        created_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT (local_now()),
         sync_state TEXT NOT NULL DEFAULT 'pending',
         sync_attempts INTEGER NOT NULL DEFAULT 0,
         synced_at TEXT
@@ -533,7 +561,7 @@ export class Database {
         status TEXT NOT NULL DEFAULT 'pending',
         attempts INTEGER DEFAULT 0,
         error_message TEXT,
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT (local_now())
       )
     `);
     console.log('[DB] operation_queue table ensured');
@@ -564,8 +592,8 @@ export class Database {
       last_seen_at TEXT,
       firmware_version TEXT,
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now()),
+      updated_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS cash_drawers (
@@ -577,8 +605,8 @@ export class Database {
       current_balance INTEGER DEFAULT 0,
       status TEXT DEFAULT 'closed',
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now()),
+      updated_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS drawer_assignments (
@@ -586,7 +614,7 @@ export class Database {
       cash_drawer_id TEXT NOT NULL REFERENCES cash_drawers(id),
       employee_id TEXT NOT NULL REFERENCES employees(id),
       workstation_id TEXT REFERENCES workstations(id),
-      assigned_at TEXT DEFAULT (datetime('now')),
+      assigned_at TEXT DEFAULT (local_now()),
       unassigned_at TEXT,
       opening_balance INTEGER NOT NULL,
       closing_balance INTEGER,
@@ -613,7 +641,7 @@ export class Database {
       notes TEXT,
       reference_number TEXT,
       cloud_synced INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS safe_counts (
@@ -630,7 +658,7 @@ export class Database {
       notes TEXT,
       status TEXT DEFAULT 'pending',
       cloud_synced INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS job_codes (
@@ -645,8 +673,8 @@ export class Database {
       default_tip_rate TEXT,
       color TEXT,
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now()),
+      updated_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS employee_job_codes (
@@ -658,7 +686,7 @@ export class Database {
       effective_from TEXT,
       effective_until TEXT,
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS fiscal_periods (
@@ -683,7 +711,7 @@ export class Database {
       cash_over_short INTEGER DEFAULT 0,
       notes TEXT,
       cloud_synced INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT (local_now()),
       closed_at TEXT
     )`);
     
@@ -697,8 +725,8 @@ export class Database {
       auto_accept INTEGER DEFAULT 0,
       default_prep_time INTEGER DEFAULT 15,
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now()),
+      updated_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS overtime_rules (
@@ -720,8 +748,8 @@ export class Database {
       week_start_day INTEGER DEFAULT 0,
       effective_date TEXT,
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now()),
+      updated_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS break_rules (
@@ -747,8 +775,8 @@ export class Database {
       enable_break_alerts INTEGER DEFAULT 1,
       alert_minutes_before_deadline INTEGER DEFAULT 15,
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now()),
+      updated_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS tip_rules (
@@ -765,8 +793,8 @@ export class Database {
       exclude_managers INTEGER DEFAULT 1,
       minimum_hours_for_pool TEXT DEFAULT '0',
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now()),
+      updated_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS tip_rule_job_percentages (
@@ -774,7 +802,7 @@ export class Database {
       tip_rule_id TEXT NOT NULL REFERENCES tip_rules(id),
       job_code_id TEXT NOT NULL REFERENCES job_codes(id),
       percentage TEXT NOT NULL DEFAULT '0',
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS minor_labor_rules (
@@ -794,8 +822,8 @@ export class Database {
       require_work_permit INTEGER DEFAULT 1,
       work_permit_expiration_alert_days INTEGER DEFAULT 30,
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now()),
+      updated_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS payment_gateway_config (
@@ -853,8 +881,8 @@ export class Database {
       log_raw_requests INTEGER DEFAULT 0,
       log_raw_responses INTEGER DEFAULT 0,
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now()),
+      updated_at TEXT DEFAULT (local_now())
     )`);
     
     this.run(`CREATE TABLE IF NOT EXISTS descriptor_sets (
@@ -869,7 +897,7 @@ export class Database {
       override_header INTEGER DEFAULT 0,
       override_trailer INTEGER DEFAULT 0,
       override_logo INTEGER DEFAULT 0,
-      updated_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (local_now()),
       updated_by_id TEXT
     )`);
     
@@ -882,7 +910,7 @@ export class Database {
       storage_path TEXT NOT NULL,
       checksum TEXT,
       escpos_data TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT (local_now()),
       created_by_id TEXT
     )`);
     
@@ -904,7 +932,7 @@ export class Database {
       auto_reconnect INTEGER DEFAULT 1,
       heartbeat_interval_ms INTEGER DEFAULT 30000,
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now())
     )`);
     
     const newIndexes = [
@@ -1056,7 +1084,7 @@ export class Database {
         id TEXT PRIMARY KEY, enterprise_id TEXT, property_id TEXT, rvc_id TEXT,
         name TEXT NOT NULL, code TEXT NOT NULL, print_name TEXT,
         price_factor REAL DEFAULT 1.0, display_order INTEGER DEFAULT 0,
-        active INTEGER DEFAULT 1, updated_at TEXT DEFAULT (datetime('now'))
+        active INTEGER DEFAULT 1, updated_at TEXT DEFAULT (local_now())
       )`,
       `CREATE TABLE IF NOT EXISTS menu_item_recipe_ingredients (
         id TEXT PRIMARY KEY, menu_item_id TEXT NOT NULL, ingredient_name TEXT NOT NULL,
@@ -1064,7 +1092,7 @@ export class Database {
         is_default INTEGER DEFAULT 1, price_per_unit REAL DEFAULT 0.0,
         display_order INTEGER DEFAULT 0, active INTEGER DEFAULT 1,
         modifier_id TEXT, default_prefix_id TEXT, sort_order INTEGER DEFAULT 0,
-        updated_at TEXT DEFAULT (datetime('now'))
+        updated_at TEXT DEFAULT (local_now())
       )`,
       `CREATE TABLE IF NOT EXISTS timecards (
         id TEXT PRIMARY KEY, property_id TEXT NOT NULL, employee_id TEXT NOT NULL,
@@ -1077,7 +1105,7 @@ export class Database {
         overtime_pay REAL DEFAULT 0, total_pay REAL DEFAULT 0, tips REAL DEFAULT 0,
         status TEXT DEFAULT 'open', approved_by_id TEXT, approved_at TEXT,
         cloud_synced INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT (local_now()), updated_at TEXT DEFAULT (local_now())
       )`,
       `CREATE TABLE IF NOT EXISTS terminal_sessions (
         id TEXT PRIMARY KEY, terminal_device_id TEXT NOT NULL,
@@ -1085,7 +1113,7 @@ export class Database {
         amount INTEGER NOT NULL, tip_amount INTEGER DEFAULT 0,
         currency TEXT DEFAULT 'usd', status TEXT DEFAULT 'pending',
         status_message TEXT, processor_reference TEXT, payment_transaction_id TEXT,
-        initiated_at TEXT DEFAULT (datetime('now')), completed_at TEXT,
+        initiated_at TEXT DEFAULT (local_now()), completed_at TEXT,
         expires_at TEXT, metadata TEXT, cloud_synced INTEGER DEFAULT 0
       )`,
       `CREATE TABLE IF NOT EXISTS break_attestations (
@@ -1095,7 +1123,7 @@ export class Database {
         breaks_provided INTEGER NOT NULL, missed_meal_break INTEGER DEFAULT 0,
         missed_rest_break INTEGER DEFAULT 0, missed_break_reason TEXT,
         employee_signature TEXT, cloud_synced INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT (local_now()), updated_at TEXT DEFAULT (local_now())
       )`,
       `CREATE TABLE IF NOT EXISTS break_violations (
         id TEXT PRIMARY KEY, property_id TEXT NOT NULL, employee_id TEXT NOT NULL,
@@ -1106,7 +1134,7 @@ export class Database {
         premium_pay_minutes INTEGER DEFAULT 0, severity TEXT DEFAULT 'warning',
         acknowledged INTEGER DEFAULT 0, acknowledged_by_id TEXT, acknowledged_at TEXT,
         cloud_synced INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT (local_now()), updated_at TEXT DEFAULT (local_now())
       )`,
     ];
     for (const sql of newTables) {
@@ -1159,7 +1187,7 @@ export class Database {
       color TEXT,
       notes TEXT,
       active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now())
     )`);
     this.run(`CREATE INDEX IF NOT EXISTS idx_shift_templates_property ON shift_templates(property_id)`);
     this.run(`CREATE TABLE IF NOT EXISTS shifts (
@@ -1178,8 +1206,8 @@ export class Database {
       published_at TEXT,
       published_by_id TEXT REFERENCES employees(id),
       acknowledged_at TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (local_now()),
+      updated_at TEXT DEFAULT (local_now())
     )`);
     this.run(`CREATE INDEX IF NOT EXISTS idx_shifts_property ON shifts(property_id)`);
     this.run(`CREATE INDEX IF NOT EXISTS idx_shifts_employee ON shifts(employee_id)`);
@@ -1243,7 +1271,7 @@ export class Database {
   
   setSyncMetadata(key: string, value: string): void {
     this.run(
-      `INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) VALUES (?, ?, datetime('now'))`,
+      `INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) VALUES (?, ?, local_now())`,
       [key, value]
     );
   }
@@ -1251,7 +1279,7 @@ export class Database {
   updateSyncMetadata(key: string, lastSyncAt: string, lastVersion: number, recordCount: number = 0): void {
     const value = JSON.stringify({ lastSyncAt, lastVersion, recordCount });
     this.run(
-      `INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) VALUES (?, ?, datetime('now'))`,
+      `INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) VALUES (?, ?, local_now())`,
       [key, value]
     );
   }
@@ -1264,7 +1292,7 @@ export class Database {
     const json = JSON.stringify(value);
     this.run(
       `INSERT OR REPLACE INTO config_cache (key, value, entity_type, entity_id, updated_at) 
-       VALUES (?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, local_now())`,
       [key, json, entityType || null, entityId || null]
     );
   }
@@ -1289,7 +1317,7 @@ export class Database {
   upsertEnterprise(enterprise: any): void {
     this.run(
       `INSERT OR REPLACE INTO enterprises (id, name, code, active, updated_at)
-       VALUES (?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, local_now())`,
       [enterprise.id, enterprise.name, enterprise.code, enterprise.active ? 1 : 0]
     );
   }
@@ -1304,7 +1332,7 @@ export class Database {
         id, enterprise_id, name, code, address, timezone,
         business_date_rollover_time, business_date_mode, current_business_date,
         sign_in_logo_url, auto_clock_out_enabled, caps_workstation_id, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         property.id, property.enterpriseId, property.name, property.code,
         property.address, property.timezone || 'America/New_York',
@@ -1331,7 +1359,7 @@ export class Database {
         conversational_ordering,
         active, receipt_print_mode, receipt_copies, kitchen_print_mode,
         void_receipt_print, require_guest_count, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         rvc.id, rvc.propertyId, rvc.name, rvc.code,
         rvc.fastTransactionDefault ? 1 : 0,
@@ -1365,7 +1393,7 @@ export class Database {
   upsertMajorGroup(mg: any): void {
     this.run(
       `INSERT OR REPLACE INTO major_groups (id, enterprise_id, property_id, name, code, display_order, active, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, local_now())`,
       [mg.id, mg.enterpriseId, mg.propertyId, mg.name, mg.code, mg.displayOrder || 0, mg.active !== false ? 1 : 0]
     );
   }
@@ -1381,7 +1409,7 @@ export class Database {
   upsertFamilyGroup(fg: any): void {
     this.run(
       `INSERT OR REPLACE INTO family_groups (id, enterprise_id, property_id, major_group_id, name, code, display_order, active, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [fg.id, fg.enterpriseId, fg.propertyId, fg.majorGroupId, fg.name, fg.code, fg.displayOrder || 0, fg.active !== false ? 1 : 0]
     );
   }
@@ -1403,7 +1431,7 @@ export class Database {
       `INSERT OR REPLACE INTO employees (
         id, enterprise_id, property_id, employee_number, first_name, last_name,
         date_of_birth, pin_hash, role_id, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         emp.id, emp.enterpriseId, emp.propertyId, emp.employeeNumber,
         emp.firstName, emp.lastName, emp.dateOfBirth || null,
@@ -1432,7 +1460,7 @@ export class Database {
   upsertEmployeeAssignment(assign: any): void {
     this.run(
       `INSERT OR REPLACE INTO employee_assignments (id, employee_id, property_id, rvc_id, role_id, is_primary, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, ?, local_now())`,
       [assign.id, assign.employeeId, assign.propertyId, assign.rvcId, assign.roleId, assign.isPrimary ? 1 : 0]
     );
   }
@@ -1451,7 +1479,7 @@ export class Database {
         id, enterprise_id, property_id, rvc_id, name, code,
         max_item_discount_pct, max_check_discount_pct, max_item_discount_amt, max_check_discount_amt,
         active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         role.id, role.enterpriseId, role.propertyId, role.rvcId,
         role.name, role.code,
@@ -1471,7 +1499,7 @@ export class Database {
   upsertPrivilege(priv: any): void {
     this.run(
       `INSERT OR REPLACE INTO privileges (id, code, name, domain, description, updated_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, local_now())`,
       [priv.id, priv.code, priv.name, priv.domain, priv.description]
     );
   }
@@ -1479,7 +1507,7 @@ export class Database {
   upsertRolePrivilege(rp: any): void {
     this.run(
       `INSERT OR REPLACE INTO role_privileges (id, role_id, privilege_code, updated_at)
-       VALUES (?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, local_now())`,
       [rp.id, rp.roleId, rp.privilegeCode]
     );
   }
@@ -1503,7 +1531,7 @@ export class Database {
   upsertPrintClass(pc: any): void {
     this.run(
       `INSERT OR REPLACE INTO print_classes (id, enterprise_id, property_id, rvc_id, name, code, display_order, active, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [pc.id, pc.enterpriseId, pc.propertyId, pc.rvcId || pc.rvc_id || null, pc.name, pc.code, pc.displayOrder || 0, pc.active !== false ? 1 : 0]
     );
   }
@@ -1527,7 +1555,7 @@ export class Database {
         id, enterprise_id, property_id, rvc_id, name, short_name, price,
         tax_group_id, print_class_id, major_group_id, family_group_id, color,
         menu_build_enabled, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         item.id, item.enterpriseId, item.propertyId, item.rvcId,
         item.name, item.shortName, priceInCents,
@@ -1574,7 +1602,7 @@ export class Database {
       `INSERT OR REPLACE INTO ingredient_prefixes (
         id, enterprise_id, property_id, rvc_id, name, code, print_name,
         price_factor, display_order, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         prefix.id, prefix.enterpriseId, prefix.propertyId, prefix.rvcId,
         prefix.name, prefix.code, prefix.printName,
@@ -1604,7 +1632,7 @@ export class Database {
         id, menu_item_id, ingredient_name, ingredient_category, default_quantity,
         is_default, price_per_unit, display_order, active, modifier_id,
         default_prefix_id, sort_order, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         ingredient.id, ingredient.menuItemId, ingredient.ingredientName,
         ingredient.ingredientCategory, ingredient.defaultQuantity || 1,
@@ -1673,7 +1701,7 @@ export class Database {
       }
     }
     if (fields.length === 0) return this.get('SELECT * FROM timecards WHERE id = ?', [id]);
-    fields.push("updated_at = datetime('now')", 'cloud_synced = 0');
+    fields.push("updated_at = local_now()", 'cloud_synced = 0');
     values.push(id);
     this.run(`UPDATE timecards SET ${fields.join(', ')} WHERE id = ?`, values);
     return this.get('SELECT * FROM timecards WHERE id = ?', [id]);
@@ -1823,7 +1851,7 @@ export class Database {
       `INSERT OR REPLACE INTO slus (
         id, enterprise_id, property_id, rvc_id, name, button_label,
         display_order, color, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         slu.id, slu.enterpriseId, slu.propertyId, slu.rvcId,
         slu.name, slu.buttonLabel, slu.displayOrder || 0,
@@ -1853,7 +1881,7 @@ export class Database {
   upsertMenuItemSlu(link: any): void {
     this.run(
       `INSERT OR REPLACE INTO menu_item_slus (id, menu_item_id, slu_id, display_order, updated_at)
-       VALUES (?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, local_now())`,
       [link.id, link.menuItemId, link.sluId, link.displayOrder || 0]
     );
   }
@@ -1867,7 +1895,7 @@ export class Database {
       `INSERT OR REPLACE INTO modifier_groups (
         id, enterprise_id, property_id, name, code, required,
         min_select, max_select, display_order, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         mg.id, mg.enterpriseId ?? mg.enterprise_id, mg.propertyId ?? mg.property_id, mg.name, mg.code,
         mg.required ? 1 : 0, mg.minSelect ?? mg.min_select ?? mg.minSelections ?? mg.min_selections ?? 0, mg.maxSelect ?? mg.max_select ?? mg.maxSelections ?? mg.max_selections ?? 99,
@@ -1892,7 +1920,7 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO modifiers (
         id, enterprise_id, property_id, rvc_id, name, price_delta, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         mod.id, mod.enterpriseId, mod.propertyId, mod.rvcId || mod.rvc_id || null,
         mod.name, mod.priceDelta || 0, mod.active !== false ? 1 : 0
@@ -1916,7 +1944,7 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO modifier_group_modifiers (
         id, modifier_group_id, modifier_id, is_default, display_order, updated_at
-      ) VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, local_now())`,
       [link.id, link.modifierGroupId, link.modifierId, link.isDefault ? 1 : 0, link.displayOrder || 0]
     );
   }
@@ -1940,7 +1968,7 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO menu_item_modifier_groups (
         id, menu_item_id, modifier_group_id, display_order, sort_order, min_required, max_allowed, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, local_now())`,
       [link.id, link.menuItemId ?? link.menu_item_id, link.modifierGroupId ?? link.modifier_group_id, link.displayOrder ?? link.display_order ?? 0, link.sortOrder ?? link.sort_order ?? link.displayOrder ?? link.display_order ?? 0, link.minRequired ?? link.min_required ?? 0, link.maxAllowed ?? link.max_allowed ?? 0]
     );
   }
@@ -1978,7 +2006,7 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO tax_groups (
         id, enterprise_id, property_id, rvc_id, name, rate, tax_mode, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         tg.id, tg.enterpriseId, tg.propertyId, tg.rvcId,
         tg.name, rateStr, tg.taxMode || 'add_on',
@@ -2012,7 +2040,7 @@ export class Database {
         requires_payment_processor, display_order,
         is_cash_media, is_card_media, is_gift_media,
         active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         tender.id, tender.enterpriseId, tender.propertyId, tender.rvcId,
         tender.name, tender.code, tender.type, tender.paymentProcessorId,
@@ -2073,7 +2101,7 @@ export class Database {
       `INSERT OR REPLACE INTO emc_option_flags (
         id, enterprise_id, entity_type, entity_id, option_key, value_text,
         scope_level, scope_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         flag.id, flag.enterpriseId, flag.entityType, flag.entityId,
         flag.optionKey, flag.valueText,
@@ -2121,7 +2149,7 @@ export class Database {
       `INSERT OR REPLACE INTO discounts (
         id, enterprise_id, property_id, rvc_id, name, code,
         discount_type, amount, requires_manager_approval, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         discount.id, discount.enterpriseId, discount.propertyId, discount.rvcId,
         discount.name, discount.code, discount.type || discount.discountType || 'percent',
@@ -2154,7 +2182,7 @@ export class Database {
         id, enterprise_id, property_id, rvc_id, name, code,
         charge_type, amount, apply_to_subtotal, apply_to_discounted,
         taxable, tax_group_id, auto_apply, auto_apply_guest_count, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         sc.id, sc.enterpriseId, sc.propertyId, sc.rvcId,
         sc.name, sc.code, sc.chargeType || 'percent', amountStr,
@@ -2284,7 +2312,7 @@ export class Database {
         cash_drawer_enabled, cash_drawer_printer_id, cash_drawer_kick_pin,
         cash_drawer_pulse_duration, cash_drawer_auto_open_on_cash, cash_drawer_auto_open_on_drop,
         active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         ws.id, ws.propertyId, ws.rvcId, ws.name,
         ws.deviceType || 'pos_terminal', ws.defaultOrderType || 'dine_in',
@@ -2332,7 +2360,7 @@ export class Database {
         print_voids, print_reprints, retry_attempts, failure_handling_mode,
         host_workstation_id, com_port, baud_rate, windows_printer_name,
         is_online, last_seen_at, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         printer.id, printer.propertyId, printer.name,
         printer.printerType || 'kitchen', printer.connectionType || 'network',
@@ -2395,7 +2423,7 @@ export class Database {
     if (success) {
       this.run(
         `UPDATE print_queue 
-         SET status = 'completed', completed_at = datetime('now'), lease_id = NULL, lease_expires_at = NULL
+         SET status = 'completed', completed_at = local_now(), lease_id = NULL, lease_expires_at = NULL
          WHERE id = ?`,
         [jobId]
       );
@@ -2435,7 +2463,7 @@ export class Database {
         color_alert_3_enabled, color_alert_3_seconds, color_alert_3_color,
         font_scale,
         ws_channel, ip_address, is_online, last_seen_at, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         kds.id, kds.propertyId, kds.name, kds.stationType || 'hot',
         kds.showDraftItems ? 1 : 0, kds.showSentItemsOnly !== false ? 1 : 0,
@@ -2469,7 +2497,7 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO order_devices (
         id, property_id, name, code, kds_device_id, send_on, send_voids, send_reprints, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         od.id, od.propertyId, od.name, od.code, od.kdsDeviceId,
         od.sendOn || 'send_button', od.sendVoids !== false ? 1 : 0, od.sendReprints !== false ? 1 : 0,
@@ -2485,7 +2513,7 @@ export class Database {
   upsertOrderDevicePrinter(odp: any): void {
     this.run(
       `INSERT OR REPLACE INTO order_device_printers (id, order_device_id, printer_id, updated_at)
-       VALUES (?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, local_now())`,
       [odp.id, odp.orderDeviceId, odp.printerId]
     );
   }
@@ -2497,7 +2525,7 @@ export class Database {
   upsertOrderDeviceKds(odk: any): void {
     this.run(
       `INSERT OR REPLACE INTO order_device_kds (id, order_device_id, kds_device_id, updated_at)
-       VALUES (?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, local_now())`,
       [odk.id, odk.orderDeviceId, odk.kdsDeviceId]
     );
   }
@@ -2513,7 +2541,7 @@ export class Database {
   upsertPrintClassRouting(pcr: any): void {
     this.run(
       `INSERT OR REPLACE INTO print_class_routing (id, print_class_id, order_device_id, property_id, rvc_id, updated_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, local_now())`,
       [pcr.id, pcr.printClassId, pcr.orderDeviceId, pcr.propertyId, pcr.rvcId]
     );
   }
@@ -2576,7 +2604,7 @@ export class Database {
   
   markJournalSynced(eventId: string): void {
     this.run(
-      `UPDATE transaction_journal SET sync_state = 'synced', synced_at = datetime('now') WHERE event_id = ?`,
+      `UPDATE transaction_journal SET sync_state = 'synced', synced_at = local_now() WHERE event_id = ?`,
       [eventId]
     );
   }
@@ -2640,7 +2668,7 @@ export class Database {
   addToSyncQueue(entityType: string, entityId: string, action: string, payload: any, priority: number = 0): void {
     this.run(
       `INSERT INTO sync_queue (entity_type, entity_id, action, payload, priority, next_attempt_at) 
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, local_now())`,
       [entityType, entityId, action, JSON.stringify(payload), priority]
     );
   }
@@ -2649,7 +2677,7 @@ export class Database {
     return this.all<SyncQueueItem>(
       `SELECT * FROM sync_queue 
        WHERE attempts < max_attempts 
-         AND (next_attempt_at IS NULL OR next_attempt_at <= datetime('now'))
+         AND (next_attempt_at IS NULL OR next_attempt_at <= local_now())
        ORDER BY priority DESC, created_at ASC 
        LIMIT ?`,
       [limit]
@@ -2661,7 +2689,7 @@ export class Database {
     this.run(
       `UPDATE sync_queue 
        SET attempts = attempts + 1, 
-           last_attempt_at = datetime('now'), 
+           last_attempt_at = local_now(), 
            next_attempt_at = datetime('now', '+' || (attempts * ?) || ' seconds'),
            error_message = ? 
        WHERE id = ?`,
@@ -2683,7 +2711,7 @@ export class Database {
   // ==========================================================================
   
   acquireLock(checkId: string, workstationId: string, employeeId: string, durationSeconds: number = 300): boolean {
-    this.run(`DELETE FROM check_locks WHERE expires_at < datetime('now')`);
+    this.run(`DELETE FROM check_locks WHERE expires_at < local_now()`);
     
     const existing = this.get<{ workstation_id: string }>(
       'SELECT workstation_id FROM check_locks WHERE check_id = ?',
@@ -2697,7 +2725,7 @@ export class Database {
     const expiresAt = new Date(Date.now() + durationSeconds * 1000).toISOString();
     this.run(
       `INSERT OR REPLACE INTO check_locks (check_id, workstation_id, employee_id, lock_type, locked_at, expires_at)
-       VALUES (?, ?, ?, 'active', datetime('now'), ?)`,
+       VALUES (?, ?, ?, 'active', local_now(), ?)`,
       [checkId, workstationId, employeeId, expiresAt]
     );
     
@@ -2714,7 +2742,7 @@ export class Database {
   getLock(checkId: string): CheckLock | null {
     const row = this.get<any>(
       `SELECT check_id, workstation_id, employee_id, lock_type, locked_at, expires_at 
-       FROM check_locks WHERE check_id = ? AND expires_at > datetime('now')`,
+       FROM check_locks WHERE check_id = ? AND expires_at > local_now()`,
       [checkId]
     );
     
@@ -2768,7 +2796,7 @@ export class Database {
     const existing = this.getWorkstationConfig(workstationId);
     if (existing && existing.checkNumberStart === start && existing.checkNumberEnd === end) {
       this.run(
-        `UPDATE workstation_config SET last_seen_at = datetime('now') WHERE workstation_id = ?`,
+        `UPDATE workstation_config SET last_seen_at = local_now() WHERE workstation_id = ?`,
         [workstationId]
       );
       return;
@@ -2777,7 +2805,7 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO workstation_config 
        (workstation_id, check_number_start, check_number_end, current_check_number, last_seen_at)
-       VALUES (?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, local_now())`,
       [workstationId, start, end, currentNumber]
     );
   }
@@ -2794,7 +2822,7 @@ export class Database {
     
     this.run(
       `UPDATE workstation_config 
-       SET current_check_number = current_check_number + 1, last_seen_at = datetime('now') 
+       SET current_check_number = current_check_number + 1, last_seen_at = local_now() 
        WHERE workstation_id = ?`,
       [workstationId]
     );
@@ -2826,7 +2854,7 @@ export class Database {
   updatePrintJobStatus(id: string, status: string, error?: string): void {
     this.run(
       `UPDATE print_queue SET status = ?, error_message = ?, 
-       completed_at = CASE WHEN ? IN ('completed', 'failed') THEN datetime('now') ELSE completed_at END,
+       completed_at = CASE WHEN ? IN ('completed', 'failed') THEN local_now() ELSE completed_at END,
        attempts = CASE WHEN ? = 'failed' THEN attempts + 1 ELSE attempts END
        WHERE id = ?`,
       [status, error || null, status, status, id]
@@ -2853,7 +2881,7 @@ export class Database {
         credentials, settlement_cutoff_time, supports_tip_adjust, supports_void, supports_refund,
         gateway_mode, max_retry_attempts, timeout_seconds, created_by, updated_by,
         active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM payment_processors WHERE id = ?), datetime('now')), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM payment_processors WHERE id = ?), local_now()), local_now())`,
       [
         proc.id, proc.propertyId, proc.name, proc.processorType || proc.type || 'unknown',
         proc.isPrimary ? 1 : 0, configStr, proc.configVersion || 1,
@@ -2899,7 +2927,7 @@ export class Database {
         receipt_print_merchant_copy, receipt_print_customer_copy,
         enable_debug_logging, log_raw_requests, log_raw_responses,
         active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         cfg.id, cfg.configLevel, cfg.enterpriseId, cfg.propertyId, cfg.workstationId,
         cfg.gatewayType, cfg.integrationModel, cfg.environment, cfg.credentialKeyPrefix,
@@ -2937,7 +2965,7 @@ export class Database {
         id, scope_type, scope_id, enterprise_id, header_lines, trailer_lines,
         logo_enabled, logo_asset_id, override_header, override_trailer, override_logo,
         updated_at, updated_by_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now(), ?)`,
       [
         ds.id, ds.scopeType, ds.scopeId, ds.enterpriseId, headerLines, trailerLines,
         ds.logoEnabled ? 1 : 0, ds.logoAssetId,
@@ -2956,7 +2984,7 @@ export class Database {
       `INSERT OR REPLACE INTO descriptor_logo_assets (
         id, enterprise_id, filename, mime_type, size_bytes, storage_path,
         checksum, escpos_data, created_at, created_by_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM descriptor_logo_assets WHERE id = ?), datetime('now')), ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM descriptor_logo_assets WHERE id = ?), local_now()), ?)`,
       [
         asset.id, asset.enterpriseId, asset.filename, asset.mimeType, asset.sizeBytes,
         asset.storagePath, asset.checksum, asset.escposData, asset.id, asset.createdById,
@@ -2979,7 +3007,7 @@ export class Database {
         status, last_heartbeat, last_connected_at, last_disconnected_at,
         agent_version, hostname, ip_address, os_info,
         auto_reconnect, heartbeat_interval_ms, active, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM print_agents WHERE id = ?), datetime('now')))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM print_agents WHERE id = ?), local_now()))`,
       [
         agent.id, agent.propertyId, agent.workstationId, agent.name, agent.description,
         agent.agentToken, agent.status || 'offline',
@@ -3009,7 +3037,7 @@ export class Database {
         enable_daily_overtime, enable_daily_double_time,
         enable_weekly_overtime, enable_weekly_double_time,
         week_start_day, effective_date, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         rule.id, rule.propertyId, rule.name, rule.description,
         rule.dailyRegularHours || '8.00', rule.dailyOvertimeThreshold || '8.00', rule.dailyDoubleTimeThreshold,
@@ -3041,7 +3069,7 @@ export class Database {
         require_clock_out_attestation, attestation_message,
         enable_break_alerts, alert_minutes_before_deadline,
         active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         rule.id, rule.propertyId, rule.name || 'California Break Rules', rule.stateCode || 'CA',
         rule.enableMealBreakEnforcement !== false ? 1 : 0, rule.mealBreakMinutes || 30, rule.mealBreakThresholdHours || '5.00',
@@ -3071,7 +3099,7 @@ export class Database {
         timeframe, applies_to_all_locations, declare_cash_tips,
         declare_cash_tips_all_locations, exclude_managers,
         minimum_hours_for_pool, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         rule.id, rule.enterpriseId, rule.propertyId, rule.rvcId,
         rule.name || 'Default Tip Rules', rule.distributionMethod || 'tip_directly',
@@ -3089,7 +3117,7 @@ export class Database {
   upsertTipRuleJobPercentage(trjp: any): void {
     this.run(
       `INSERT OR REPLACE INTO tip_rule_job_percentages (id, tip_rule_id, job_code_id, percentage, created_at)
-       VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM tip_rule_job_percentages WHERE id = ?), datetime('now')))`,
+       VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM tip_rule_job_percentages WHERE id = ?), local_now()))`,
       [trjp.id, trjp.tipRuleId, trjp.jobCodeId, trjp.percentage || '0', trjp.id]
     );
   }
@@ -3110,7 +3138,7 @@ export class Database {
         non_school_day_max_hours, non_school_week_max_hours, non_school_day_start_time, non_school_day_end_time,
         require_work_permit, work_permit_expiration_alert_days,
         active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         rule.id, rule.propertyId, rule.stateCode || 'CA',
         rule.minorAgeThreshold || 18, rule.youngMinorAgeThreshold || 16,
@@ -3160,7 +3188,7 @@ export class Database {
         shift_date, start_time, end_time, scheduled_break_minutes,
         status, notes, published_at, published_by_id, acknowledged_at,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         shift.id, shift.propertyId, shift.rvcId || null,
         shift.employeeId || null, shift.jobCodeId || null,
@@ -3375,7 +3403,7 @@ export class Database {
         points_per_dollar, minimum_redeem_points, points_value,
         visit_threshold, spend_threshold, tier_thresholds,
         active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM loyalty_programs WHERE id = ?), datetime('now')), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM loyalty_programs WHERE id = ?), local_now()), local_now())`,
       [
         prog.id, prog.enterpriseId, prog.propertyId, prog.name,
         prog.programType || 'points',
@@ -3402,7 +3430,7 @@ export class Database {
       `INSERT OR REPLACE INTO loyalty_members (
         id, enterprise_id, property_id, phone, email, first_name, last_name, external_id,
         birthday, notes, sms_opt_in, email_opt_in, marketing_opt_in, active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, COALESCE((SELECT created_at FROM loyalty_members WHERE id = ?), datetime('now')), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, COALESCE((SELECT created_at FROM loyalty_members WHERE id = ?), local_now()), local_now())`,
       [
         member.id, member.enterpriseId, member.propertyId, member.phone, member.email,
         member.firstName, member.lastName, member.externalId,
@@ -3429,7 +3457,7 @@ export class Database {
       `INSERT OR REPLACE INTO loyalty_member_enrollments (
         id, member_id, program_id, points_balance, lifetime_points,
         visit_count, total_spend, current_tier, enrolled_at, last_activity_at, active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT enrolled_at FROM loyalty_member_enrollments WHERE id = ?), datetime('now')), ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT enrolled_at FROM loyalty_member_enrollments WHERE id = ?), local_now()), ?, ?)`,
       [
         enrollment.id, enrollment.memberId, enrollment.programId,
         enrollment.pointsBalance || 0, enrollment.lifetimePoints || 0,
@@ -3451,7 +3479,7 @@ export class Database {
         menu_item_id, discount_id, fixed_value, percent_off, max_uses,
         valid_from, valid_until, min_check_amount, max_discount_amount, usage_limit_per_member,
         active, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM loyalty_rewards WHERE id = ?), datetime('now')))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM loyalty_rewards WHERE id = ?), local_now()))`,
       [
         reward.id, reward.programId, reward.name, reward.description,
         reward.rewardType, reward.pointsRequired,
@@ -3480,7 +3508,7 @@ export class Database {
         id, member_id, program_id, enrollment_id, property_id, transaction_type,
         points, points_before, points_after, visit_increment, visits_before, visits_after,
         check_id, check_total, employee_id, reason, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         tx.id, tx.memberId, tx.programId, tx.enrollmentId, tx.propertyId,
         tx.transactionType, tx.points || 0, tx.pointsBefore || 0, tx.pointsAfter || 0,
@@ -3506,7 +3534,7 @@ export class Database {
     this.run(
       `INSERT INTO loyalty_redemptions (
         id, member_id, reward_id, check_id, points_used, redeemed_at, employee_id
-      ) VALUES (?, ?, ?, ?, ?, datetime('now'), ?)`,
+      ) VALUES (?, ?, ?, ?, ?, local_now(), ?)`,
       [
         redemption.id, redemption.memberId, redemption.rewardId,
         redemption.checkId, redemption.pointsUsed, redemption.employeeId
@@ -3540,7 +3568,7 @@ export class Database {
         id, property_id, rvc_id, menu_item_id, is_available,
         available_quantity, unavailable_reason, unavailable_until,
         updated_at, updated_by_employee_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, local_now(), ?)`,
       [
         avail.id, avail.propertyId ?? avail.property_id,
         avail.rvcId ?? avail.rvc_id, avail.menuItemId ?? avail.menu_item_id,
@@ -3581,7 +3609,7 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO pos_layouts (
         id, enterprise_id, property_id, rvc_id, name, mode, grid_rows, grid_cols, font_size, is_default, active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM pos_layouts WHERE id = ?), datetime('now')), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM pos_layouts WHERE id = ?), local_now()), local_now())`,
       [
         layout.id,
         layout.enterpriseId || layout.enterprise_id || null,
@@ -3624,7 +3652,7 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO pos_layout_rvc_assignments (
         id, layout_id, property_id, rvc_id, is_default, order_type, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, local_now())`,
       [assign.id, assign.layoutId, assign.propertyId, assign.rvcId, assign.isDefault ? 1 : 0, assign.orderType]
     );
   }
@@ -3678,7 +3706,7 @@ export class Database {
         id, property_id, card_number, pin, balance, initial_balance, status,
         activated_at, activated_by_employee_id, expires_at, last_used_at,
         customer_name, customer_phone, customer_email, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM gift_cards WHERE id = ?), datetime('now')), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM gift_cards WHERE id = ?), local_now()), local_now())`,
       [
         card.id, card.propertyId ?? card.property_id,
         card.cardNumber ?? card.card_number, card.pin,
@@ -3703,7 +3731,7 @@ export class Database {
       `INSERT INTO gift_card_transactions (
         id, gift_card_id, check_id, transaction_type, amount, balance_before, balance_after,
         employee_id, workstation_id, notes, cloud_synced, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, local_now())`,
       [
         tx.id, tx.giftCardId, tx.checkId, tx.transactionType,
         tx.amount, tx.balanceBefore, tx.balanceAfter,
@@ -3725,7 +3753,7 @@ export class Database {
       `INSERT INTO audit_logs (
         id, entity_type, entity_id, action, previous_value, new_value,
         employee_id, workstation_id, ip_address, reason, cloud_synced, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, local_now())`,
       [
         log.id, log.entityType, log.entityId, log.action,
         log.previousValue ? JSON.stringify(log.previousValue) : null,
@@ -3752,7 +3780,7 @@ export class Database {
         id, original_check_id, rvc_id, refund_number, employee_id, manager_employee_id,
         workstation_id, refund_type, subtotal, tax, total, reason, status, business_date,
         cloud_synced, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, local_now())`,
       [
         refund.id, refund.originalCheckId, refund.rvcId, refund.refundNumber,
         refund.employeeId, refund.managerEmployeeId, refund.workstationId,
@@ -3774,7 +3802,7 @@ export class Database {
     this.run(
       `INSERT INTO refund_items (
         id, refund_id, original_item_id, menu_item_id, name, quantity, unit_price, total_price, tax_amount, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         item.id, item.refundId, item.originalItemId, item.menuItemId,
         item.name, item.quantity || 1, item.unitPrice, item.totalPrice, item.taxAmount || 0
@@ -3786,7 +3814,7 @@ export class Database {
     this.run(
       `INSERT INTO refund_payments (
         id, refund_id, original_payment_id, tender_id, amount, refund_method, reference_number, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         payment.id, payment.refundId, payment.originalPaymentId, payment.tenderId,
         payment.amount, payment.refundMethod, payment.referenceNumber, payment.status || 'pending'
@@ -3807,7 +3835,7 @@ export class Database {
         response_code, response_message, avs_result, cvv_result,
         status, gateway_transaction_id, gateway_response,
         employee_id, workstation_id, terminal_device_id, cloud_synced, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, local_now())`,
       [
         txn.id, txn.propertyId, txn.checkId, txn.checkPaymentId, txn.paymentProcessorId, txn.tenderId,
         txn.transactionType, txn.amount, txn.tipAmount || 0, txn.authCode, txn.referenceNumber,
@@ -3844,7 +3872,7 @@ export class Database {
         id, property_id, name, device_type, serial_number, ip_address, port,
         payment_processor_id, cloud_device_id, terminal_id, connection_type,
         is_online, last_seen_at, firmware_version, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         device.id, device.propertyId, device.name, device.model || device.deviceType || 'unknown', device.serialNumber,
         device.ipAddress || device.networkAddress, device.port, device.paymentProcessorId,
@@ -3872,7 +3900,7 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO cash_drawers (
         id, property_id, name, workstation_id, starting_balance, current_balance, status, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         drawer.id, drawer.propertyId, drawer.name, drawer.workstationId,
         drawer.startingBalance || 0, drawer.currentBalance || 0,
@@ -3902,7 +3930,7 @@ export class Database {
       `INSERT INTO drawer_assignments (
         id, cash_drawer_id, employee_id, workstation_id, assigned_at, opening_balance,
         status, business_date, manager_employee_id, cloud_synced
-      ) VALUES (?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, 0)`,
+      ) VALUES (?, ?, ?, ?, local_now(), ?, ?, ?, ?, 0)`,
       [
         assignment.id, assignment.cashDrawerId, assignment.employeeId, assignment.workstationId,
         assignment.openingBalance, assignment.status || 'open', assignment.businessDate, assignment.managerEmployeeId
@@ -3925,7 +3953,7 @@ export class Database {
     const overShort = closingBalance - expectedBalance;
     this.run(
       `UPDATE drawer_assignments SET 
-        status = 'closed', closing_balance = ?, expected_balance = ?, over_short = ?, unassigned_at = datetime('now')
+        status = 'closed', closing_balance = ?, expected_balance = ?, over_short = ?, unassigned_at = local_now()
        WHERE id = ?`,
       [closingBalance, expectedBalance, overShort, id]
     );
@@ -3941,7 +3969,7 @@ export class Database {
         id, cash_drawer_id, drawer_assignment_id, transaction_type, amount,
         balance_before, balance_after, check_id, employee_id, manager_employee_id,
         reason, notes, reference_number, cloud_synced, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, local_now())`,
       [
         txn.id, txn.cashDrawerId, txn.drawerAssignmentId, txn.transactionType, txn.amount,
         txn.balanceBefore, txn.balanceAfter, txn.checkId, txn.employeeId, txn.managerEmployeeId,
@@ -3967,7 +3995,7 @@ export class Database {
       `INSERT INTO safe_counts (
         id, property_id, count_type, employee_id, manager_employee_id, business_date,
         expected_amount, actual_amount, variance, denominations, notes, status, cloud_synced, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, local_now())`,
       [
         count.id, count.propertyId, count.countType, count.employeeId, count.managerEmployeeId,
         count.businessDate, count.expectedAmount, count.actualAmount, count.variance,
@@ -3993,7 +4021,7 @@ export class Database {
       `INSERT OR REPLACE INTO job_codes (
         id, enterprise_id, property_id, name, code, hourly_rate,
         overtime_eligible, tipped, default_tip_rate, color, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         job.id, job.enterpriseId, job.propertyId, job.name, job.code, job.hourlyRate,
         job.overtimeEligible !== false ? 1 : 0, job.tipped ? 1 : 0, job.defaultTipRate,
@@ -4054,7 +4082,7 @@ export class Database {
       `INSERT INTO time_punches (
         id, employee_id, job_code_id, workstation_id, punch_type, punch_time,
         original_punch_time, business_date, ip_address, geo_location, cloud_synced, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, local_now())`,
       [
         punch.id, punch.employeeId, punch.jobCodeId, punch.workstationId,
         punch.punchType, punch.punchTime, punch.punchTime, punch.businessDate,
@@ -4099,7 +4127,7 @@ export class Database {
     this.run(
       `INSERT INTO break_sessions (
         id, employee_id, time_entry_id, break_type, start_time, paid, workstation_id, cloud_synced, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, local_now())`,
       [
         breakSession.id, breakSession.employeeId, breakSession.timeEntryId,
         breakSession.breakType || 'unpaid', breakSession.startTime, breakSession.paid ? 1 : 0,
@@ -4134,7 +4162,7 @@ export class Database {
       `INSERT INTO fiscal_periods (
         id, property_id, period_type, business_date, start_time, status,
         opened_by_employee_id, cloud_synced, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, local_now())`,
       [
         period.id, period.propertyId, period.periodType, period.businessDate,
         period.startTime, period.status || 'open', period.openedByEmployeeId
@@ -4152,7 +4180,7 @@ export class Database {
       `INSERT OR REPLACE INTO fiscal_periods (
         id, property_id, period_type, business_date, start_time, end_time, status,
         opened_by_employee_id, closed_by_employee_id, cloud_synced, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM fiscal_periods WHERE id = ?), datetime('now')), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM fiscal_periods WHERE id = ?), local_now()), local_now())`,
       [
         period.id, period.propertyId ?? period.property_id, periodType,
         period.businessDate ?? period.business_date,
@@ -4184,10 +4212,10 @@ export class Database {
   closeFiscalPeriod(id: string, closedByEmployeeId: string, totals: any): void {
     this.run(
       `UPDATE fiscal_periods SET 
-        status = 'closed', end_time = datetime('now'), closed_by_employee_id = ?,
+        status = 'closed', end_time = local_now(), closed_by_employee_id = ?,
         gross_sales = ?, net_sales = ?, tax_collected = ?, discounts_given = ?,
         refunds_given = ?, check_count = ?, guest_count = ?, void_count = ?, void_amount = ?,
-        cash_over_short = ?, closed_at = datetime('now')
+        cash_over_short = ?, closed_at = local_now()
        WHERE id = ?`,
       [
         closedByEmployeeId, totals.grossSales || 0, totals.netSales || 0, totals.taxCollected || 0,
@@ -4206,7 +4234,7 @@ export class Database {
       `INSERT INTO kds_ticket_items (
         id, kds_ticket_id, check_item_id, menu_item_id, name, short_name, quantity,
         modifiers, seat_number, course_number, special_instructions, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         item.id, item.kdsTicketId, item.checkItemId, item.menuItemId, item.name, item.shortName,
         item.quantity || 1, item.modifiers ? JSON.stringify(item.modifiers) : null,
@@ -4236,7 +4264,7 @@ export class Database {
         id, rvc_id, order_type, order_source, table_number, guest_count, items, payments,
         customer_name, customer_phone, customer_email, special_instructions, scheduled_time,
         priority, status, employee_id, workstation_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         order.id, order.rvcId, order.orderType, order.orderSource || 'pos',
         order.tableNumber, order.guestCount || 1,
@@ -4262,7 +4290,7 @@ export class Database {
   updateOfflineOrderStatus(id: string, status: string, cloudCheckId?: string, errorMessage?: string): void {
     this.run(
       `UPDATE offline_order_queue SET status = ?, cloud_check_id = ?, error_message = ?, 
-       processed_at = CASE WHEN ? = 'synced' THEN datetime('now') ELSE processed_at END,
+       processed_at = CASE WHEN ? = 'synced' THEN local_now() ELSE processed_at END,
        retry_count = CASE WHEN ? = 'failed' THEN retry_count + 1 ELSE retry_count END
        WHERE id = ?`,
       [status, cloudCheckId, errorMessage, status, status, id]
@@ -4280,7 +4308,7 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO online_order_sources (
         id, property_id, name, source_type, api_key, webhook_url, auto_accept, default_prep_time, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, local_now())`,
       [
         source.id, source.propertyId ?? source.property_id, name, sourceType,
         source.apiKeyPrefix ?? source.apiKey ?? source.api_key,
@@ -4298,7 +4326,7 @@ export class Database {
         customer_name, customer_phone, customer_email, delivery_address, special_instructions,
         items, subtotal, tax, delivery_fee, tip, total, payment_status, payment_method,
         scheduled_time, estimated_ready_time, employee_id, cloud_synced, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, local_now())`,
       [
         order.id, order.propertyId, order.rvcId, order.sourceId, order.externalOrderId,
         order.orderType, order.status || 'received', order.customerName, order.customerPhone,

@@ -1194,7 +1194,7 @@ export class ConfigSync {
     
     const softTable = softDeleteTables[entityType];
     if (softTable) {
-      this.db.run(`UPDATE ${softTable} SET active = 0, updated_at = datetime('now') WHERE id = ?`, [entityId]);
+      this.db.run(`UPDATE ${softTable} SET active = 0, updated_at = local_now() WHERE id = ?`, [entityId]);
       console.log(`Soft-deleted ${entityType} ${entityId}`);
       return;
     }

@@ -628,7 +628,7 @@ export class CapsService {
   closeCheck(checkId: string, workstationId?: string): void {
     this.validateLock(checkId, workstationId);
     this.db.run(
-      `UPDATE checks SET status = 'closed', closed_at = datetime('now') WHERE id = ?`,
+      `UPDATE checks SET status = 'closed', closed_at = local_now() WHERE id = ?`,
       [checkId]
     );
     
@@ -663,7 +663,7 @@ export class CapsService {
     });
     
     this.db.run(
-      `UPDATE checks SET status = 'voided', closed_at = datetime('now') WHERE id = ?`,
+      `UPDATE checks SET status = 'voided', closed_at = local_now() WHERE id = ?`,
       [checkId]
     );
     

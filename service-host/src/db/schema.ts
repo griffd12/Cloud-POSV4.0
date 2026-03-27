@@ -20,7 +20,7 @@ export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER PRIMARY KEY,
-  applied_at TEXT DEFAULT (datetime('now'))
+  applied_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS enterprises (
   name TEXT NOT NULL,
   code TEXT NOT NULL UNIQUE,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS properties (
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS properties (
   auto_clock_out_enabled INTEGER DEFAULT 0,
   caps_workstation_id TEXT,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS rvcs (
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS rvcs (
   kitchen_print_mode TEXT DEFAULT 'auto_on_send',
   void_receipt_print INTEGER DEFAULT 1,
   require_guest_count INTEGER DEFAULT 0,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS roles (
   name TEXT NOT NULL,
   code TEXT NOT NULL,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS privileges (
@@ -93,14 +93,14 @@ CREATE TABLE IF NOT EXISTS privileges (
   name TEXT NOT NULL,
   domain TEXT,
   description TEXT,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS role_privileges (
   id TEXT PRIMARY KEY,
   role_id TEXT NOT NULL REFERENCES roles(id),
   privilege_code TEXT NOT NULL REFERENCES privileges(code),
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS employees (
   pin_hash TEXT NOT NULL,
   role_id TEXT REFERENCES roles(id),
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS employee_assignments (
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS employee_assignments (
   rvc_id TEXT REFERENCES rvcs(id),
   role_id TEXT REFERENCES roles(id),
   is_primary INTEGER DEFAULT 0,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS major_groups (
   code TEXT NOT NULL,
   display_order INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS family_groups (
@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS family_groups (
   code TEXT NOT NULL,
   display_order INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS slus (
   display_order INTEGER DEFAULT 0,
   color TEXT DEFAULT '#3B82F6',
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS tax_groups (
@@ -185,7 +185,7 @@ CREATE TABLE IF NOT EXISTS tax_groups (
   rate TEXT NOT NULL,
   tax_mode TEXT NOT NULL DEFAULT 'add_on',
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS print_classes (
@@ -197,7 +197,7 @@ CREATE TABLE IF NOT EXISTS print_classes (
   code TEXT NOT NULL,
   display_order INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -215,7 +215,7 @@ CREATE TABLE IF NOT EXISTS ingredient_prefixes (
   price_factor REAL DEFAULT 1.0,
   display_order INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS menu_item_recipe_ingredients (
@@ -231,7 +231,7 @@ CREATE TABLE IF NOT EXISTS menu_item_recipe_ingredients (
   modifier_id TEXT REFERENCES modifiers(id),
   default_prefix_id TEXT REFERENCES ingredient_prefixes(id),
   sort_order INTEGER DEFAULT 0,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -282,7 +282,7 @@ CREATE TABLE IF NOT EXISTS workstations (
   cash_drawer_auto_open_on_cash INTEGER DEFAULT 1,
   cash_drawer_auto_open_on_drop INTEGER DEFAULT 1,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS printers (
@@ -312,7 +312,7 @@ CREATE TABLE IF NOT EXISTS printers (
   is_online INTEGER DEFAULT 0,
   last_seen_at TEXT,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS kds_devices (
@@ -346,7 +346,7 @@ CREATE TABLE IF NOT EXISTS kds_devices (
   is_online INTEGER DEFAULT 0,
   last_seen_at TEXT,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS order_devices (
@@ -359,7 +359,7 @@ CREATE TABLE IF NOT EXISTS order_devices (
   send_voids INTEGER DEFAULT 1,
   send_reprints INTEGER DEFAULT 1,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS order_device_printers (
@@ -367,7 +367,7 @@ CREATE TABLE IF NOT EXISTS order_device_printers (
   order_device_id TEXT NOT NULL REFERENCES order_devices(id),
   printer_id TEXT NOT NULL REFERENCES printers(id),
   display_order INTEGER DEFAULT 0,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS order_device_kds (
@@ -375,7 +375,7 @@ CREATE TABLE IF NOT EXISTS order_device_kds (
   order_device_id TEXT NOT NULL REFERENCES order_devices(id),
   kds_device_id TEXT NOT NULL REFERENCES kds_devices(id),
   display_order INTEGER DEFAULT 0,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS print_class_routing (
@@ -384,7 +384,7 @@ CREATE TABLE IF NOT EXISTS print_class_routing (
   order_device_id TEXT NOT NULL REFERENCES order_devices(id),
   property_id TEXT REFERENCES properties(id),
   rvc_id TEXT REFERENCES rvcs(id),
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -406,7 +406,7 @@ CREATE TABLE IF NOT EXISTS menu_items (
   color TEXT DEFAULT '#3B82F6',
   menu_build_enabled INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS menu_item_slus (
@@ -414,7 +414,7 @@ CREATE TABLE IF NOT EXISTS menu_item_slus (
   menu_item_id TEXT NOT NULL REFERENCES menu_items(id),
   slu_id TEXT NOT NULL REFERENCES slus(id),
   display_order INTEGER DEFAULT 0,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS modifier_groups (
@@ -429,7 +429,7 @@ CREATE TABLE IF NOT EXISTS modifier_groups (
   max_select INTEGER DEFAULT 99,
   display_order INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS modifiers (
@@ -440,7 +440,7 @@ CREATE TABLE IF NOT EXISTS modifiers (
   name TEXT NOT NULL,
   price_delta INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS modifier_group_modifiers (
@@ -449,7 +449,7 @@ CREATE TABLE IF NOT EXISTS modifier_group_modifiers (
   modifier_id TEXT NOT NULL REFERENCES modifiers(id),
   is_default INTEGER DEFAULT 0,
   display_order INTEGER DEFAULT 0,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS menu_item_modifier_groups (
@@ -460,7 +460,7 @@ CREATE TABLE IF NOT EXISTS menu_item_modifier_groups (
   sort_order INTEGER DEFAULT 0,
   min_required INTEGER DEFAULT 0,
   max_allowed INTEGER DEFAULT 0,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -488,7 +488,7 @@ CREATE TABLE IF NOT EXISTS tenders (
   is_card_media INTEGER DEFAULT 0,
   is_gift_media INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS discounts (
@@ -502,7 +502,7 @@ CREATE TABLE IF NOT EXISTS discounts (
   amount TEXT NOT NULL,
   requires_manager_approval INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS service_charges (
@@ -523,7 +523,7 @@ CREATE TABLE IF NOT EXISTS service_charges (
   min_check_amount INTEGER,
   min_guest_count INTEGER,
   active INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -540,7 +540,7 @@ CREATE TABLE IF NOT EXISTS transaction_journal (
   event_type TEXT NOT NULL,
   payload_json TEXT NOT NULL,
   config_version TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (local_now()),
   sync_state TEXT NOT NULL DEFAULT 'pending',
   sync_attempts INTEGER NOT NULL DEFAULT 0,
   synced_at TEXT
@@ -576,7 +576,7 @@ CREATE TABLE IF NOT EXISTS checks (
   amount_due INTEGER DEFAULT 0,
   current_round INTEGER DEFAULT 1,
   business_date TEXT,
-  opened_at TEXT DEFAULT (datetime('now')),
+  opened_at TEXT DEFAULT (local_now()),
   closed_at TEXT,
   voided_at TEXT,
   void_reason TEXT,
@@ -584,8 +584,8 @@ CREATE TABLE IF NOT EXISTS checks (
   customer_id TEXT,
   customer_name TEXT,
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS rounds (
@@ -596,7 +596,7 @@ CREATE TABLE IF NOT EXISTS rounds (
   workstation_id TEXT REFERENCES workstations(id),
   sent_at TEXT,
   status TEXT DEFAULT 'draft',
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS check_items (
@@ -630,7 +630,7 @@ CREATE TABLE IF NOT EXISTS check_items (
   discount_amount INTEGER DEFAULT 0,
   discount_type TEXT,
   parent_item_id TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS check_payments (
@@ -651,7 +651,7 @@ CREATE TABLE IF NOT EXISTS check_payments (
   void_employee_id TEXT,
   business_date TEXT,
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS check_discounts (
@@ -665,7 +665,7 @@ CREATE TABLE IF NOT EXISTS check_discounts (
   employee_id TEXT,
   manager_employee_id TEXT,
   voided INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS check_service_charges (
@@ -677,7 +677,7 @@ CREATE TABLE IF NOT EXISTS check_service_charges (
   amount INTEGER NOT NULL,
   auto_applied INTEGER DEFAULT 0,
   voided INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -698,7 +698,7 @@ CREATE TABLE IF NOT EXISTS kds_tickets (
   status TEXT NOT NULL DEFAULT 'active',
   is_preview INTEGER DEFAULT 0,
   priority INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (local_now()),
   bumped_at TEXT,
   bumped_by_employee_id TEXT,
   recalled_at TEXT
@@ -723,7 +723,7 @@ CREATE TABLE IF NOT EXISTS time_entries (
   tips_declared INTEGER DEFAULT 0,
   status TEXT DEFAULT 'active',
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -742,8 +742,8 @@ CREATE TABLE IF NOT EXISTS pos_layouts (
   font_size TEXT DEFAULT 'medium',
   is_default INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS pos_layout_cells (
@@ -766,7 +766,7 @@ CREATE TABLE IF NOT EXISTS pos_layout_rvc_assignments (
   rvc_id TEXT REFERENCES rvcs(id),
   is_default INTEGER DEFAULT 0,
   order_type TEXT,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -788,8 +788,8 @@ CREATE TABLE IF NOT EXISTS gift_cards (
   customer_name TEXT,
   customer_phone TEXT,
   customer_email TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS gift_card_transactions (
@@ -804,7 +804,7 @@ CREATE TABLE IF NOT EXISTS gift_card_transactions (
   workstation_id TEXT REFERENCES workstations(id),
   notes TEXT,
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -823,7 +823,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   ip_address TEXT,
   reason TEXT,
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -846,7 +846,7 @@ CREATE TABLE IF NOT EXISTS refunds (
   status TEXT NOT NULL DEFAULT 'pending',
   business_date TEXT,
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (local_now()),
   completed_at TEXT
 );
 
@@ -860,7 +860,7 @@ CREATE TABLE IF NOT EXISTS refund_items (
   unit_price INTEGER NOT NULL,
   total_price INTEGER NOT NULL,
   tax_amount INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS refund_payments (
@@ -872,7 +872,7 @@ CREATE TABLE IF NOT EXISTS refund_payments (
   refund_method TEXT NOT NULL,
   reference_number TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -898,8 +898,8 @@ CREATE TABLE IF NOT EXISTS payment_processors (
   created_by TEXT REFERENCES employees(id),
   updated_by TEXT REFERENCES employees(id),
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -919,8 +919,8 @@ CREATE TABLE IF NOT EXISTS loyalty_programs (
   spend_threshold TEXT,
   tier_thresholds TEXT,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS loyalty_members (
@@ -938,8 +938,8 @@ CREATE TABLE IF NOT EXISTS loyalty_members (
   email_opt_in INTEGER DEFAULT 0,
   marketing_opt_in INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS loyalty_member_enrollments (
@@ -951,7 +951,7 @@ CREATE TABLE IF NOT EXISTS loyalty_member_enrollments (
   visit_count INTEGER DEFAULT 0,
   total_spend TEXT DEFAULT '0',
   current_tier TEXT,
-  enrolled_at TEXT DEFAULT (datetime('now')),
+  enrolled_at TEXT DEFAULT (local_now()),
   last_activity_at TEXT,
   active INTEGER DEFAULT 1
 );
@@ -973,7 +973,7 @@ CREATE TABLE IF NOT EXISTS loyalty_transactions (
   check_total TEXT,
   employee_id TEXT REFERENCES employees(id),
   reason TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS loyalty_rewards (
@@ -994,7 +994,7 @@ CREATE TABLE IF NOT EXISTS loyalty_rewards (
   max_discount_amount TEXT,
   usage_limit_per_member INTEGER,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS loyalty_redemptions (
@@ -1003,7 +1003,7 @@ CREATE TABLE IF NOT EXISTS loyalty_redemptions (
   reward_id TEXT NOT NULL REFERENCES loyalty_rewards(id),
   check_id TEXT REFERENCES checks(id),
   points_used INTEGER NOT NULL,
-  redeemed_at TEXT DEFAULT (datetime('now')),
+  redeemed_at TEXT DEFAULT (local_now()),
   employee_id TEXT REFERENCES employees(id)
 );
 
@@ -1020,7 +1020,7 @@ CREATE TABLE IF NOT EXISTS item_availability (
   available_quantity INTEGER,
   unavailable_reason TEXT,
   unavailable_until TEXT,
-  updated_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (local_now()),
   updated_by_employee_id TEXT REFERENCES employees(id)
 );
 
@@ -1063,7 +1063,7 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
   workstation_id TEXT REFERENCES workstations(id),
   terminal_device_id TEXT REFERENCES terminal_devices(id),
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS terminal_devices (
@@ -1082,8 +1082,8 @@ CREATE TABLE IF NOT EXISTS terminal_devices (
   last_seen_at TEXT,
   firmware_version TEXT,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -1099,8 +1099,8 @@ CREATE TABLE IF NOT EXISTS cash_drawers (
   current_balance INTEGER DEFAULT 0,
   status TEXT DEFAULT 'closed',
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS drawer_assignments (
@@ -1108,7 +1108,7 @@ CREATE TABLE IF NOT EXISTS drawer_assignments (
   cash_drawer_id TEXT NOT NULL REFERENCES cash_drawers(id),
   employee_id TEXT NOT NULL REFERENCES employees(id),
   workstation_id TEXT REFERENCES workstations(id),
-  assigned_at TEXT DEFAULT (datetime('now')),
+  assigned_at TEXT DEFAULT (local_now()),
   unassigned_at TEXT,
   opening_balance INTEGER NOT NULL,
   closing_balance INTEGER,
@@ -1135,7 +1135,7 @@ CREATE TABLE IF NOT EXISTS cash_transactions (
   notes TEXT,
   reference_number TEXT,
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS safe_counts (
@@ -1152,7 +1152,7 @@ CREATE TABLE IF NOT EXISTS safe_counts (
   notes TEXT,
   status TEXT DEFAULT 'pending',
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -1171,8 +1171,8 @@ CREATE TABLE IF NOT EXISTS job_codes (
   default_tip_rate TEXT,
   color TEXT,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS employee_job_codes (
@@ -1184,7 +1184,7 @@ CREATE TABLE IF NOT EXISTS employee_job_codes (
   effective_from TEXT,
   effective_until TEXT,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS time_punches (
@@ -1202,7 +1202,7 @@ CREATE TABLE IF NOT EXISTS time_punches (
   ip_address TEXT,
   geo_location TEXT,
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS break_sessions (
@@ -1216,7 +1216,7 @@ CREATE TABLE IF NOT EXISTS break_sessions (
   paid INTEGER DEFAULT 0,
   workstation_id TEXT REFERENCES workstations(id),
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -1245,9 +1245,9 @@ CREATE TABLE IF NOT EXISTS fiscal_periods (
   cash_over_short INTEGER DEFAULT 0,
   notes TEXT,
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (local_now()),
   closed_at TEXT,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -1269,7 +1269,7 @@ CREATE TABLE IF NOT EXISTS kds_ticket_items (
   status TEXT NOT NULL DEFAULT 'active',
   bumped_at TEXT,
   started_at TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -1296,7 +1296,7 @@ CREATE TABLE IF NOT EXISTS offline_order_queue (
   retry_count INTEGER DEFAULT 0,
   employee_id TEXT REFERENCES employees(id),
   workstation_id TEXT REFERENCES workstations(id),
-  created_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (local_now()),
   processed_at TEXT,
   cloud_check_id TEXT
 );
@@ -1315,8 +1315,8 @@ CREATE TABLE IF NOT EXISTS online_order_sources (
   auto_accept INTEGER DEFAULT 0,
   default_prep_time INTEGER DEFAULT 15,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS online_orders (
@@ -1350,8 +1350,8 @@ CREATE TABLE IF NOT EXISTS online_orders (
   check_id TEXT REFERENCES checks(id),
   employee_id TEXT REFERENCES employees(id),
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -1370,7 +1370,7 @@ CREATE TABLE IF NOT EXISTS sync_queue (
   last_attempt_at TEXT,
   next_attempt_at TEXT,
   error_message TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS operation_queue (
@@ -1383,13 +1383,13 @@ CREATE TABLE IF NOT EXISTS operation_queue (
   status TEXT NOT NULL DEFAULT 'pending',
   attempts INTEGER DEFAULT 0,
   error_message TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS sync_metadata (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS check_locks (
@@ -1397,7 +1397,7 @@ CREATE TABLE IF NOT EXISTS check_locks (
   workstation_id TEXT NOT NULL,
   employee_id TEXT NOT NULL,
   lock_type TEXT DEFAULT 'active',
-  locked_at TEXT DEFAULT (datetime('now')),
+  locked_at TEXT DEFAULT (local_now()),
   expires_at TEXT NOT NULL
 );
 
@@ -1415,7 +1415,7 @@ CREATE TABLE IF NOT EXISTS print_queue (
   lease_id TEXT,
   lease_expires_at TEXT,
   dedupe_key TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (local_now()),
   completed_at TEXT
 );
 
@@ -1426,7 +1426,7 @@ CREATE TABLE IF NOT EXISTS workstation_config (
   current_check_number INTEGER NOT NULL,
   offline_mode_enabled INTEGER DEFAULT 0,
   last_sync_at TEXT,
-  last_seen_at TEXT DEFAULT (datetime('now'))
+  last_seen_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS config_cache (
@@ -1435,7 +1435,7 @@ CREATE TABLE IF NOT EXISTS config_cache (
   entity_type TEXT,
   entity_id TEXT,
   version INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -1461,8 +1461,8 @@ CREATE TABLE IF NOT EXISTS overtime_rules (
   week_start_day INTEGER DEFAULT 0,
   effective_date TEXT,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE INDEX IF NOT EXISTS idx_overtime_rules_property ON overtime_rules(property_id);
@@ -1494,8 +1494,8 @@ CREATE TABLE IF NOT EXISTS break_rules (
   enable_break_alerts INTEGER DEFAULT 1,
   alert_minutes_before_deadline INTEGER DEFAULT 15,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE INDEX IF NOT EXISTS idx_break_rules_property ON break_rules(property_id);
@@ -1518,8 +1518,8 @@ CREATE TABLE IF NOT EXISTS tip_rules (
   exclude_managers INTEGER DEFAULT 1,
   minimum_hours_for_pool TEXT DEFAULT '0',
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE INDEX IF NOT EXISTS idx_tip_rules_property ON tip_rules(property_id);
@@ -1529,7 +1529,7 @@ CREATE TABLE IF NOT EXISTS tip_rule_job_percentages (
   tip_rule_id TEXT NOT NULL REFERENCES tip_rules(id),
   job_code_id TEXT NOT NULL REFERENCES job_codes(id),
   percentage TEXT NOT NULL DEFAULT '0',
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE INDEX IF NOT EXISTS idx_tip_rule_job_pct_rule ON tip_rule_job_percentages(tip_rule_id);
@@ -1555,8 +1555,8 @@ CREATE TABLE IF NOT EXISTS minor_labor_rules (
   require_work_permit INTEGER DEFAULT 1,
   work_permit_expiration_alert_days INTEGER DEFAULT 30,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE INDEX IF NOT EXISTS idx_minor_labor_rules_property ON minor_labor_rules(property_id);
@@ -1577,7 +1577,7 @@ CREATE TABLE IF NOT EXISTS shift_templates (
   color TEXT,
   notes TEXT,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE INDEX IF NOT EXISTS idx_shift_templates_property ON shift_templates(property_id);
@@ -1598,8 +1598,8 @@ CREATE TABLE IF NOT EXISTS shifts (
   published_at TEXT,
   published_by_id TEXT REFERENCES employees(id),
   acknowledged_at TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE INDEX IF NOT EXISTS idx_shifts_property ON shifts(property_id);
@@ -1619,7 +1619,7 @@ CREATE TABLE IF NOT EXISTS descriptor_logo_assets (
   storage_path TEXT NOT NULL,
   checksum TEXT,
   escpos_data TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (local_now()),
   created_by_id TEXT
 );
 
@@ -1635,7 +1635,7 @@ CREATE TABLE IF NOT EXISTS descriptor_sets (
   override_header INTEGER DEFAULT 0,
   override_trailer INTEGER DEFAULT 0,
   override_logo INTEGER DEFAULT 0,
-  updated_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (local_now()),
   updated_by_id TEXT
 );
 
@@ -1664,7 +1664,7 @@ CREATE TABLE IF NOT EXISTS print_agents (
   auto_reconnect INTEGER DEFAULT 1,
   heartbeat_interval_ms INTEGER DEFAULT 30000,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now())
 );
 
 CREATE INDEX IF NOT EXISTS idx_print_agents_property ON print_agents(property_id);
@@ -1728,8 +1728,8 @@ CREATE TABLE IF NOT EXISTS payment_gateway_config (
   log_raw_requests INTEGER DEFAULT 0,
   log_raw_responses INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE INDEX IF NOT EXISTS idx_payment_gateway_config_enterprise ON payment_gateway_config(enterprise_id);
@@ -1748,8 +1748,8 @@ CREATE TABLE IF NOT EXISTS emc_option_flags (
   value_text TEXT,
   scope_level TEXT NOT NULL,
   scope_id TEXT NOT NULL,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_emc_option_flags_unique
@@ -1787,8 +1787,8 @@ CREATE TABLE IF NOT EXISTS timecards (
   approved_by_id TEXT REFERENCES employees(id),
   approved_at TEXT,
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
@@ -1809,7 +1809,7 @@ CREATE TABLE IF NOT EXISTS terminal_sessions (
   status_message TEXT,
   processor_reference TEXT,
   payment_transaction_id TEXT REFERENCES payment_transactions(id),
-  initiated_at TEXT DEFAULT (datetime('now')),
+  initiated_at TEXT DEFAULT (local_now()),
   completed_at TEXT,
   expires_at TEXT,
   metadata TEXT,
@@ -1833,8 +1833,8 @@ CREATE TABLE IF NOT EXISTS break_attestations (
   missed_break_reason TEXT,
   employee_signature TEXT,
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 CREATE TABLE IF NOT EXISTS break_violations (
@@ -1857,8 +1857,8 @@ CREATE TABLE IF NOT EXISTS break_violations (
   acknowledged_by_id TEXT REFERENCES employees(id),
   acknowledged_at TEXT,
   cloud_synced INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (local_now()),
+  updated_at TEXT DEFAULT (local_now())
 );
 
 -- =============================================================================
