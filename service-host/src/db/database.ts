@@ -207,6 +207,10 @@ export class Database {
       this.migrateToV21();
     }
     
+    if (fromVersion < 22) {
+      this.migrateToV22();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -1138,6 +1142,51 @@ export class Database {
     console.log('[DB] v21 migration complete — operational tables verified for sync');
   }
   
+  private migrateToV22(): void {
+    console.log('[DB] Running v22 migration: employee DOB, shift_templates, shifts');
+    try {
+      this.run(`ALTER TABLE employees ADD COLUMN date_of_birth TEXT`);
+    } catch { /* column may already exist */ }
+    this.run(`CREATE TABLE IF NOT EXISTS shift_templates (
+      id TEXT PRIMARY KEY,
+      property_id TEXT NOT NULL REFERENCES properties(id),
+      rvc_id TEXT REFERENCES rvcs(id),
+      name TEXT NOT NULL,
+      job_code_id TEXT REFERENCES job_codes(id),
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      break_minutes INTEGER DEFAULT 0,
+      color TEXT,
+      notes TEXT,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
+    this.run(`CREATE INDEX IF NOT EXISTS idx_shift_templates_property ON shift_templates(property_id)`);
+    this.run(`CREATE TABLE IF NOT EXISTS shifts (
+      id TEXT PRIMARY KEY,
+      property_id TEXT NOT NULL REFERENCES properties(id),
+      rvc_id TEXT REFERENCES rvcs(id),
+      employee_id TEXT REFERENCES employees(id),
+      job_code_id TEXT REFERENCES job_codes(id),
+      template_id TEXT REFERENCES shift_templates(id),
+      shift_date TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      scheduled_break_minutes INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'draft',
+      notes TEXT,
+      published_at TEXT,
+      published_by_id TEXT REFERENCES employees(id),
+      acknowledged_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`);
+    this.run(`CREATE INDEX IF NOT EXISTS idx_shifts_property ON shifts(property_id)`);
+    this.run(`CREATE INDEX IF NOT EXISTS idx_shifts_employee ON shifts(employee_id)`);
+    this.run(`CREATE INDEX IF NOT EXISTS idx_shifts_date ON shifts(shift_date)`);
+    console.log('[DB] v22 migration complete — employee DOB, shift_templates, shifts added');
+  }
+  
   // ==========================================================================
   // Generic query methods
   // ==========================================================================
@@ -1353,11 +1402,12 @@ export class Database {
     this.run(
       `INSERT OR REPLACE INTO employees (
         id, enterprise_id, property_id, employee_number, first_name, last_name,
-        pin_hash, role_id, active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        date_of_birth, pin_hash, role_id, active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         emp.id, emp.enterpriseId, emp.propertyId, emp.employeeNumber,
-        emp.firstName, emp.lastName, emp.pinHash, emp.roleId,
+        emp.firstName, emp.lastName, emp.dateOfBirth || null,
+        emp.pinHash, emp.roleId,
         emp.active !== false ? 1 : 0,
       ]
     );
@@ -3079,6 +3129,61 @@ export class Database {
   }
 
   // ==========================================================================
+  // Shift Templates & Shifts
+  // ==========================================================================
+
+  upsertShiftTemplate(st: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO shift_templates (
+        id, property_id, rvc_id, name, job_code_id,
+        start_time, end_time, break_minutes, color, notes,
+        active, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        st.id, st.propertyId, st.rvcId || null, st.name,
+        st.jobCodeId || null, st.startTime, st.endTime,
+        st.breakMinutes || 0, st.color || null, st.notes || null,
+        st.active !== false ? 1 : 0,
+        st.createdAt || new Date().toISOString(),
+      ]
+    );
+  }
+
+  getShiftTemplatesByProperty(propertyId: string): any[] {
+    return this.all('SELECT * FROM shift_templates WHERE property_id = ? AND active = 1', [propertyId]);
+  }
+
+  upsertShift(shift: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO shifts (
+        id, property_id, rvc_id, employee_id, job_code_id, template_id,
+        shift_date, start_time, end_time, scheduled_break_minutes,
+        status, notes, published_at, published_by_id, acknowledged_at,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        shift.id, shift.propertyId, shift.rvcId || null,
+        shift.employeeId || null, shift.jobCodeId || null,
+        shift.templateId || null, shift.shiftDate,
+        shift.startTime, shift.endTime,
+        shift.scheduledBreakMinutes || 0,
+        shift.status || 'draft', shift.notes || null,
+        shift.publishedAt || null, shift.publishedById || null,
+        shift.acknowledgedAt || null,
+        shift.createdAt || new Date().toISOString(),
+      ]
+    );
+  }
+
+  getShiftsByProperty(propertyId: string): any[] {
+    return this.all('SELECT * FROM shifts WHERE property_id = ?', [propertyId]);
+  }
+
+  getShiftsByPropertyAndDate(propertyId: string, shiftDate: string): any[] {
+    return this.all('SELECT * FROM shifts WHERE property_id = ? AND shift_date = ?', [propertyId, shiftDate]);
+  }
+
+  // ==========================================================================
   // Diagnostic Queries (record counts for all synced tables)
   // ==========================================================================
 
@@ -3100,6 +3205,7 @@ export class Database {
       'descriptor_sets', 'descriptor_logo_assets',
       'gift_cards', 'loyalty_programs', 'loyalty_members', 'loyalty_member_enrollments', 'loyalty_rewards',
       'overtime_rules', 'break_rules', 'tip_rules', 'tip_rule_job_percentages', 'minor_labor_rules',
+      'shift_templates', 'shifts',
       'fiscal_periods', 'cash_drawers', 'online_order_sources',
       'item_availability', 'emc_option_flags',
       'job_codes',

@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS employees (
   employee_number TEXT NOT NULL,
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
+  date_of_birth TEXT,
   pin_hash TEXT NOT NULL,
   role_id TEXT REFERENCES roles(id),
   active INTEGER DEFAULT 1,
@@ -1559,6 +1560,51 @@ CREATE TABLE IF NOT EXISTS minor_labor_rules (
 );
 
 CREATE INDEX IF NOT EXISTS idx_minor_labor_rules_property ON minor_labor_rules(property_id);
+
+-- =============================================================================
+-- SHIFT TEMPLATES & SHIFTS (Scheduling — synced from Cloud)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS shift_templates (
+  id TEXT PRIMARY KEY,
+  property_id TEXT NOT NULL REFERENCES properties(id),
+  rvc_id TEXT REFERENCES rvcs(id),
+  name TEXT NOT NULL,
+  job_code_id TEXT REFERENCES job_codes(id),
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  break_minutes INTEGER DEFAULT 0,
+  color TEXT,
+  notes TEXT,
+  active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_shift_templates_property ON shift_templates(property_id);
+
+CREATE TABLE IF NOT EXISTS shifts (
+  id TEXT PRIMARY KEY,
+  property_id TEXT NOT NULL REFERENCES properties(id),
+  rvc_id TEXT REFERENCES rvcs(id),
+  employee_id TEXT REFERENCES employees(id),
+  job_code_id TEXT REFERENCES job_codes(id),
+  template_id TEXT REFERENCES shift_templates(id),
+  shift_date TEXT NOT NULL,
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  scheduled_break_minutes INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'draft',
+  notes TEXT,
+  published_at TEXT,
+  published_by_id TEXT REFERENCES employees(id),
+  acknowledged_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_shifts_property ON shifts(property_id);
+CREATE INDEX IF NOT EXISTS idx_shifts_employee ON shifts(employee_id);
+CREATE INDEX IF NOT EXISTS idx_shifts_date ON shifts(shift_date);
 
 -- =============================================================================
 -- DESCRIPTOR SETS & LOGO ASSETS (Receipt Headers/Trailers)

@@ -91,6 +91,9 @@ interface FullConfigResponse {
   tipRuleJobPercentages?: any[];
   minorLaborRules?: any[];
   
+  shiftTemplates?: any[];
+  shifts?: any[];
+  
   descriptorSets?: any[];
   descriptorLogoAssets?: any[];
   printAgents?: any[];
@@ -262,6 +265,8 @@ export class ConfigSync {
         tipRules: innerData.tipRules,
         tipRuleJobPercentages: innerData.tipRuleJobPercentages,
         minorLaborRules: innerData.minorLaborRules,
+        shiftTemplates: innerData.shiftTemplates,
+        shifts: innerData.shifts,
         descriptorSets: innerData.descriptorSets,
         descriptorLogoAssets: innerData.descriptorLogoAssets,
         printAgents: innerData.printAgents,
@@ -810,6 +815,22 @@ export class ConfigSync {
       console.log(`  Synced ${config.minorLaborRules.length} minor labor rules`);
     }
     
+    if (config.shiftTemplates) {
+      for (const st of config.shiftTemplates) {
+        this.db.upsertShiftTemplate(st);
+        count++;
+      }
+      console.log(`  Synced ${config.shiftTemplates.length} shift templates`);
+    }
+    
+    if (config.shifts) {
+      for (const shift of config.shifts) {
+        this.db.upsertShift(shift);
+        count++;
+      }
+      console.log(`  Synced ${config.shifts.length} shifts`);
+    }
+    
     return count;
   }
   
@@ -1063,6 +1084,12 @@ export class ConfigSync {
       case 'minorLaborRule':
         this.db.upsertMinorLaborRule(data);
         break;
+      case 'shiftTemplate':
+        this.db.upsertShiftTemplate(data);
+        break;
+      case 'shift':
+        this.db.upsertShift(data);
+        break;
         
       case 'ingredientPrefix':
         this.db.upsertIngredientPrefix(data);
@@ -1110,6 +1137,7 @@ export class ConfigSync {
       breakRule: 'break_rules',
       tipRule: 'tip_rules',
       minorLaborRule: 'minor_labor_rules',
+      shiftTemplate: 'shift_templates',
       printAgent: 'print_agents',
       paymentGatewayConfig: 'payment_gateway_config',
       ingredientPrefix: 'ingredient_prefixes',
@@ -1137,6 +1165,7 @@ export class ConfigSync {
       loyaltyRedemption: 'loyalty_redemptions',
       giftCardTransaction: 'gift_card_transactions',
       itemAvailability: 'item_availability',
+      shift: 'shifts',
       emcOptionFlag: 'emc_option_flags',
       menuItemRecipeIngredient: 'menu_item_recipe_ingredients',
       fiscalPeriod: 'fiscal_periods',
