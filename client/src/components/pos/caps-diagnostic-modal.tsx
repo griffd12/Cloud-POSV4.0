@@ -327,15 +327,16 @@ function EmployeePrivilegeInspector() {
 function TableParityView({ parity }: { parity: any }) {
   if (!parity) return <div className="text-sm text-muted-foreground">No parity data available</div>;
 
-  const barColor = parity.parityPct >= 90 ? "bg-green-500" : parity.parityPct >= 70 ? "bg-amber-500" : "bg-red-500";
+  const [showCloudOnly, setShowCloudOnly] = useState(false);
+  const barColor = parity.parity ? "bg-green-500" : parity.parityPct >= 70 ? "bg-amber-500" : "bg-red-500";
 
   return (
     <div className="space-y-4" data-testid="table-parity-view">
       <div className="border rounded-lg p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">CAPS Table Parity</span>
-          <Badge variant={parity.parityPct >= 90 ? "default" : "destructive"} className="text-xs" data-testid="text-parity-pct">
-            {parity.parityPct}%
+          <span className="text-sm font-medium">Cloud ↔ CAPS Table Parity</span>
+          <Badge variant={parity.parity ? "default" : "destructive"} className="text-xs" data-testid="text-parity-status">
+            {parity.parity ? "PARITY" : `${parity.parityPct}% — ${parity.missingFromCaps?.length || 0} missing`}
           </Badge>
         </div>
         <div className="w-full bg-muted rounded-full h-2">
@@ -344,27 +345,27 @@ function TableParityView({ parity }: { parity: any }) {
         <div className="grid grid-cols-3 gap-3 text-xs">
           <div className="text-center">
             <div className="text-muted-foreground">Expected</div>
-            <div className="font-medium text-lg" data-testid="text-expected-count">{parity.capsExpected}</div>
+            <div className="font-medium text-lg" data-testid="text-expected-count">{parity.cloudTablesExpected}</div>
           </div>
           <div className="text-center">
             <div className="text-muted-foreground">Present</div>
-            <div className="font-medium text-lg text-green-600" data-testid="text-present-count">{parity.capsPresent}</div>
+            <div className="font-medium text-lg text-green-600" data-testid="text-present-count">{parity.capsTablesPresent}</div>
           </div>
           <div className="text-center">
             <div className="text-muted-foreground">Missing</div>
-            <div className="font-medium text-lg text-red-600" data-testid="text-missing-count">{parity.capsMissing?.length || 0}</div>
+            <div className="font-medium text-lg text-red-600" data-testid="text-missing-count">{parity.missingFromCaps?.length || 0}</div>
           </div>
         </div>
       </div>
 
-      {parity.capsMissing?.length > 0 && (
+      {parity.missingFromCaps?.length > 0 && (
         <div className="border rounded-lg overflow-hidden">
           <div className="p-2 bg-red-50 dark:bg-red-950/20 border-b flex items-center gap-2">
             <XCircle className="w-4 h-4 text-red-500" />
-            <span className="text-xs font-medium text-red-700 dark:text-red-400">Missing from CAPS ({parity.capsMissing.length})</span>
+            <span className="text-xs font-medium text-red-700 dark:text-red-400">Missing from CAPS ({parity.missingFromCaps.length})</span>
           </div>
           <div className="p-2 flex flex-wrap gap-1">
-            {parity.capsMissing.map((t: string) => (
+            {parity.missingFromCaps.map((t: string) => (
               <Badge key={t} variant="outline" className="text-xs font-mono text-red-600">{t}</Badge>
             ))}
           </div>
@@ -423,15 +424,22 @@ function TableParityView({ parity }: { parity: any }) {
       )}
 
       <div className="border rounded-lg overflow-hidden">
-        <div className="p-2 bg-muted/50 border-b flex items-center gap-2">
+        <button
+          className="w-full p-2 bg-muted/50 border-b flex items-center gap-2 hover:bg-muted/70 transition-colors cursor-pointer"
+          onClick={() => setShowCloudOnly(!showCloudOnly)}
+          data-testid="button-toggle-cloud-only"
+        >
           <Database className="w-4 h-4 text-muted-foreground" />
-          <span className="text-xs font-medium">Cloud-Only Tables ({parity.cloudOnlyCount})</span>
-        </div>
-        <div className="p-2 flex flex-wrap gap-1">
-          {parity.cloudOnly?.map((t: string) => (
-            <Badge key={t} variant="outline" className="text-xs font-mono text-muted-foreground">{t}</Badge>
-          ))}
-        </div>
+          <span className="text-xs font-medium">Cloud-Only by Design ({parity.cloudOnlyByDesign?.length || 0})</span>
+          <ChevronDown className={`w-3 h-3 ml-auto text-muted-foreground transition-transform ${showCloudOnly ? "rotate-180" : ""}`} />
+        </button>
+        {showCloudOnly && (
+          <div className="p-2 flex flex-wrap gap-1">
+            {parity.cloudOnlyByDesign?.map((t: string) => (
+              <Badge key={t} variant="outline" className="text-xs font-mono text-muted-foreground">{t}</Badge>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

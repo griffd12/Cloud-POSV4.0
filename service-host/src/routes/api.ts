@@ -5160,9 +5160,12 @@ export function createApiRoutes(
         'inventory_stock', 'inventory_transactions',
       ];
 
-      const existingTables = Object.keys(counts);
-      const presentTables = capsExpectedTables.filter(t => existingTables.includes(t));
-      const missingTables = capsExpectedTables.filter(t => !existingTables.includes(t));
+      const actualTablesRows = db?.all<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", []
+      ) || [];
+      const actualTableNames = new Set(actualTablesRows.map((r: { name: string }) => r.name));
+      const capsTablesPresent = capsExpectedTables.filter(t => actualTableNames.has(t));
+      const missingFromCaps = capsExpectedTables.filter(t => !actualTableNames.has(t));
 
       const capsOnlyInfra = [
         'config_cache', 'operation_queue', 'print_queue', 'schema_version',
@@ -5187,16 +5190,15 @@ export function createApiRoutes(
       };
 
       const tableParity = {
-        parity: missingTables.length === 0,
-        capsExpected: capsExpectedTables.length,
-        capsPresent: presentTables.length,
-        capsMissing: missingTables,
+        parity: missingFromCaps.length === 0,
+        cloudTablesExpected: capsExpectedTables.length,
+        capsTablesPresent: capsTablesPresent.length,
+        missingFromCaps,
         capsOnlyInfra,
-        cloudOnlyCount: cloudOnlyTables.length,
-        cloudOnly: cloudOnlyTables,
+        cloudOnlyByDesign: cloudOnlyTables,
         notYetImplemented: missingNotYetImplemented,
         classification,
-        parityPct: Math.round((presentTables.length / capsExpectedTables.length) * 100),
+        parityPct: Math.round((capsTablesPresent.length / capsExpectedTables.length) * 100),
       };
       
       const totalRecords = Object.values(counts).reduce((sum, c) => sum + (c > 0 ? c : 0), 0);
