@@ -5,7 +5,23 @@ This project is an enterprise cloud-based Point of Sale (POS) system designed fo
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
-- **Release Notes Requirement**: Whenever a new Electron installer version is created (version bump in `electron/electron-builder.json`), always generate release notes summarizing all changes included in that version. Format them for use as GitHub Release descriptions.
+
+### MANDATORY: Read This File First
+Every session, before ANY work begins, read this ENTIRE file top to bottom. No exceptions. Do not start planning, coding, or responding to tasks until you have read and internalized every rule here.
+
+### MANDATORY: Task Completion Pipeline
+After EVERY completed task with code changes, perform ALL of the following steps as ONE atomic workflow. Do NOT wait to be asked. Do NOT skip any step. This is NON-NEGOTIABLE:
+1. `git add -A && git commit` with a descriptive message
+2. `git push origin main`
+3. Bump version in ALL 3 files: `electron/build-info.json`, `electron/electron-builder.json`, `electron/service-host-embedded.cjs` (use `sed` for the .cjs file — NEVER read/write tools on that file)
+4. Create `electron/RELEASE_NOTES_v{version}.md` with full details of all changes
+5. Update `replit.md` with a version entry under Key Features
+6. If schema changed, update `DATABASE_SCHEMA.md`
+7. Commit and push the version bump + release notes
+8. Create GitHub Release: `gh release create v{version} --title "v{version} — {summary}" --notes-file electron/RELEASE_NOTES_v{version}.md --target main`
+
+These are NOT separate requests. This is how EVERY task ends. Period.
+
 - **Database Schema Documentation**: The file `DATABASE_SCHEMA.md` in the project root is a living reference document that must be kept up to date whenever any database schema changes are made (new tables, columns, constraints, indexes, or relationship changes).
 - **MANDATORY: System-Wide Thinking**: Every change, bug fix, or feature MUST be evaluated for its impact across the ENTIRE system — not just the immediate component. Before making any change, always ask and answer:
   1. **All device types**: Does this affect WS (POS terminals), KDS (kitchen displays), and any future device types?
