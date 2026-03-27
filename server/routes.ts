@@ -1088,6 +1088,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Service Host WebSocket handler
   serviceHostWss.on("connection", async (ws, request) => {
     let serviceHostId: string | null = null;
+    let serviceHostName: string | null = null;
     let authenticated = false;
     
     // Parse query params for initial auth attempt
@@ -1115,6 +1116,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
           
           serviceHostId = idToUse;
+          serviceHostName = serviceHost.name || serviceHostId;
           authenticated = true;
           
           // Track this connection
@@ -1130,7 +1132,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             lastHeartbeatAt: new Date(),
           });
           
-          console.log(`Service Host ${serviceHostId} connected`);
+          console.log(`Service Host "${serviceHostName}" connected`);
           ws.send(JSON.stringify({ type: 'AUTH_OK', serviceHostId }));
           
           // Broadcast status change
@@ -1205,7 +1207,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         // Handle transaction upload
         if (message.type === 'TRANSACTION_UPLOAD') {
           // Queue transaction for processing
-          console.log(`Received transaction upload from ${serviceHostId}:`, message.transactionId);
+          console.log(`Received transaction upload from "${serviceHostName || serviceHostId}":`, message.transactionId);
           ws.send(JSON.stringify({ 
             type: 'TRANSACTION_ACK', 
             transactionId: message.transactionId,
@@ -1227,7 +1229,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           status: 'offline',
         });
         
-        console.log(`Service Host ${serviceHostId} disconnected`);
+        console.log(`Service Host "${serviceHostName || serviceHostId}" disconnected`);
         
         // Broadcast status change
         broadcastPosEvent({
@@ -26060,7 +26062,7 @@ connect();
       }
       
       serviceHostConnections.set(serviceHostId, ws);
-      console.log(`Service Host ${serviceHostId} connected via WebSocket`);
+      console.log(`Service Host "${serviceHost.name || serviceHostId}" connected via WebSocket`);
       
       // Send welcome message
       ws.send(JSON.stringify({
@@ -26111,7 +26113,7 @@ connect();
 
       ws.on("close", () => {
         serviceHostConnections.delete(serviceHostId);
-        console.log(`Service Host ${serviceHostId} disconnected`);
+        console.log(`Service Host "${serviceHost.name || serviceHostId}" disconnected`);
         
         // Update status to offline
         storage.updateServiceHost(serviceHostId, {

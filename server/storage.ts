@@ -3474,12 +3474,15 @@ export class DatabaseStorage implements IStorage {
     salesForecasts: number; laborForecasts: number; managerAlerts: number;
     itemAvailability: number; prepItems: number; offlineQueue: number; accountingExports: number;
   } }> {
-    // Get all current RVCs for this property
-    const propertyRvcs = await db.select({ id: rvcs.id }).from(rvcs).where(eq(rvcs.propertyId, propertyId));
-    const rvcIds = propertyRvcs.map(r => r.id);
+    const propertyRecord = await db.select({ name: properties.name }).from(properties).where(eq(properties.id, propertyId)).limit(1);
+    const propertyName = propertyRecord[0]?.name || 'Unknown Property';
+    const logPrefix = `[clearSalesData] [${propertyName}]`;
 
-    // Also find orphaned RVC IDs — checks whose rvc_id no longer exists in the rvcs table
-    // This handles cases where an RVC was deleted and recreated with a new ID
+    const propertyRvcs = await db.select({ id: rvcs.id, name: rvcs.name }).from(rvcs).where(eq(rvcs.propertyId, propertyId));
+    const rvcIds = propertyRvcs.map(r => r.id);
+    const rvcNameMap = new Map(propertyRvcs.map(r => [r.id, r.name]));
+    const rvcNameList = propertyRvcs.map(r => r.name).join(', ') || 'none';
+
     const allCheckRvcIds = await db.selectDistinct({ rvcId: checks.rvcId }).from(checks);
     const allKnownRvcIds = await db.select({ id: rvcs.id }).from(rvcs);
     const knownRvcIdSet = new Set(allKnownRvcIds.map(r => r.id));
@@ -3488,10 +3491,9 @@ export class DatabaseStorage implements IStorage {
       .filter(id => id && !knownRvcIdSet.has(id));
     
     if (orphanedRvcIds.length > 0) {
-      console.log('[clearSalesData] Found orphaned RVC IDs with transactional data:', orphanedRvcIds);
+      console.log(`${logPrefix} Found ${orphanedRvcIds.length} orphaned RVC IDs with transactional data`);
     }
 
-    // Merge current + orphaned RVC IDs for complete cleanup
     const allRvcIds = [...new Set([...rvcIds, ...orphanedRvcIds])];
 
     const emptyResult = { 
@@ -3512,7 +3514,7 @@ export class DatabaseStorage implements IStorage {
 
     // Use transaction to ensure atomicity - either all tables are cleared or none
     return await db.transaction(async (tx) => {
-      console.log('[clearSalesData] Starting transaction for property:', propertyId, 'rvcIds:', rvcIds, 'orphanedRvcIds:', orphanedRvcIds, 'totalRvcIds:', allRvcIds.length);
+      console.log(`${logPrefix} Starting transaction — RVCs: [${rvcNameList}], orphanedRvcIds: ${orphanedRvcIds.length}, totalRvcIds: ${allRvcIds.length}`);
       
       // STEP 1: Gather all affected IDs upfront
       // Get check IDs for this property (including orphaned RVCs)
@@ -3594,7 +3596,7 @@ export class DatabaseStorage implements IStorage {
       if (checkIds.length > 0) {
         terminalSessionsResult = await tx.delete(terminalSessions).where(inArray(terminalSessions.checkId, checkIds));
       }
-      console.log('[clearSalesData] Terminal sessions deleted:', terminalSessionsResult.rowCount);
+      console.log(`${logPrefix} Terminal sessions deleted: ${terminalSessionsResult.rowCount}`);
 
       // 2e. Delete payment_transactions (references check_payments via checkPaymentId FK)
       if (checkIds.length > 0) {
@@ -3654,14 +3656,14 @@ export class DatabaseStorage implements IStorage {
       giftCardTransResult = { rowCount: (giftCardTransResult.rowCount || 0) + (additionalGiftCardTrans.rowCount || 0) };
 
       // 6. Delete print jobs, audit logs and checks
-      console.log('[clearSalesData] Deleting print jobs, audit logs and checks for allRvcIds:', allRvcIds.length);
+      console.log(`${logPrefix} Deleting print jobs, audit logs and checks (${allRvcIds.length} RVCs)`);
       
       // 6a. Delete check locks (they reference checks)
       let checkLocksResult = { rowCount: 0 };
       if (checkIds.length > 0) {
         checkLocksResult = await tx.delete(checkLocks).where(inArray(checkLocks.checkId, checkIds));
       }
-      console.log('[clearSalesData] Check locks deleted:', checkLocksResult.rowCount);
+      console.log(`${logPrefix} Check locks deleted: ${checkLocksResult.rowCount}`);
       
       // 6b. Delete print jobs (they reference checks)
       let printJobsResult = { rowCount: 0 };
@@ -3671,15 +3673,15 @@ export class DatabaseStorage implements IStorage {
       // Also delete any print jobs by propertyId
       const additionalPrintJobs = await tx.delete(printJobs).where(eq(printJobs.propertyId, propertyId));
       printJobsResult = { rowCount: (printJobsResult.rowCount || 0) + (additionalPrintJobs.rowCount || 0) };
-      console.log('[clearSalesData] Print jobs deleted:', printJobsResult.rowCount);
+      console.log(`${logPrefix} Print jobs deleted: ${printJobsResult.rowCount}`);
       
       // 6c. Delete audit logs
       const auditResult = await tx.delete(auditLogs).where(inArray(auditLogs.rvcId, allRvcIds));
-      console.log('[clearSalesData] Audit logs deleted:', auditResult.rowCount);
+      console.log(`${logPrefix} Audit logs deleted: ${auditResult.rowCount}`);
       
       // 6d. Delete checks (including orphaned RVCs)
       const checksResult = await tx.delete(checks).where(inArray(checks.rvcId, allRvcIds));
-      console.log('[clearSalesData] Checks deleted:', checksResult.rowCount);
+      console.log(`${logPrefix} Checks deleted: ${checksResult.rowCount}`);
 
       // STEP 3: Delete labor/time & attendance data for this property
       // Delete in FK-safe order
@@ -3753,18 +3755,18 @@ export class DatabaseStorage implements IStorage {
 
       // 4d. Reset loyalty member enrollments for all programs (full reset)
       // The member-program relationship is in loyaltyMemberEnrollments, not loyaltyMembers
-      console.log('[clearSalesData] Fetching enterprise programs...');
+      console.log(`${logPrefix} Fetching enterprise programs...`);
       const enterprisePrograms = await tx.select({ id: loyaltyPrograms.id }).from(loyaltyPrograms);
       const programIds = enterprisePrograms.map(p => p.id);
-      console.log('[clearSalesData] Enterprise program IDs:', programIds.length);
+      console.log(`${logPrefix} Enterprise programs: ${programIds.length}`);
       
       let enrollmentsReset = { rowCount: 0 };
       if (programIds.length > 0) {
-        console.log('[clearSalesData] Resetting all enrollments by programId...');
+        console.log(`${logPrefix} Resetting all enrollments by programId...`);
         enrollmentsReset = await tx.update(loyaltyMemberEnrollments)
           .set({ currentPoints: 0, lifetimePoints: 0, visitCount: 0, lifetimeSpend: "0", currentTier: null })
           .where(inArray(loyaltyMemberEnrollments.programId, programIds));
-        console.log('[clearSalesData] Enrollments reset:', enrollmentsReset.rowCount);
+        console.log(`${logPrefix} Enrollments reset: ${enrollmentsReset.rowCount}`);
       }
 
       // 4e. Online orders
