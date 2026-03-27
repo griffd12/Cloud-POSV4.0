@@ -2690,7 +2690,7 @@ export class Database {
       `UPDATE sync_queue 
        SET attempts = attempts + 1, 
            last_attempt_at = local_now(), 
-           next_attempt_at = datetime('now', '+' || (attempts * ?) || ' seconds'),
+           next_attempt_at = datetime(local_now(), '+' || (attempts * ?) || ' seconds'),
            error_message = ? 
        WHERE id = ?`,
       [backoffSeconds, error || null, id]
