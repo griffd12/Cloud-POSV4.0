@@ -101,6 +101,8 @@ Before starting, confirm:
 
 **Record for later**: Check ID = ___________, Check # = ___________
 
+**Cloud verify**: After sync (wait ~10s), confirm check appears in EMC Dashboard → Today's Checks.
+
 ---
 
 ## TC-04: Modify Items
@@ -173,6 +175,8 @@ Before starting, confirm:
 | 12 | Check gateway log response | `changeDue` field in response is correct | | |
 
 **Record for later**: Closed check ID = ___________, Payment ID = ___________
+
+**Cloud verify**: After sync, confirm check shows as "closed" in EMC and payment record matches amount/tender.
 
 ---
 
@@ -266,6 +270,8 @@ Before starting, confirm:
 | 9 | Close both checks with payment | Both close successfully | | |
 
 **Record**: Original check = ___________, Split check = ___________
+
+**Cloud verify**: After sync, confirm both checks appear in EMC with correct items and totals.
 
 ---
 
