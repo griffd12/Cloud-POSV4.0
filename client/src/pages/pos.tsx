@@ -157,9 +157,7 @@ export default function PosPage() {
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
-  // Auto-logout after inactivity - cancel unsent items and sign out
-  // Paused when the payment modal is open to avoid interrupting transactions
-  useInactivityLogout({
+  const { showWarning: showTimeoutWarning, warningSecondsLeft, dismissWarning } = useInactivityLogout({
     timeoutMinutes: wsContext?.workstation?.autoLogoutMinutes,
     enabled: !!currentEmployee && !!wsContext?.workstation?.autoLogoutMinutes && !showPaymentModal,
   });
@@ -2391,6 +2389,23 @@ export default function PosPage() {
         isLoading={pendingRefundAction ? false : voidItemMutation.isPending}
         error={approvalError}
       />
+
+      <AlertDialog open={showTimeoutWarning}>
+        <AlertDialogContent data-testid="timeout-warning-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Session Expiring</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will be signed out in {warningSecondsLeft} second{warningSecondsLeft !== 1 ? "s" : ""} due to inactivity.
+              Any unsent items will be removed from the current transaction.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={dismissWarning} data-testid="button-need-more-time">
+              Need More Time
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <OrderTypeModal
         open={showOrderTypeModal}

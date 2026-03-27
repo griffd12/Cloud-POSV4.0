@@ -1,6 +1,8 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { usePosContext } from "@/lib/pos-context";
 import { apiRequest } from "@/lib/queryClient";
+
+const WARNING_SECONDS = 30;
 
 interface UseInactivityLogoutOptions {
   timeoutMinutes: number | null | undefined;
@@ -16,28 +18,38 @@ export function useInactivityLogout({
   const { currentEmployee, currentCheck, logout } = usePosContext();
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
-  // Store current check ID and employee ID in refs so they're always fresh
   const currentCheckIdRef = useRef<string | null>(null);
   const currentEmployeeIdRef = useRef<string | null>(null);
-  
-  // Keep the refs updated
+  const warningDismissedRef = useRef(false);
+
+  const [showWarning, setShowWarning] = useState(false);
+  const [warningSecondsLeft, setWarningSecondsLeft] = useState(WARNING_SECONDS);
+
   useEffect(() => {
     currentCheckIdRef.current = currentCheck?.id || null;
   }, [currentCheck?.id]);
-  
+
   useEffect(() => {
     currentEmployeeIdRef.current = currentEmployee?.id || null;
   }, [currentEmployee?.id]);
 
   const resetTimer = useCallback(() => {
     lastActivityRef.current = Date.now();
+    warningDismissedRef.current = false;
   }, []);
 
-  // Use the same cancel-transaction endpoint as the Cancel key
+  const dismissWarning = useCallback(() => {
+    setShowWarning(false);
+    setWarningSecondsLeft(WARNING_SECONDS);
+    lastActivityRef.current = Date.now();
+    warningDismissedRef.current = true;
+    console.log("[Auto-Logout] User requested more time, timer reset");
+  }, []);
+
   const cancelTransaction = useCallback(async () => {
     const checkId = currentCheckIdRef.current;
     const employeeId = currentEmployeeIdRef.current;
-    
+
     if (!checkId) {
       console.log("[Auto-Logout] No current check to cancel");
       return;
@@ -50,7 +62,7 @@ export function useInactivityLogout({
         employeeId,
         reason: "Auto-logout due to inactivity",
       });
-      
+
       const data = await response.json();
       console.log(`[Auto-Logout] Transaction cancelled - voided ${data.voidedCount} item(s)`);
     } catch (error) {
@@ -61,13 +73,13 @@ export function useInactivityLogout({
   const performAutoLogout = useCallback(async () => {
     if (!currentEmployee) return;
 
-    console.log("[Auto-Logout] Inactivity timeout reached, logging out employee");
+    console.log("[Auto-Logout] Final timeout reached, logging out employee");
+    setShowWarning(false);
 
     try {
       if (onBeforeLogout) {
         await onBeforeLogout();
       }
-      // Cancel the transaction (voids unsent items, removes from KDS)
       await cancelTransaction();
     } catch (error) {
       console.error("[Auto-Logout] Error during pre-logout cleanup:", error);
@@ -82,27 +94,31 @@ export function useInactivityLogout({
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
+      setShowWarning(false);
       return;
     }
 
     const timeoutMs = timeoutMinutes * 60 * 1000;
-    console.log(`[Auto-Logout] Timer active: ${timeoutMinutes} minutes (${timeoutMs}ms)`);
+    const warningMs = WARNING_SECONDS * 1000;
+    console.log(`[Auto-Logout] Timer active: ${timeoutMinutes} minutes (${timeoutMs}ms), warning at ${WARNING_SECONDS}s before`);
+
+    lastActivityRef.current = Date.now();
 
     const checkInactivity = () => {
       const elapsed = Date.now() - lastActivityRef.current;
       const remaining = Math.max(0, timeoutMs - elapsed);
+
       if (elapsed >= timeoutMs) {
-        console.log("[Auto-Logout] Timeout reached, logging out");
         performAutoLogout();
-      } else if (remaining < 60000) {
-        // Log warning in last minute
-        console.log(`[Auto-Logout] Warning: ${Math.ceil(remaining / 1000)}s until auto-logout`);
+      } else if (remaining <= warningMs && !warningDismissedRef.current) {
+        setShowWarning(true);
+        setWarningSecondsLeft(Math.ceil(remaining / 1000));
+      } else {
+        setShowWarning(false);
       }
     };
 
-    // Reset the activity timestamp when timer starts
-    lastActivityRef.current = Date.now();
-    timerRef.current = setInterval(checkInactivity, 10000);
+    timerRef.current = setInterval(checkInactivity, 1000);
 
     return () => {
       if (timerRef.current) {
@@ -121,6 +137,9 @@ export function useInactivityLogout({
 
     const handleActivity = () => {
       resetTimer();
+      if (showWarning) {
+        setShowWarning(false);
+      }
     };
 
     events.forEach((event) => {
@@ -132,10 +151,13 @@ export function useInactivityLogout({
         document.removeEventListener(event, handleActivity);
       });
     };
-  }, [enabled, timeoutMinutes, currentEmployee, resetTimer]);
+  }, [enabled, timeoutMinutes, currentEmployee, resetTimer, showWarning]);
 
   return {
     resetTimer,
     lastActivity: lastActivityRef.current,
+    showWarning,
+    warningSecondsLeft,
+    dismissWarning,
   };
 }

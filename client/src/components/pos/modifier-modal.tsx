@@ -48,36 +48,52 @@ export function ModifierModal({
     new Map()
   );
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingItemIdRef = useRef<string | undefined>(pendingItemId);
+  const hasPendingFlushRef = useRef(false);
+  const latestModifiersRef = useRef<Map<string, SelectedModifier[]>>(new Map());
 
-  // Debounced function to send real-time modifier updates to server
+  useEffect(() => {
+    pendingItemIdRef.current = pendingItemId;
+    if (pendingItemId && hasPendingFlushRef.current) {
+      hasPendingFlushRef.current = false;
+      sendLiveUpdate(latestModifiersRef.current);
+    }
+  }, [pendingItemId]);
+
   const sendLiveUpdate = useCallback((modifiersMap: Map<string, SelectedModifier[]>) => {
-    if (!pendingItemId) return;
-    
-    // Clear any pending debounce
+    latestModifiersRef.current = modifiersMap;
+    const itemId = pendingItemIdRef.current;
+    if (!itemId) {
+      hasPendingFlushRef.current = true;
+      return;
+    }
+
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
-    // Debounce the update (300ms)
     debounceTimerRef.current = setTimeout(async () => {
+      const currentItemId = pendingItemIdRef.current;
+      if (!currentItemId) {
+        hasPendingFlushRef.current = true;
+        return;
+      }
       const allModifiers: SelectedModifier[] = [];
       modifiersMap.forEach((mods) => {
         allModifiers.push(...mods);
       });
 
       try {
-        await apiRequest("PATCH", `/api/check-items/${pendingItemId}/modifiers`, {
+        await apiRequest("PATCH", `/api/check-items/${currentItemId}/modifiers`, {
           modifiers: allModifiers,
           employeeId,
-          // Keep pending status - will be finalized on confirm
         });
       } catch (error) {
         console.error("Failed to send live modifier update:", error);
       }
     }, 300);
-  }, [pendingItemId, employeeId]);
+  }, [employeeId]);
 
-  // Cleanup debounce timer on unmount
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
@@ -151,10 +167,7 @@ export function ModifierModal({
         }
       }
 
-      // Send real-time update to server for dynamic mode
-      if (pendingItemId) {
-        sendLiveUpdate(updated);
-      }
+      sendLiveUpdate(updated);
 
       return updated;
     });
