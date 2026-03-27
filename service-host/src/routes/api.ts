@@ -2154,9 +2154,31 @@ export function createApiRoutes(
                 });
               }
             } else {
+              const previewTickets = kds.getPreviewTicketsForCheck(req.params.id);
+              const coveredIds = new Set<string>();
+              for (const pt of previewTickets) {
+                for (const pi of pt.items) {
+                  if (pi.checkItemId) coveredIds.add(pi.checkItemId);
+                }
+              }
+
               kds.finalizePreviewTickets(req.params.id);
+
               if (unsentItems.length > 0) {
                 caps.sendToKitchen(req.params.id, workstationId);
+                const uncovered = unsentItems.filter((i: any) => !coveredIds.has(i.id));
+                if (uncovered.length > 0) {
+                  const stationItemsMap = resolveKdsStations(uncovered, prePayCheck.rvcId);
+                  for (const [stationId, stationItems] of stationItemsMap) {
+                    kds.createTicket({
+                      checkId: prePayCheck.id,
+                      checkNumber: prePayCheck.checkNumber || 0,
+                      orderType: prePayCheck.orderType,
+                      stationId: stationId === 'default' ? undefined : stationId,
+                      items: stationItems.map((i: any) => toKdsItem(i)),
+                    });
+                  }
+                }
               }
             }
           }
@@ -2671,8 +2693,8 @@ export function createApiRoutes(
         `UPDATE check_items SET modifiers = ?, modifiers_json = ?, total_price = ? WHERE id = ?`,
         [modifiersJson, modifiersJson, totalPrice, itemId]
       );
-      if (itemStatus) {
-        caps.db.run('UPDATE check_items SET sent = ? WHERE id = ?', [itemStatus === 'active' ? 1 : 0, itemId]);
+      if (itemStatus && itemStatus !== 'active') {
+        caps.db.run('UPDATE check_items SET sent = ? WHERE id = ?', [0, itemId]);
       }
       caps.recalculateTotals(item.check_id);
       const txnGroupId = caps.getTxnGroupId(item.check_id);
