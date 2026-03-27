@@ -135,6 +135,124 @@ For pilot, CAPS is the store authority. If a workstation cannot reach CAPS, the 
 - **RVC-Scoped Employee Privileges**: `resolveEmployeePrivileges()` accepts `rvcId` and resolves employee's role assignment for the active RVC first, then falls back to primary assignment. `checkPrivilege()` passes RVC context through.
 - **Effective Config Diagnostic**: `/caps/diagnostic/effective-config` endpoint shows resolved config for a workstation/RVC with scope level attribution (enterprise/property/RVC) for each entity.
 
+---
+
+## Enforcement Addendum — OnPoint POS Mandatory Implementation Rules
+
+These rules are mandatory. Any implementation that violates these rules is considered incomplete and must be corrected before proceeding.
+
+### Rule 1: Feature Path Completion
+A feature is NOT considered complete because tables, routes, or UI pages exist. Every feature MUST be validated through the full feature path:
+
+**schema → sync → CAPS storage → runtime API → response contract → frontend state → user flow → reporting/sync side effects**
+
+Do not mark a feature complete until the full path is proven end-to-end with runtime validation.
+
+### Rule 2: System of Record & Data Ownership
+Every table/entity MUST explicitly define:
+- **System of record** (Cloud or CAPS)
+- **Sync direction** (Cloud → CAPS, CAPS → Cloud, Bidirectional)
+- **Scope level** (Enterprise, Property, RVC, Workstation)
+- **Category** (Config, Operational, Derived)
+
+No table should be implemented without this definition. Ambiguity in ownership leads to data inconsistency and broken features.
+
+### Rule 3: Runtime Response Contract
+CAPS runtime responses MUST match the cloud response contract exactly from the frontend perspective. This includes:
+- Key naming (camelCase)
+- Boolean values (true/false, not 1/0)
+- JSON fields parsed as objects/arrays
+- Timestamps in ISO format
+- Nested object structures
+
+The frontend must not need to know whether data came from CAPS or Cloud.
+
+### Rule 4: Feature Validation Output
+For every feature or task, output MUST include:
+
+**Features:**
+`FEATURE | TABLES | CAPS ROUTES | CLOUD ROUTES | SYSTEM OF RECORD | TEST RUN | RESULT | REMAINING GAPS`
+
+**Bugs:**
+`FLOW | USER ACTION | API CALL | RESPONSE | UI STATE RESULT | ROOT CAUSE | FIX`
+
+Do not provide high-level summaries without concrete validation output.
+
+### Rule 5: No False Parity Claims
+Do NOT claim "100% complete", "full parity", "fully working", or "production ready" unless runtime validation proves the feature path works. Table parity, route parity, and UI existence are NOT proof of operational correctness.
+
+### Rule 6: Feature-First Implementation
+Development MUST follow feature paths, not structural layers. Do not:
+- Add tables without runtime usage
+- Add routes without frontend integration
+- Add UI without validated backend behavior
+
+Each feature must be built and validated as a complete vertical slice.
+
+### Rule 7: Sync Integrity
+For every synced entity:
+- Define authoritative source
+- Define idempotency behavior
+- Define conflict resolution
+- Ensure no partial sync states (e.g., check header without items)
+
+All sync flows must be verifiable and consistent across CAPS and Cloud.
+
+### Rule 8: CAPS Authority
+CAPS is the authoritative runtime system for store operations. All POS/KDS actions MUST:
+- Execute locally on CAPS first
+- Persist in CAPS SQLite
+- Sync to Cloud asynchronously
+
+Cloud must NEVER be in the blocking execution path of live POS operations.
+
+### Rule 9: Cloud Responsibility
+Cloud is responsible for:
+- Configuration (EMC)
+- Enterprise hierarchy
+- Reporting
+- Cross-store coordination
+- Catering/CRM workflows
+- Transaction ingestion
+
+Cloud does NOT execute live POS operations.
+
+### Rule 10: Diagnostics & Observability
+Every major system must expose diagnostics including:
+- Table parity (Cloud vs CAPS)
+- Sync status and queue depth
+- Last sync timestamps
+- Error logs per subsystem
+
+Diagnostics must detect missing data, not just system uptime.
+
+### Rule 11: Incremental Feature Rollout
+New features must:
+- Sync data down to CAPS
+- Remain disabled by default
+- Be enabled only via EMC option flags
+
+This prevents breaking live environments.
+
+### Rule 12: Strict Boot Contract
+No POS or KDS UI may render until CAPS is fully ready. CAPS readiness requires:
+- Database initialized
+- Config fully loaded
+- WebSocket ready
+- Device registered
+
+No partial rendering. No early queries.
+
+### Rule 13: Enforcement
+These rules are mandatory. Any implementation that violates:
+- Feature path completion
+- System of record definition
+- Response contract consistency
+
+is considered incomplete and must be corrected before proceeding.
+
+---
+
 ## External Dependencies
 
 ### Database
