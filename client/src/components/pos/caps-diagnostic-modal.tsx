@@ -423,6 +423,20 @@ function TableParityView({ parity }: { parity: any }) {
         </div>
       )}
 
+      {parity.unclassifiedTables?.length > 0 && (
+        <div className="border rounded-lg overflow-hidden">
+          <div className="p-2 bg-red-100 dark:bg-red-950/30 border-b flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-red-600" />
+            <span className="text-xs font-medium text-red-700 dark:text-red-400">Unclassified Cloud Tables ({parity.unclassifiedTables.length})</span>
+          </div>
+          <div className="p-2 flex flex-wrap gap-1">
+            {parity.unclassifiedTables.map((t: string) => (
+              <Badge key={t} variant="outline" className="text-xs font-mono text-red-700">{t}</Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="border rounded-lg overflow-hidden">
         <button
           className="w-full p-2 bg-muted/50 border-b flex items-center gap-2 hover:bg-muted/70 transition-colors cursor-pointer"

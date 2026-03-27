@@ -5138,20 +5138,7 @@ export function createApiRoutes(
         'kds_tickets', 'kds_ticket_items', 'time_punches', 'break_sessions',
         'loyalty_transactions', 'loyalty_redemptions', 'gift_card_transactions',
         'drawer_assignments', 'cash_transactions', 'safe_counts',
-        'audit_logs', 'time_entries', 'sync_metadata', 'schema_version',
-      ];
-      const cloudOnlyTables = [
-        'emc_sessions', 'emc_users', 'stress_test_results',
-        'cal_event_templates', 'cal_events', 'cal_event_assignees', 'cal_event_swaps',
-        'service_host_registrations', 'service_host_heartbeats',
-        'registered_devices', 'gl_mappings', 'idempotency_keys',
-        'shift_templates', 'shift_assignments',
-        'manager_alerts', 'pay_periods', 'print_jobs',
-        'rvc_counters', 'sales_forecasts', 'labor_forecasts', 'labor_snapshots',
-        'sync_notifications', 'workstation_order_devices', 'workstation_service_bindings',
-        'device_heartbeats', 'device_commands',
-      ];
-      const missingNotYetImplemented = [
+        'audit_logs',
         'employee_availability', 'employee_minor_status', 'role_rules',
         'availability_exceptions', 'tip_pool_policies', 'recipes',
         'prep_items', 'inventory_items',
@@ -5160,6 +5147,75 @@ export function createApiRoutes(
         'inventory_stock', 'inventory_transactions',
       ];
 
+      const cloudOnlyByDesign = [
+        'emc_sessions', 'emc_users', 'stress_test_results',
+        'cal_packages', 'cal_package_versions', 'cal_package_prerequisites',
+        'cal_deployments', 'cal_deployment_targets',
+        'service_hosts', 'service_host_transactions', 'service_host_metrics',
+        'service_host_alert_rules', 'service_host_alerts',
+        'registered_devices', 'gl_mappings', 'idempotency_keys',
+        'shift_templates', 'shifts', 'shift_cover_requests', 'shift_cover_offers', 'shift_cover_approvals',
+        'manager_alerts', 'alert_subscriptions', 'pay_periods', 'print_jobs',
+        'rvc_counters', 'sales_forecasts', 'labor_forecasts', 'labor_snapshots',
+        'sync_notifications', 'workstation_order_devices', 'workstation_service_bindings',
+        'device_heartbeats', 'devices', 'device_enrollment_tokens',
+        'config_versions', 'config_overrides',
+        'accounting_exports', 'delivery_platform_item_mappings',
+        'online_orders', 'offline_order_queue',
+        'payment_transactions', 'rounds', 'check_locks', 'check_discounts',
+        'refunds', 'refund_items', 'refund_payments',
+      ];
+
+      const notYetImplementedSet = new Set([
+        'employee_availability', 'employee_minor_status', 'role_rules',
+        'availability_exceptions', 'tip_pool_policies', 'recipes',
+        'prep_items', 'inventory_items',
+        'timecard_edits', 'timecard_exceptions', 'time_off_requests',
+        'tip_allocations', 'tip_pool_runs',
+        'inventory_stock', 'inventory_transactions',
+      ]);
+
+      const allCloudTables = [
+        'enterprises', 'properties', 'rvcs', 'roles', 'privileges', 'role_privileges',
+        'role_rules', 'employees', 'employee_assignments', 'major_groups', 'family_groups',
+        'slus', 'tax_groups', 'print_classes', 'workstations', 'printers', 'kds_devices',
+        'order_devices', 'order_device_printers', 'order_device_kds', 'workstation_order_devices',
+        'print_class_routing', 'menu_items', 'menu_item_slus', 'modifier_groups', 'modifiers',
+        'modifier_group_modifiers', 'menu_item_modifier_groups', 'ingredient_prefixes',
+        'menu_item_recipe_ingredients', 'payment_processors', 'payment_gateway_config',
+        'tenders', 'payment_transactions', 'terminal_devices', 'terminal_sessions',
+        'registered_devices', 'emc_users', 'emc_sessions', 'discounts', 'service_charges',
+        'check_service_charges', 'rvc_counters', 'checks', 'rounds', 'check_locks',
+        'check_items', 'check_payments', 'check_discounts', 'refunds', 'refund_items',
+        'refund_payments', 'audit_logs', 'kds_tickets', 'kds_ticket_items', 'print_agents',
+        'print_jobs', 'pos_layouts', 'pos_layout_cells', 'pos_layout_rvc_assignments',
+        'devices', 'device_enrollment_tokens', 'device_heartbeats', 'job_codes',
+        'employee_job_codes', 'pay_periods', 'time_punches', 'timecards', 'timecard_edits',
+        'timecard_exceptions', 'time_off_requests', 'break_rules', 'break_sessions',
+        'break_attestations', 'break_violations', 'overtime_rules', 'tip_rules',
+        'tip_rule_job_percentages', 'tip_pool_policies', 'tip_allocations', 'tip_pool_runs',
+        'minor_labor_rules', 'employee_availability', 'employee_minor_status',
+        'availability_exceptions', 'shifts', 'shift_templates', 'shift_cover_requests',
+        'shift_cover_offers', 'shift_cover_approvals', 'emc_option_flags', 'stress_test_results',
+        'offline_order_queue', 'fiscal_periods', 'cash_drawers', 'drawer_assignments',
+        'cash_transactions', 'safe_counts', 'gift_cards', 'gift_card_transactions',
+        'gl_mappings', 'accounting_exports', 'loyalty_programs', 'loyalty_members',
+        'loyalty_member_enrollments', 'loyalty_transactions', 'loyalty_rewards',
+        'loyalty_redemptions', 'online_order_sources', 'delivery_platform_item_mappings',
+        'online_orders', 'inventory_items', 'inventory_stock', 'inventory_transactions',
+        'recipes', 'sales_forecasts', 'labor_forecasts', 'labor_snapshots', 'manager_alerts',
+        'alert_subscriptions', 'item_availability', 'prep_items', 'descriptor_logo_assets',
+        'descriptor_sets', 'service_hosts', 'config_versions', 'service_host_transactions',
+        'service_host_metrics', 'service_host_alert_rules', 'service_host_alerts',
+        'workstation_service_bindings', 'cal_packages', 'cal_package_versions',
+        'cal_package_prerequisites', 'cal_deployments', 'cal_deployment_targets',
+        'config_overrides', 'sync_notifications', 'idempotency_keys',
+      ];
+
+      const expectedSet = new Set(capsExpectedTables);
+      const cloudOnlySet = new Set(cloudOnlyByDesign);
+      const unclassifiedTables = allCloudTables.filter(t => !expectedSet.has(t) && !cloudOnlySet.has(t));
+
       const actualTablesRows = db?.all<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", []
       ) || [];
@@ -5167,10 +5223,7 @@ export function createApiRoutes(
       const capsTablesPresent = capsExpectedTables.filter(t => actualTableNames.has(t));
       const missingFromCaps = capsExpectedTables.filter(t => !actualTableNames.has(t));
 
-      const capsOnlyInfra = [
-        'config_cache', 'operation_queue', 'print_queue', 'schema_version',
-        'sync_metadata', 'sync_queue', 'transaction_journal', 'workstation_config',
-      ];
+      const capsOnlyInfra = Array.from(actualTableNames).filter(t => !expectedSet.has(t) && !cloudOnlySet.has(t));
 
       const classification = {
         config: [
@@ -5190,13 +5243,14 @@ export function createApiRoutes(
       };
 
       const tableParity = {
-        parity: missingFromCaps.length === 0,
+        parity: missingFromCaps.length === 0 && unclassifiedTables.length === 0,
         cloudTablesExpected: capsExpectedTables.length,
         capsTablesPresent: capsTablesPresent.length,
         missingFromCaps,
         capsOnlyInfra,
-        cloudOnlyByDesign: cloudOnlyTables,
-        notYetImplemented: missingNotYetImplemented,
+        cloudOnlyByDesign,
+        notYetImplemented: Array.from(notYetImplementedSet),
+        unclassifiedTables,
         classification,
         parityPct: Math.round((capsTablesPresent.length / capsExpectedTables.length) * 100),
       };
