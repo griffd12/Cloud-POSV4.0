@@ -3474,9 +3474,25 @@ export class DatabaseStorage implements IStorage {
     salesForecasts: number; laborForecasts: number; managerAlerts: number;
     itemAvailability: number; prepItems: number; offlineQueue: number; accountingExports: number;
   } }> {
-    // Get all RVCs for this property
+    // Get all current RVCs for this property
     const propertyRvcs = await db.select({ id: rvcs.id }).from(rvcs).where(eq(rvcs.propertyId, propertyId));
     const rvcIds = propertyRvcs.map(r => r.id);
+
+    // Also find orphaned RVC IDs — checks whose rvc_id no longer exists in the rvcs table
+    // This handles cases where an RVC was deleted and recreated with a new ID
+    const allCheckRvcIds = await db.selectDistinct({ rvcId: checks.rvcId }).from(checks);
+    const allKnownRvcIds = await db.select({ id: rvcs.id }).from(rvcs);
+    const knownRvcIdSet = new Set(allKnownRvcIds.map(r => r.id));
+    const orphanedRvcIds = allCheckRvcIds
+      .map(r => r.rvcId)
+      .filter(id => id && !knownRvcIdSet.has(id));
+    
+    if (orphanedRvcIds.length > 0) {
+      console.log('[clearSalesData] Found orphaned RVC IDs with transactional data:', orphanedRvcIds);
+    }
+
+    // Merge current + orphaned RVC IDs for complete cleanup
+    const allRvcIds = [...new Set([...rvcIds, ...orphanedRvcIds])];
 
     const emptyResult = { 
       checks: 0, checkItems: 0, payments: 0, discounts: 0, rounds: 0, 
@@ -3490,17 +3506,17 @@ export class DatabaseStorage implements IStorage {
       itemAvailability: 0, prepItems: 0, offlineQueue: 0, accountingExports: 0,
     };
 
-    if (rvcIds.length === 0) {
+    if (allRvcIds.length === 0) {
       return { deleted: emptyResult };
     }
 
     // Use transaction to ensure atomicity - either all tables are cleared or none
     return await db.transaction(async (tx) => {
-      console.log('[clearSalesData] Starting transaction for property:', propertyId, 'rvcIds:', rvcIds);
+      console.log('[clearSalesData] Starting transaction for property:', propertyId, 'rvcIds:', rvcIds, 'orphanedRvcIds:', orphanedRvcIds, 'totalRvcIds:', allRvcIds.length);
       
       // STEP 1: Gather all affected IDs upfront
-      // Get check IDs for this property
-      const propertyChecks = await tx.select({ id: checks.id }).from(checks).where(inArray(checks.rvcId, rvcIds));
+      // Get check IDs for this property (including orphaned RVCs)
+      const propertyChecks = await tx.select({ id: checks.id }).from(checks).where(inArray(checks.rvcId, allRvcIds));
       const checkIds = propertyChecks.map(c => c.id);
 
       // Get check item IDs for these checks
@@ -3520,7 +3536,7 @@ export class DatabaseStorage implements IStorage {
       // Get ALL KDS ticket IDs - by rvcId, checkId, OR roundId (deduplicated)
       const kdsTicketIdSet = new Set<string>();
       
-      const kdsTicketsByRvc = await tx.select({ id: kdsTickets.id }).from(kdsTickets).where(inArray(kdsTickets.rvcId, rvcIds));
+      const kdsTicketsByRvc = await tx.select({ id: kdsTickets.id }).from(kdsTickets).where(inArray(kdsTickets.rvcId, allRvcIds));
       kdsTicketsByRvc.forEach(k => kdsTicketIdSet.add(k.id));
       
       if (checkIds.length > 0) {
@@ -3638,7 +3654,7 @@ export class DatabaseStorage implements IStorage {
       giftCardTransResult = { rowCount: (giftCardTransResult.rowCount || 0) + (additionalGiftCardTrans.rowCount || 0) };
 
       // 6. Delete print jobs, audit logs and checks
-      console.log('[clearSalesData] Deleting print jobs, audit logs and checks for rvcIds:', rvcIds.length);
+      console.log('[clearSalesData] Deleting print jobs, audit logs and checks for allRvcIds:', allRvcIds.length);
       
       // 6a. Delete check locks (they reference checks)
       let checkLocksResult = { rowCount: 0 };
@@ -3658,11 +3674,11 @@ export class DatabaseStorage implements IStorage {
       console.log('[clearSalesData] Print jobs deleted:', printJobsResult.rowCount);
       
       // 6c. Delete audit logs
-      const auditResult = await tx.delete(auditLogs).where(inArray(auditLogs.rvcId, rvcIds));
+      const auditResult = await tx.delete(auditLogs).where(inArray(auditLogs.rvcId, allRvcIds));
       console.log('[clearSalesData] Audit logs deleted:', auditResult.rowCount);
       
-      // 6d. Delete checks
-      const checksResult = await tx.delete(checks).where(inArray(checks.rvcId, rvcIds));
+      // 6d. Delete checks (including orphaned RVCs)
+      const checksResult = await tx.delete(checks).where(inArray(checks.rvcId, allRvcIds));
       console.log('[clearSalesData] Checks deleted:', checksResult.rowCount);
 
       // STEP 3: Delete labor/time & attendance data for this property
@@ -3769,18 +3785,18 @@ export class DatabaseStorage implements IStorage {
       const itemAvailResult = await tx.delete(itemAvailability).where(eq(itemAvailability.propertyId, propertyId));
       const prepResult = await tx.delete(prepItems).where(eq(prepItems.propertyId, propertyId));
 
-      // 4j. Offline queue (by rvcId)
+      // 4j. Offline queue (by rvcId, including orphans)
       let offlineResult = { rowCount: 0 };
-      if (rvcIds.length > 0) {
-        offlineResult = await tx.delete(offlineOrderQueue).where(inArray(offlineOrderQueue.rvcId, rvcIds));
+      if (allRvcIds.length > 0) {
+        offlineResult = await tx.delete(offlineOrderQueue).where(inArray(offlineOrderQueue.rvcId, allRvcIds));
       }
 
       // 4k. Accounting exports
       const accountingResult = await tx.delete(accountingExports).where(eq(accountingExports.propertyId, propertyId));
 
-      // 4l. Reset RVC counters so check numbers start from 1
-      if (rvcIds.length > 0) {
-        await tx.delete(rvcCounters).where(inArray(rvcCounters.rvcId, rvcIds));
+      // 4l. Reset RVC counters so check numbers start from 1 (including orphans)
+      if (allRvcIds.length > 0) {
+        await tx.delete(rvcCounters).where(inArray(rvcCounters.rvcId, allRvcIds));
       }
 
       return {

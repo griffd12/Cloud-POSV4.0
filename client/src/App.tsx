@@ -196,10 +196,10 @@ function Router() {
         {() => <CapsBootGate><DeviceGuardedRoute component={PizzaBuilderPage} allowedTypes={["pos"]} /></CapsBootGate>}
       </Route>
       <Route path="/admin">
-        {() => <Redirect to="/login" />}
+        {() => <Redirect to="/emc" />}
       </Route>
       <Route path="/admin/:rest*">
-        {() => <Redirect to="/login" />}
+        {() => <Redirect to="/emc" />}
       </Route>
       <Route component={NotFound} />
     </Switch>

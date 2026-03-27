@@ -135,7 +135,7 @@ const navGroups: NavGroup[] = [
     label: "Hierarchy",
     items: [
       { title: "Enterprises", url: "/emc/enterprises", icon: Building2, enterpriseOnly: true, systemAdminOnly: true },
-      { title: "Properties", url: "/emc/properties", icon: Store },
+      { title: "Properties", url: "/emc/properties", icon: Store, propertyOnly: true },
       { title: "Revenue Centers", url: "/emc/rvcs", icon: LayoutGrid },
     ],
   },
@@ -230,9 +230,9 @@ const navGroups: NavGroup[] = [
   {
     label: "System",
     items: [
-      { title: "Utilities", url: "/emc/utilities", icon: Wrench },
+      { title: "Utilities", url: "/emc/utilities", icon: Wrench, propertyOnly: true },
       { title: "Stress Test Report", url: "/emc/stress-test-report", icon: Activity, requiresProperty: true },
-      { title: "Onboarding Checklist", url: "/emc/onboarding", icon: ClipboardCheck },
+      { title: "Onboarding Checklist", url: "/emc/onboarding", icon: ClipboardCheck, propertyOnly: true },
     ],
   },
 ];
