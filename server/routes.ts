@@ -25755,6 +25755,273 @@ connect();
     }
   });
 
+  // POST /api/sync/timecards - Receive timecards from Service Host
+  app.post("/api/sync/timecards", async (req, res) => {
+    try {
+      const serviceHostToken = req.headers['x-service-host-token'] as string;
+      const { serviceHostId, propertyId, timecards: timecardRecords } = req.body;
+
+      if (!serviceHostId || !propertyId || !timecardRecords) {
+        return res.status(400).json({ error: "serviceHostId, propertyId, and timecards are required" });
+      }
+
+      const serviceHost = await storage.getServiceHost(serviceHostId);
+      if (!serviceHost) {
+        return res.status(404).json({ error: "Service Host not found" });
+      }
+
+      if (!serviceHostToken || serviceHost.registrationToken !== serviceHostToken) {
+        return res.status(401).json({ error: "Invalid Service Host authentication" });
+      }
+
+      if (serviceHost.propertyId !== propertyId) {
+        return res.status(403).json({ error: "Service Host not authorized for this property" });
+      }
+
+      const cloudIds: Record<string, string> = {};
+      const failedIds: string[] = [];
+      let processed = 0;
+
+      for (const tc of timecardRecords) {
+        const capsId = tc.id || tc.localId;
+        try {
+          const clockIn = tc.clockInTime || tc.clock_in_time;
+          const clockOut = tc.clockOutTime || tc.clock_out_time;
+          const action = tc._action || "create";
+          const tcData: any = {
+            employeeId: tc.employeeId || tc.employee_id,
+            propertyId,
+            businessDate: tc.businessDate || tc.business_date,
+            jobCodeId: tc.jobCodeId || tc.job_code_id || null,
+            payRate: tc.payRate || tc.pay_rate || null,
+            clockInTime: clockIn ? new Date(clockIn) : null,
+            clockOutTime: clockOut ? new Date(clockOut) : null,
+            status: tc.status || "open",
+            regularHours: tc.regularHours || tc.regular_hours || "0",
+            overtimeHours: tc.overtimeHours || tc.overtime_hours || "0",
+            totalHours: tc.totalHours || tc.total_hours || "0",
+            tips: tc.tips || "0",
+          };
+
+          let cloudTimecard;
+          if (action === "update" && capsId) {
+            cloudTimecard = await storage.updateTimecard(capsId, tcData);
+            if (!cloudTimecard) {
+              tcData.id = capsId;
+              cloudTimecard = await storage.createTimecard(tcData);
+            }
+          } else {
+            if (capsId) tcData.id = capsId;
+            cloudTimecard = await storage.createTimecard(tcData);
+          }
+
+          cloudIds[capsId || cloudTimecard!.id] = cloudTimecard!.id;
+          processed++;
+        } catch (tcError: any) {
+          console.error(`Error processing timecard ${capsId}:`, tcError);
+          if (capsId) failedIds.push(capsId);
+        }
+      }
+
+      res.json({ success: failedIds.length === 0, processed, cloudIds, failedIds });
+    } catch (error: any) {
+      console.error("Post timecards sync error:", error);
+      res.status(500).json({ error: "Failed to process timecards" });
+    }
+  });
+
+  // POST /api/sync/terminal-sessions - Receive terminal sessions from Service Host
+  app.post("/api/sync/terminal-sessions", async (req, res) => {
+    try {
+      const serviceHostToken = req.headers['x-service-host-token'] as string;
+      const { serviceHostId, propertyId, sessions } = req.body;
+
+      if (!serviceHostId || !propertyId || !sessions) {
+        return res.status(400).json({ error: "serviceHostId, propertyId, and sessions are required" });
+      }
+
+      const serviceHost = await storage.getServiceHost(serviceHostId);
+      if (!serviceHost) {
+        return res.status(404).json({ error: "Service Host not found" });
+      }
+
+      if (!serviceHostToken || serviceHost.registrationToken !== serviceHostToken) {
+        return res.status(401).json({ error: "Invalid Service Host authentication" });
+      }
+
+      if (serviceHost.propertyId !== propertyId) {
+        return res.status(403).json({ error: "Service Host not authorized for this property" });
+      }
+
+      const cloudIds: Record<string, string> = {};
+      const failedIds: string[] = [];
+      let processed = 0;
+
+      for (const sess of sessions) {
+        const capsId = sess.id || sess.localId;
+        try {
+          const action = sess._action || "create";
+          const sessData: any = {
+            terminalDeviceId: sess.terminalDeviceId || sess.terminal_device_id,
+            checkId: sess.checkId || sess.check_id || null,
+            amount: parseInt(sess.amount) || 0,
+            tipAmount: parseInt(sess.tipAmount || sess.tip_amount) || 0,
+            status: sess.status || "pending",
+          };
+
+          let cloudSession;
+          if (action === "update" && capsId) {
+            cloudSession = await storage.updateTerminalSession(capsId, sessData);
+            if (!cloudSession) {
+              sessData.id = capsId;
+              cloudSession = await storage.createTerminalSession(sessData);
+            }
+          } else {
+            if (capsId) sessData.id = capsId;
+            cloudSession = await storage.createTerminalSession(sessData);
+          }
+
+          cloudIds[capsId || cloudSession!.id] = cloudSession!.id;
+          processed++;
+        } catch (sessError: any) {
+          console.error(`Error processing terminal session ${capsId}:`, sessError);
+          if (capsId) failedIds.push(capsId);
+        }
+      }
+
+      res.json({ success: failedIds.length === 0, processed, cloudIds, failedIds });
+    } catch (error: any) {
+      console.error("Post terminal-sessions sync error:", error);
+      res.status(500).json({ error: "Failed to process terminal sessions" });
+    }
+  });
+
+  // POST /api/sync/break-attestations - Receive break attestations from Service Host
+  app.post("/api/sync/break-attestations", async (req, res) => {
+    try {
+      const serviceHostToken = req.headers['x-service-host-token'] as string;
+      const { serviceHostId, propertyId, attestations } = req.body;
+
+      if (!serviceHostId || !propertyId || !attestations) {
+        return res.status(400).json({ error: "serviceHostId, propertyId, and attestations are required" });
+      }
+
+      const serviceHost = await storage.getServiceHost(serviceHostId);
+      if (!serviceHost) {
+        return res.status(404).json({ error: "Service Host not found" });
+      }
+
+      if (!serviceHostToken || serviceHost.registrationToken !== serviceHostToken) {
+        return res.status(401).json({ error: "Invalid Service Host authentication" });
+      }
+
+      if (serviceHost.propertyId !== propertyId) {
+        return res.status(403).json({ error: "Service Host not authorized for this property" });
+      }
+
+      const cloudIds: Record<string, string> = {};
+      const failedIds: string[] = [];
+      let processed = 0;
+
+      for (const att of attestations) {
+        const capsId = att.id || att.localId;
+        try {
+          const insertData: any = {
+            employeeId: att.employeeId || att.employee_id,
+            propertyId,
+            timecardId: att.timecardId || att.timecard_id || null,
+            businessDate: att.businessDate || att.business_date,
+            attestationType: att.attestationType || att.attestation_type || "clock_out",
+            breaksProvided: att.breaksProvided ?? att.breaks_provided ?? true,
+            missedMealBreak: att.missedMealBreak ?? att.missed_meal_break ?? false,
+            missedRestBreak: att.missedRestBreak ?? att.missed_rest_break ?? false,
+            missedBreakReason: att.missedBreakReason || att.missed_break_reason || null,
+            employeeSignature: att.employeeSignature || att.employee_signature || null,
+          };
+          if (capsId) insertData.id = capsId;
+          const cloudAttestation = await storage.createBreakAttestation(insertData);
+
+          cloudIds[capsId || cloudAttestation.id] = cloudAttestation.id;
+          processed++;
+        } catch (attError: any) {
+          console.error(`Error processing break attestation ${capsId}:`, attError);
+          if (capsId) failedIds.push(capsId);
+        }
+      }
+
+      res.json({ success: failedIds.length === 0, processed, cloudIds, failedIds });
+    } catch (error: any) {
+      console.error("Post break-attestations sync error:", error);
+      res.status(500).json({ error: "Failed to process break attestations" });
+    }
+  });
+
+  // POST /api/sync/break-violations - Receive break violations from Service Host
+  app.post("/api/sync/break-violations", async (req, res) => {
+    try {
+      const serviceHostToken = req.headers['x-service-host-token'] as string;
+      const { serviceHostId, propertyId, violations } = req.body;
+
+      if (!serviceHostId || !propertyId || !violations) {
+        return res.status(400).json({ error: "serviceHostId, propertyId, and violations are required" });
+      }
+
+      const serviceHost = await storage.getServiceHost(serviceHostId);
+      if (!serviceHost) {
+        return res.status(404).json({ error: "Service Host not found" });
+      }
+
+      if (!serviceHostToken || serviceHost.registrationToken !== serviceHostToken) {
+        return res.status(401).json({ error: "Invalid Service Host authentication" });
+      }
+
+      if (serviceHost.propertyId !== propertyId) {
+        return res.status(403).json({ error: "Service Host not authorized for this property" });
+      }
+
+      const cloudIds: Record<string, string> = {};
+      const failedIds: string[] = [];
+      let processed = 0;
+
+      for (const viol of violations) {
+        const capsId = viol.id || viol.localId;
+        try {
+          const shiftStart = viol.shiftStartTime || viol.shift_start_time;
+          const shiftEnd = viol.shiftEndTime || viol.shift_end_time;
+          const breakDeadline = viol.breakDeadlineTime || viol.break_deadline_time;
+          const insertData: any = {
+            employeeId: viol.employeeId || viol.employee_id,
+            propertyId,
+            timecardId: viol.timecardId || viol.timecard_id || null,
+            breakSessionId: viol.breakSessionId || viol.break_session_id || null,
+            businessDate: viol.businessDate || viol.business_date,
+            violationType: viol.violationType || viol.violation_type,
+            violationReason: viol.violationReason || viol.violation_reason || null,
+            shiftStartTime: shiftStart ? new Date(shiftStart) : null,
+            shiftEndTime: shiftEnd ? new Date(shiftEnd) : null,
+            hoursWorked: viol.hoursWorked || viol.hours_worked || null,
+            breakDeadlineTime: breakDeadline ? new Date(breakDeadline) : null,
+            premiumPayAmount: viol.premiumPayAmount || viol.premium_pay_amount || "0",
+            status: viol.status || "pending",
+          };
+          if (capsId) insertData.id = capsId;
+          const cloudViolation = await storage.createBreakViolation(insertData);
+
+          cloudIds[capsId || cloudViolation.id] = cloudViolation.id;
+          processed++;
+        } catch (violError: any) {
+          console.error(`Error processing break violation ${capsId}:`, violError);
+          if (capsId) failedIds.push(capsId);
+        }
+      }
+
+      res.json({ success: failedIds.length === 0, processed, cloudIds, failedIds });
+    } catch (error: any) {
+      console.error("Post break-violations sync error:", error);
+      res.status(500).json({ error: "Failed to process break violations" });
+    }
+  });
+
   // WebSocket endpoint for Service Hosts
   // Handle upgrade on path /ws/service-host
   wss.on("connection", async (ws, request) => {

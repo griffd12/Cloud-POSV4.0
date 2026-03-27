@@ -2997,9 +2997,9 @@ export function createApiRoutes(
       caps.db.run(`ALTER TABLE terminal_sessions ADD COLUMN cloud_session_id TEXT`);
     } catch (_e: any) {
     }
-    console.log('[CAPS] terminal_sessions table ensured in CAPS database');
+    capsLog.info('[CAPS] terminal_sessions table ensured in CAPS database');
   } catch (e) {
-    console.error('[CAPS] Failed to create terminal_sessions table:', (e as Error).message);
+    capsLog.error('[CAPS] Failed to create terminal_sessions table:', (e as Error).message);
   }
 
   router.post('/terminal-sessions', async (req, res) => {
@@ -3024,7 +3024,10 @@ export function createApiRoutes(
          session.tipAmount, session.status, session.transactionType,
          JSON.stringify(session), session.createdAt, session.updatedAt]
       );
-      console.log(`[CAPS] Terminal session created (SQLite): ${sessionId} — queued for poll-based processing`);
+      capsLog.info(`[CAPS] Terminal session created (SQLite): ${sessionId} — queued for poll-based processing`);
+      if (db) {
+        db.addToSyncQueue('terminal_session', sessionId, 'create', session, 5);
+      }
       res.json(session);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -3066,7 +3069,10 @@ export function createApiRoutes(
           `UPDATE terminal_sessions SET data = ?, status = ?, updated_at = ? WHERE id = ?`,
           [JSON.stringify(session), session.status || 'pending', session.updatedAt, req.params.id]
         );
-        console.log(`[CAPS] Terminal session updated (SQLite): ${req.params.id} -> ${session.status}`);
+        capsLog.info(`[CAPS] Terminal session updated (SQLite): ${req.params.id} -> ${session.status}`);
+        if (db) {
+          db.addToSyncQueue('terminal_session', req.params.id, 'update', session, 5);
+        }
         return res.json(session);
       }
       res.status(404).json({ error: 'Terminal session not found' });
@@ -3089,15 +3095,15 @@ export function createApiRoutes(
         `UPDATE terminal_sessions SET data = ?, status = 'cancelled', updated_at = ? WHERE id = ?`,
         [JSON.stringify(session), session.updatedAt, req.params.id]
       );
-      console.log(`[CAPS] Terminal session cancelled: ${req.params.id}`);
+      capsLog.info(`[CAPS] Terminal session cancelled: ${req.params.id}`);
 
       const cloudSessionId = row.cloud_session_id || session.cloudSessionId;
       if (cloudSessionId && cloudConnection && cloudConnection.isConnected()) {
         try {
           await cloudConnection.post(`/api/terminal-sessions/${cloudSessionId}/cancel`, { reason });
-          console.log(`[CAPS] Cancel forwarded to Cloud session: ${cloudSessionId}`);
+          capsLog.info(`[CAPS] Cancel forwarded to Cloud session: ${cloudSessionId}`);
         } catch (cloudErr: any) {
-          console.error(`[CAPS] Failed to forward cancel to Cloud: ${cloudErr.message}`);
+          capsLog.error(`[CAPS] Failed to forward cancel to Cloud: ${cloudErr.message}`);
         }
       }
 
@@ -3131,7 +3137,7 @@ export function createApiRoutes(
         `UPDATE terminal_sessions SET data = ?, status = ?, updated_at = ? WHERE id = ?`,
         [JSON.stringify(session), session.status, session.updatedAt, req.params.id]
       );
-      console.log(`[CAPS] Terminal session simulated ${action}: ${req.params.id} (dev-only)`);
+      capsLog.info(`[CAPS] Terminal session simulated ${action}: ${req.params.id} (dev-only)`);
       res.json(session);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
@@ -3707,6 +3713,10 @@ export function createApiRoutes(
   router.post('/timecards', (req, res) => {
     try {
       const timecard = db?.createTimecard(req.body);
+      if (timecard && db) {
+        db.addToSyncQueue('timecard', timecard.id, 'create', timecard, 5);
+        capsLog.info('[CAPS] Timecard created and queued for sync', { timecardId: timecard.id });
+      }
       res.json(timecard);
     } catch (e) {
       capsLog.error('[CAPS] timecards POST error:', (e as Error).message);
@@ -3717,6 +3727,10 @@ export function createApiRoutes(
   router.patch('/timecards/:id', (req, res) => {
     try {
       const timecard = db?.updateTimecard(req.params.id, req.body);
+      if (timecard && db) {
+        db.addToSyncQueue('timecard', req.params.id, 'update', timecard, 5);
+        capsLog.info('[CAPS] Timecard updated and queued for sync', { timecardId: req.params.id });
+      }
       res.json(timecard);
     } catch (e) {
       capsLog.error('[CAPS] timecards PATCH error:', (e as Error).message);
@@ -3752,6 +3766,10 @@ export function createApiRoutes(
   router.post('/break-attestations', (req, res) => {
     try {
       const attestation = db?.createBreakAttestation(req.body);
+      if (attestation && db) {
+        db.addToSyncQueue('break_attestation', attestation.id, 'create', attestation, 4);
+        capsLog.info('[CAPS] Break attestation created and queued for sync', { attestationId: attestation.id });
+      }
       res.json(attestation);
     } catch (e) {
       capsLog.error('[CAPS] break-attestations POST error:', (e as Error).message);
@@ -3777,6 +3795,10 @@ export function createApiRoutes(
   router.post('/break-violations', (req, res) => {
     try {
       const violation = db?.createBreakViolation(req.body);
+      if (violation && db) {
+        db.addToSyncQueue('break_violation', violation.id, 'create', violation, 4);
+        capsLog.info('[CAPS] Break violation created and queued for sync', { violationId: violation.id });
+      }
       res.json(violation);
     } catch (e) {
       capsLog.error('[CAPS] break-violations POST error:', (e as Error).message);

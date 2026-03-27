@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking

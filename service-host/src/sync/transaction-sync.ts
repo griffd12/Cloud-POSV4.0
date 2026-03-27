@@ -244,8 +244,25 @@ export class TransactionSync {
         await this.syncTimeEntry(item.entity_id, item.action, payload);
         break;
         
+      case 'timecard':
+        await this.syncTimecard(item.entity_id, item.action, payload);
+        break;
+        
+      case 'terminal_session':
+        await this.syncTerminalSession(item.entity_id, item.action, payload);
+        break;
+        
+      case 'break_attestation':
+        await this.syncBreakAttestation(item.entity_id, item.action, payload);
+        break;
+        
+      case 'break_violation':
+        await this.syncBreakViolation(item.entity_id, item.action, payload);
+        break;
+        
       default:
         logger.warn(`Unknown entity type: ${item.entity_type}`);
+        throw new Error(`Unknown entity type: ${item.entity_type}`);
     }
   }
   
@@ -318,6 +335,86 @@ export class TransactionSync {
     logger.debug(`Time entry synced: ${entityId}`);
   }
   
+  private async syncTimecard(entityId: string, action: string, payload: any): Promise<void> {
+    const result = await this.cloud.post<SyncIngestResponse>('/api/sync/timecards', {
+      serviceHostId: this.serviceHostId,
+      propertyId: this.propertyId,
+      timecards: [{ ...payload, id: entityId, _action: action }],
+    });
+    
+    if (result?.processed > 0 && result?.cloudIds?.[entityId]) {
+      this.db.run(
+        'UPDATE timecards SET cloud_synced = 1 WHERE id = ?',
+        [entityId]
+      );
+      logger.debug(`Timecard synced: ${entityId}`);
+    } else if (result?.failedIds?.includes(entityId)) {
+      throw new Error(`Cloud rejected timecard ${entityId}`);
+    } else {
+      throw new Error(`Timecard ${entityId} not acknowledged by cloud`);
+    }
+  }
+  
+  private async syncTerminalSession(entityId: string, action: string, payload: any): Promise<void> {
+    const result = await this.cloud.post<SyncIngestResponse>('/api/sync/terminal-sessions', {
+      serviceHostId: this.serviceHostId,
+      propertyId: this.propertyId,
+      sessions: [{ ...payload, id: entityId, _action: action }],
+    });
+    
+    if (result?.processed > 0 && result?.cloudIds?.[entityId]) {
+      this.db.run(
+        'UPDATE terminal_sessions SET cloud_synced = 1 WHERE id = ?',
+        [entityId]
+      );
+      logger.debug(`Terminal session synced: ${entityId}`);
+    } else if (result?.failedIds?.includes(entityId)) {
+      throw new Error(`Cloud rejected terminal session ${entityId}`);
+    } else {
+      throw new Error(`Terminal session ${entityId} not acknowledged by cloud`);
+    }
+  }
+  
+  private async syncBreakAttestation(entityId: string, action: string, payload: any): Promise<void> {
+    const result = await this.cloud.post<SyncIngestResponse>('/api/sync/break-attestations', {
+      serviceHostId: this.serviceHostId,
+      propertyId: this.propertyId,
+      attestations: [{ ...payload, id: entityId }],
+    });
+    
+    if (result?.processed > 0 && result?.cloudIds?.[entityId]) {
+      this.db.run(
+        'UPDATE break_attestations SET cloud_synced = 1 WHERE id = ?',
+        [entityId]
+      );
+      logger.debug(`Break attestation synced: ${entityId}`);
+    } else if (result?.failedIds?.includes(entityId)) {
+      throw new Error(`Cloud rejected break attestation ${entityId}`);
+    } else {
+      throw new Error(`Break attestation ${entityId} not acknowledged by cloud`);
+    }
+  }
+  
+  private async syncBreakViolation(entityId: string, action: string, payload: any): Promise<void> {
+    const result = await this.cloud.post<SyncIngestResponse>('/api/sync/break-violations', {
+      serviceHostId: this.serviceHostId,
+      propertyId: this.propertyId,
+      violations: [{ ...payload, id: entityId }],
+    });
+    
+    if (result?.processed > 0 && result?.cloudIds?.[entityId]) {
+      this.db.run(
+        'UPDATE break_violations SET cloud_synced = 1 WHERE id = ?',
+        [entityId]
+      );
+      logger.debug(`Break violation synced: ${entityId}`);
+    } else if (result?.failedIds?.includes(entityId)) {
+      throw new Error(`Cloud rejected break violation ${entityId}`);
+    } else {
+      throw new Error(`Break violation ${entityId} not acknowledged by cloud`);
+    }
+  }
+  
   queueCheck(checkId: string, action: 'create' | 'update', data: any): void {
     this.db.addToSyncQueue('check', checkId, action, data);
     logger.debug(`Queued check for sync: ${checkId}`, { action });
@@ -371,6 +468,13 @@ interface JournalSyncResponse {
   processed: number;
   acknowledged: string[];
   skipped: string[];
+}
+
+interface SyncIngestResponse {
+  success: boolean;
+  processed: number;
+  cloudIds: Record<string, string>;
+  failedIds?: string[];
 }
 
 interface SyncStats {

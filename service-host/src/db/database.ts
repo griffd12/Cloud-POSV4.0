@@ -203,6 +203,10 @@ export class Database {
       this.migrateToV20();
     }
     
+    if (fromVersion < 21) {
+      this.migrateToV21();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -1121,6 +1125,17 @@ export class Database {
       try { this.run(idx); } catch { /* index may exist */ }
     }
     console.log('[DB] v20 migration complete');
+  }
+  
+  private migrateToV21(): void {
+    console.log('[DB] Running v21 migration: operational tables sync-queue ownership verification');
+    const syncReadyTables = ['timecards', 'terminal_sessions', 'break_attestations', 'break_violations'];
+    for (const table of syncReadyTables) {
+      try {
+        this.run(`ALTER TABLE ${table} ADD COLUMN cloud_synced INTEGER DEFAULT 0`);
+      } catch { /* column may already exist from v20 */ }
+    }
+    console.log('[DB] v21 migration complete — operational tables verified for sync');
   }
   
   // ==========================================================================
