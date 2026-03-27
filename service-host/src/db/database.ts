@@ -65,6 +65,7 @@ export class Database {
     this.createSchema();
     this.ensureCriticalTables();
     this.checkSchemaVersion();
+    this.refreshTimezoneCache();
   }
   
   async initialize(): Promise<void> {
@@ -75,15 +76,27 @@ export class Database {
     return this.db;
   }
 
+  private _cachedTimezone: string = 'America/New_York';
+
+  refreshTimezoneCache(): void {
+    try {
+      const prop = this.db.prepare(
+        "SELECT timezone FROM properties WHERE active = 1 LIMIT 1"
+      ).get() as { timezone: string } | undefined;
+      if (prop?.timezone) {
+        this._cachedTimezone = prop.timezone;
+        console.log(`[DB] Timezone cache refreshed: ${this._cachedTimezone}`);
+      }
+    } catch {
+    }
+  }
+
   private registerLocalNow(): void {
     try {
       const self = this;
       this.db.function('local_now', () => {
         try {
-          const prop = self.db.prepare(
-            "SELECT timezone FROM properties WHERE active = 1 LIMIT 1"
-          ).get() as { timezone: string } | undefined;
-          const tz = prop?.timezone || 'America/New_York';
+          const tz = self._cachedTimezone;
           const now = new Date();
           const parts = new Intl.DateTimeFormat('en-CA', {
             timeZone: tz,

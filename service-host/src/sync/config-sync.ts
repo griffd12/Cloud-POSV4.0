@@ -343,6 +343,7 @@ export class ConfigSync {
         this.db.upsertProperty(prop);
         count++;
       }
+      this.db.refreshTimezoneCache();
       console.log(`  Synced ${config.properties.length} properties`);
     }
     
@@ -914,6 +915,7 @@ export class ConfigSync {
         break;
       case 'property':
         this.db.upsertProperty(data);
+        this.db.refreshTimezoneCache();
         break;
       case 'rvc':
         this.db.upsertRvc(data);
