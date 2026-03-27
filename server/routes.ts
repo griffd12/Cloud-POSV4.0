@@ -25171,8 +25171,8 @@ connect();
           onlineOrderSources: allOnlineOrderSources,
           itemAvailability: allItemAvailability,
           emcOptionFlags: allEmcOptionFlags,
-          ingredientPrefixes: allIngredientPrefixes,
-          menuItemRecipeIngredients: allMenuItemRecipeIngredients,
+          ingredientPrefixes: allIngredientPrefixes.filter((ip: any) => ip.enterpriseId === enterpriseId),
+          menuItemRecipeIngredients: allMenuItemRecipeIngredients.filter((ri: any) => menuItemIds.has(ri.menuItemId)),
         },
       });
     } catch (error: any) {
