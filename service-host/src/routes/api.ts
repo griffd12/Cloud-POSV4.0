@@ -5164,13 +5164,38 @@ export function createApiRoutes(
       const presentTables = capsExpectedTables.filter(t => existingTables.includes(t));
       const missingTables = capsExpectedTables.filter(t => !existingTables.includes(t));
 
+      const capsOnlyInfra = [
+        'config_cache', 'operation_queue', 'print_queue', 'schema_version',
+        'sync_metadata', 'sync_queue', 'transaction_journal', 'workstation_config',
+      ];
+
+      const classification = {
+        config: [
+          'ingredient_prefixes', 'menu_item_recipe_ingredients',
+          'employee_availability', 'employee_minor_status', 'role_rules',
+          'availability_exceptions', 'tip_pool_policies',
+          'recipes', 'prep_items', 'inventory_items',
+        ],
+        runtime: [
+          'timecards', 'terminal_sessions', 'break_attestations', 'break_violations',
+        ],
+        derived: [
+          'timecard_edits', 'timecard_exceptions', 'time_off_requests',
+          'tip_allocations', 'tip_pool_runs',
+          'inventory_stock', 'inventory_transactions',
+        ],
+      };
+
       const tableParity = {
+        parity: missingTables.length === 0,
         capsExpected: capsExpectedTables.length,
         capsPresent: presentTables.length,
         capsMissing: missingTables,
+        capsOnlyInfra,
         cloudOnlyCount: cloudOnlyTables.length,
         cloudOnly: cloudOnlyTables,
         notYetImplemented: missingNotYetImplemented,
+        classification,
         parityPct: Math.round((presentTables.length / capsExpectedTables.length) * 100),
       };
       

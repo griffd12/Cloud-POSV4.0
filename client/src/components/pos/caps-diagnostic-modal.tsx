@@ -385,6 +385,43 @@ function TableParityView({ parity }: { parity: any }) {
         </div>
       )}
 
+      {parity.classification && (
+        <div className="border rounded-lg overflow-hidden">
+          <div className="p-2 bg-blue-50 dark:bg-blue-950/20 border-b flex items-center gap-2">
+            <Database className="w-4 h-4 text-blue-500" />
+            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Classification Breakdown</span>
+          </div>
+          <div className="p-3 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Config (Cloud → CAPS)</span>
+              <Badge variant="outline" className="text-xs" data-testid="text-config-count">{parity.classification.config?.length || 0}</Badge>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Runtime (CAPS → Cloud)</span>
+              <Badge variant="outline" className="text-xs" data-testid="text-runtime-count">{parity.classification.runtime?.length || 0}</Badge>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Derived (Complex/TBD)</span>
+              <Badge variant="outline" className="text-xs" data-testid="text-derived-count">{parity.classification.derived?.length || 0}</Badge>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {parity.capsOnlyInfra?.length > 0 && (
+        <div className="border rounded-lg overflow-hidden">
+          <div className="p-2 bg-muted/30 border-b flex items-center gap-2">
+            <Database className="w-4 h-4 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">CAPS-Only Infrastructure ({parity.capsOnlyInfra.length})</span>
+          </div>
+          <div className="p-2 flex flex-wrap gap-1">
+            {parity.capsOnlyInfra.map((t: string) => (
+              <Badge key={t} variant="outline" className="text-xs font-mono text-muted-foreground">{t}</Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="border rounded-lg overflow-hidden">
         <div className="p-2 bg-muted/50 border-b flex items-center gap-2">
           <Database className="w-4 h-4 text-muted-foreground" />
