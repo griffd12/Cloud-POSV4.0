@@ -108,6 +108,7 @@ For pilot, CAPS is the store authority. If a workstation cannot reach CAPS, the 
 - **Auth Write Blocking**: Auth POSTs (login, PIN, manager-approval) always return CAPS response, never fall through to cloud.
 - **Manager Approval CAPS-First**: `/api/auth/manager-approval` added to `isCapsAuthRoute` for direct CAPS routing.
 - **CAPS-Only Authority**: Complete architecture rewrite – ALL API routes go to CAPS exclusively.
+- **v3.1.110 Release**: Complete CAPS-Cloud table parity (57 config tables + 10 operational tables at 100%). Schema V20→V21 migration adds cloud_synced columns to 4 operational tables. Gateway log formatter fix (undefined→JSON). WebSocket reconnect exponential backoff. 4 new Cloud ingest endpoints for CAPS→Cloud sync.
 - **Schema v14 Migration**: Adds `employee_assignments.role_id` column + 18 missing tables (terminal_devices, cash_drawers, drawer_assignments, cash_transactions, safe_counts, job_codes, employee_job_codes, fiscal_periods, online_order_sources, overtime_rules, break_rules, tip_rules, tip_rule_job_percentages, minor_labor_rules, payment_gateway_config, descriptor_sets, descriptor_logo_assets, print_agents). Fixes cascade sync failure from v13.
 - **Enterprise Employee Privilege Resolution**: `getEmployeesByProperty()` includes `OR property_id IS NULL` to resolve privileges for enterprise-level employees.
 - **Price Unit Consistency**: `addItems()` response returns `unitPrice`/`totalPrice` in DOLLARS (matching `getCheckItems()`). DB stores CENTS internally.

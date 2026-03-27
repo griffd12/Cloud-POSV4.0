@@ -4187,7 +4187,7 @@ Dedicated boolean columns on the `tenders` table that drive all reporting and ca
 
 ## Service Host (CAPS) SQLite Parity
 
-The service-host SQLite schema (`service-host/src/db/schema.ts`, SCHEMA_VERSION=5) mirrors the cloud Postgres schema for offline operations:
+The service-host SQLite schema (`service-host/src/db/schema.ts`, SCHEMA_VERSION=21) mirrors the cloud Postgres schema for offline operations. V20 added 6 new tables (ingredient_prefixes, menu_item_recipe_ingredients, timecards, terminal_sessions, break_attestations, break_violations). V21 added `cloud_synced` columns to the 4 operational tables (timecards, terminal_sessions, break_attestations, break_violations) for reliable CAPS→Cloud sync tracking:
 
 **Tenders**: Includes all behavior flags (`is_system`, `pop_drawer`, `allow_tips`, `allow_over_tender`, `print_check_on_payment`, `require_manager_approval`, `requires_payment_processor`, `display_order`) and media classification flags (`is_cash_media`, `is_card_media`, `is_gift_media`). Migration v3→v4 uses ALTER TABLE ADD COLUMN with try/catch for idempotency and backfills from `type` column.
 
