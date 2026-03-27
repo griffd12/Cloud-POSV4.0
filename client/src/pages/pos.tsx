@@ -670,6 +670,15 @@ export default function PosPage() {
       setCheckItems((prev) => prev.map(ci => ci.id === optimisticId ? newItem : ci));
       queryClient.invalidateQueries({ queryKey: ["/api/checks", currentCheck?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/kds-tickets"] });
+      if (currentRvc?.domSendMode === "fire_on_fly" && currentCheck?.id) {
+        apiRequest("POST", "/api/checks/" + currentCheck.id + "/send", {
+          employeeId: currentEmployee?.id,
+        }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() })).then(() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/kds-tickets"] });
+        }).catch((err: any) => {
+          console.warn("[POS] fire_on_fly auto-send failed:", err?.message);
+        });
+      }
     },
     onError: (error: any, variables) => {
       const detail = error?.message || String(error);

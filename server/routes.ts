@@ -235,7 +235,9 @@ function broadcastMenuUpdate() {
   broadcastPosEvent({ type: "menu_update" });
 }
 
-// Broadcast EMC configuration changes for real-time sync to POS/KDS devices
+const _connectedServiceHosts: Map<string, { ws: any; propertyId: string; lastHeartbeat: Date }> = new Map();
+
+// Broadcast EMC configuration changes for real-time sync to POS/KDS devices AND CAPS service hosts
 // Categories: menu, employees, rvcs, tenders, discounts, service_charges, page_layouts, printers, taxes, properties
 function broadcastConfigUpdate(category: string, action: "create" | "update" | "delete", entityId?: string | number, enterpriseId?: string | number) {
   const event = {
@@ -248,8 +250,15 @@ function broadcastConfigUpdate(category: string, action: "create" | "update" | "
       timestamp: new Date().toISOString()
     }
   };
-  // Broadcast to all connected clients (POS, KDS, EMC)
   broadcastPosEvent(event, "all");
+  const serviceHostEvent = { type: "CONFIG_UPDATE", category, action, entityId, enterpriseId };
+  for (const [shId, conn] of _connectedServiceHosts.entries()) {
+    try {
+      if (conn.ws.readyState === 1) {
+        conn.ws.send(JSON.stringify(serviceHostEvent));
+      }
+    } catch (e) {}
+  }
 }
 
 // Send device status event directly to WebSocket channel (flat format for frontend)
@@ -1058,8 +1067,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const printAgentWss = new WebSocketServer({ noServer: true });
   const serviceHostWss = new WebSocketServer({ noServer: true });
   
-  // Track connected Service Hosts
-  const connectedServiceHosts: Map<string, { ws: WebSocket; propertyId: string; lastHeartbeat: Date }> = new Map();
+  const connectedServiceHosts = _connectedServiceHosts;
 
   // Throttle KDS ticket poll heartbeat updates (polls every 2s, update DB every 30s)
   const kdsHeartbeatThrottle: Map<string, number> = new Map();

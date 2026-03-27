@@ -343,7 +343,9 @@ export default function KdsPage() {
             message.type === "kds_ticket_bumped" ||
             message.type === "kds_ticket_recalled" ||
             message.type === "kds_ticket_priority" ||
-            message.type === "kds_tickets"
+            message.type === "kds_tickets" ||
+            message.type === "kds_check_paid" ||
+            message.type === "kds_check_voided"
           ) {
             refetch();
           }
