@@ -3242,6 +3242,7 @@ export class Database {
       'descriptor_sets', 'descriptor_logo_assets',
       'gift_cards', 'loyalty_programs', 'loyalty_members', 'loyalty_member_enrollments', 'loyalty_rewards',
       'overtime_rules', 'break_rules', 'tip_rules', 'tip_rule_job_percentages', 'minor_labor_rules',
+      'shift_templates', 'shifts',
       'fiscal_periods', 'cash_drawers', 'online_order_sources',
       'item_availability', 'emc_option_flags',
       'job_codes', 'checks', 'check_items', 'check_payments',
