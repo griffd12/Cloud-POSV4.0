@@ -261,23 +261,33 @@ async function syncEntity(
     case "check_item": {
       const remapped = remapCheckId(dataWithOfflineId);
       if (operationType === "create") {
-        const { id: _localId, ...insertData } = remapped;
-        return await storage.createCheckItem(insertData as Parameters<typeof storage.createCheckItem>[0]);
+        const { id: localId, ...insertData } = remapped;
+        const created = await storage.createCheckItem(insertData as Parameters<typeof storage.createCheckItem>[0]);
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+        }
+        return created;
       } else if (operationType === "update") {
-        const id = remapped.id as string;
+        const rawId = remapped.id as string;
+        const cloudId = idRemapCache.get(rawId) || rawId;
         const { id: _id, offlineTransactionId: _otxn, ...updateData } = remapped;
-        return await storage.updateCheckItem(id, updateData as Parameters<typeof storage.updateCheckItem>[1]);
+        return await storage.updateCheckItem(cloudId, updateData as Parameters<typeof storage.updateCheckItem>[1]);
       } else if (operationType === "delete") {
-        const id = remapped.id as string;
-        return await storage.deleteCheckItem(id);
+        const rawId = remapped.id as string;
+        const cloudId = idRemapCache.get(rawId) || rawId;
+        return await storage.deleteCheckItem(cloudId);
       }
       throw new Error(`Unsupported operation for check_item: ${operationType}`);
     }
     case "check_payment": {
       const remapped = remapCheckId(dataWithOfflineId);
       if (operationType === "create") {
-        const { id: _localId, ...insertData } = remapped;
-        return await storage.createPayment(insertData as Parameters<typeof storage.createPayment>[0]);
+        const { id: localId, ...insertData } = remapped;
+        const created = await storage.createPayment(insertData as Parameters<typeof storage.createPayment>[0]);
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+        }
+        return created;
       }
       throw new Error(`Unsupported operation for check_payment: ${operationType}`);
     }

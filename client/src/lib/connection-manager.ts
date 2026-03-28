@@ -184,7 +184,7 @@ class ConnectionManager {
       this.notifyListeners(this.state, this.state);
 
       if (lfsUrl) {
-        let journalEntries: Array<{ id: string; [key: string]: unknown }> = [];
+        let journalEntries: Array<{ id: string; entity_type?: string; operation_type?: string; [key: string]: unknown }> = [];
         try {
           const journalRes = await fetch(`${lfsUrl}/api/lfs/journal/pending`, {
             headers: this.getSyncHeaders(),
@@ -192,7 +192,7 @@ class ConnectionManager {
           });
           if (journalRes.ok) {
             const data = await journalRes.json();
-            journalEntries = data.entries || [];
+            journalEntries = this.sortByDependency(data.entries || []);
           }
         } catch {
           hasSyncFailure = true;
@@ -237,18 +237,15 @@ class ConnectionManager {
 
       this.syncProgress = null;
 
-      if (hasSyncFailure) {
-        const remaining = lfsUrl
-          ? await this.fetchPendingCount(lfsUrl)
-          : 0;
-        this.pendingSyncCount = remaining;
-        if (remaining > 0) {
-          console.warn(`[ConnectionManager] Sync incomplete: ${remaining} entries still pending — staying in reconnecting`);
-          this.setState("cloud-degraded");
-          return;
-        }
-      } else {
-        this.pendingSyncCount = 0;
+      const remaining = lfsUrl
+        ? await this.fetchPendingCount(lfsUrl)
+        : 0;
+      this.pendingSyncCount = remaining;
+
+      if (remaining > 0) {
+        console.warn(`[ConnectionManager] Sync incomplete: ${remaining} entries still pending — staying degraded`);
+        this.setState("cloud-degraded");
+        return;
       }
 
       this.setState("cloud-online");
@@ -257,6 +254,38 @@ class ConnectionManager {
       this.syncProgress = null;
       this.setState("cloud-degraded");
     }
+  }
+
+  private sortByDependency(entries: Array<{ entity_type?: string; operation_type?: string; [key: string]: unknown }>): typeof entries {
+    const entityOrder: Record<string, number> = {
+      check: 0,
+      check_item: 1,
+      round: 2,
+      check_discount: 3,
+      check_service_charge: 4,
+      check_payment: 5,
+    };
+    const opOrder: Record<string, number> = {
+      create: 0,
+      update: 1,
+      delete: 2,
+    };
+
+    return [...entries].sort((a, b) => {
+      const aOp = opOrder[a.operation_type || "create"] ?? 1;
+      const bOp = opOrder[b.operation_type || "create"] ?? 1;
+      if (aOp === 2 && bOp !== 2) return 1;
+      if (bOp === 2 && aOp !== 2) return -1;
+      if (aOp === 2 && bOp === 2) {
+        const aEnt = entityOrder[a.entity_type || ""] ?? 99;
+        const bEnt = entityOrder[b.entity_type || ""] ?? 99;
+        return bEnt - aEnt;
+      }
+      const aEnt = entityOrder[a.entity_type || ""] ?? 99;
+      const bEnt = entityOrder[b.entity_type || ""] ?? 99;
+      if (aEnt !== bEnt) return aEnt - bEnt;
+      return 0;
+    });
   }
 
   private async fetchPendingCount(lfsUrl: string): Promise<number> {
