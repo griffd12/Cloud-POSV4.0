@@ -135,8 +135,30 @@ export function PaymentModal({
   const [showLoyaltySection, setShowLoyaltySection] = useState(false);
   const [loyaltyPointsEarned, setLoyaltyPointsEarned] = useState(false); // Prevent duplicate earning
   
-  // Offline/LFS mode awareness
   const isRunningLocally = connectionManager.isOffline;
+  const [isInternetDown, setIsInternetDown] = useState(false);
+  
+  useEffect(() => {
+    if (!isRunningLocally || !open) {
+      setIsInternetDown(false);
+      return;
+    }
+    const checkInternet = async () => {
+      try {
+        const baseUrl = connectionManager.localServerUrl || "";
+        const res = await fetch(`${baseUrl}/api/lfs/capabilities`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setIsInternetDown(data.internetAvailable === false);
+        }
+      } catch {
+        setIsInternetDown(true);
+      }
+    };
+    checkInternet();
+  }, [isRunningLocally, open]);
   
   // Overage tip prompt state - when payment exceeds check total
   const [showOveragePrompt, setShowOveragePrompt] = useState(false);
@@ -1935,7 +1957,7 @@ export function PaymentModal({
                     variant="outline"
                     className="w-full h-14 justify-start gap-3"
                     onClick={() => startTerminalPayment(assignedTerminal)}
-                    disabled={isProcessingCard || (isRunningLocally && !assignedTerminal.supportsStoreAndForward)}
+                    disabled={isProcessingCard || (isInternetDown && !assignedTerminal.supportsStoreAndForward)}
                     data-testid="button-assigned-terminal"
                   >
                     <div className="flex items-center gap-2">
@@ -1964,7 +1986,7 @@ export function PaymentModal({
                     variant="outline"
                     className="w-full h-14 justify-start gap-3"
                     onClick={() => startTerminalPayment(terminal)}
-                    disabled={isProcessingCard || (isRunningLocally && !terminal.supportsStoreAndForward)}
+                    disabled={isProcessingCard || (isInternetDown && !terminal.supportsStoreAndForward)}
                     data-testid={`button-terminal-${terminal.id}`}
                   >
                     <div className="flex items-center gap-2">
@@ -1987,7 +2009,7 @@ export function PaymentModal({
                   </Button>
                 ))}
                 
-                {isRunningLocally && availableTerminals.length > 0 && availableTerminals.every(t => !t.supportsStoreAndForward) && (
+                {isInternetDown && availableTerminals.length > 0 && availableTerminals.every(t => !t.supportsStoreAndForward) && (
                   <div className="text-center py-3 px-4 bg-amber-50 dark:bg-amber-900/20 rounded-md border border-amber-200 dark:border-amber-800" data-testid="text-saf-unavailable">
                     <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">Card terminals unavailable offline</p>
                     <p className="text-xs text-amber-600 dark:text-amber-500 mt-1">No terminals support store-and-forward. Use cash or manual imprint instead.</p>

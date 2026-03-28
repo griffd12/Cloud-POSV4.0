@@ -587,27 +587,27 @@ function registerLfsCloudRoutes(app: Express) {
 
       if (payment.amount && Math.abs(parseFloat(amount) - parseFloat(payment.amount)) > 0.01) {
         const newStatus = "settlement_failed";
-        await storage.updateCheckPayment(paymentId, {
+        await storage.updateCheckPayment(payment.id, {
           paymentStatus: newStatus,
         } as Parameters<typeof storage.updateCheckPayment>[1]);
-        console.warn(`[SAF Settlement] Amount mismatch for ${paymentId}: expected ${payment.amount}, got ${amount}`);
-        return res.json({ ok: true, paymentId, newStatus, reason: "amount_mismatch" });
+        console.warn(`[SAF Settlement] Amount mismatch for ${payment.id}: expected ${payment.amount}, got ${amount}`);
+        return res.json({ ok: true, paymentId: payment.id, newStatus, reason: "amount_mismatch" });
       }
 
       if (settlementStatus === "failed") {
-        await storage.updateCheckPayment(paymentId, {
+        await storage.updateCheckPayment(payment.id, {
           paymentStatus: "settlement_failed",
         } as Parameters<typeof storage.updateCheckPayment>[1]);
-        console.warn(`[SAF Settlement] Payment ${paymentId} marked settlement_failed — requires manager review`);
-        return res.json({ ok: true, paymentId, newStatus: "settlement_failed", requiresManagerReview: true });
+        console.warn(`[SAF Settlement] Payment ${payment.id} marked settlement_failed — requires manager review`);
+        return res.json({ ok: true, paymentId: payment.id, newStatus: "settlement_failed", requiresManagerReview: true });
       }
 
-      await storage.updateCheckPayment(paymentId, {
+      await storage.updateCheckPayment(payment.id, {
         paymentStatus: "completed",
         paymentTransactionId: settlementTransactionId || payment.paymentTransactionId,
       } as Parameters<typeof storage.updateCheckPayment>[1]);
 
-      res.json({ ok: true, paymentId, newStatus: "completed" });
+      res.json({ ok: true, paymentId: payment.id, newStatus: "completed" });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });
