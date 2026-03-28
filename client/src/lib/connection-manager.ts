@@ -176,7 +176,13 @@ class ConnectionManager {
         return;
       }
 
-      this.syncProgress = { phase: "Uploading transactions to cloud...", current: 1, total: 2 };
+      const countBefore = await this.fetchPendingCount(lfsUrl);
+      const totalEntries = countBefore > 0 ? countBefore : 0;
+      this.syncProgress = {
+        phase: `Uploading transactions to cloud${totalEntries > 0 ? ` (0 of ${totalEntries})` : ""}...`,
+        current: 0,
+        total: totalEntries,
+      };
       this.notifyListeners(this.state, this.state);
 
       try {
@@ -188,6 +194,14 @@ class ConnectionManager {
 
         if (pushRes.ok) {
           const pushData = await pushRes.json();
+          const syncedCount = pushData.synced || 0;
+          this.syncProgress = {
+            phase: `Uploaded ${syncedCount} of ${totalEntries} transactions`,
+            current: syncedCount,
+            total: totalEntries,
+          };
+          this.notifyListeners(this.state, this.state);
+
           if (pushData.remaining > 0) {
             this.pendingSyncCount = pushData.remaining;
             this.syncProgress = null;

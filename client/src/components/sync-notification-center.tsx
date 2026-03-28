@@ -146,7 +146,9 @@ export function SyncNotificationCenter({ propertyId, enterpriseId }: SyncNotific
     queryKey: ["/api/sync-notifications", propertyId || enterpriseId],
     queryFn: async () => {
       if (!queryParams) return [];
-      const res = await fetch(`/api/sync-notifications?${queryParams}&limit=50`, { headers: getAuthHeaders() });
+      const baseUrl = connectionManager.getBaseUrl();
+      const url = `${baseUrl}/api/sync-notifications?${queryParams}&limit=50`;
+      const res = await fetch(url, { headers: getAuthHeaders() });
       if (!res.ok) return [];
       return res.json();
     },
@@ -158,7 +160,8 @@ export function SyncNotificationCenter({ propertyId, enterpriseId }: SyncNotific
     queryKey: ["/api/sync-notifications/unread-count", propertyId || enterpriseId],
     queryFn: async () => {
       if (!queryParams) return { count: 0 };
-      const res = await fetch(`/api/sync-notifications/unread-count?${queryParams}`, { headers: getAuthHeaders() });
+      const baseUrl = connectionManager.getBaseUrl();
+      const res = await fetch(`${baseUrl}/api/sync-notifications/unread-count?${queryParams}`, { headers: getAuthHeaders() });
       if (!res.ok) return { count: 0 };
       return res.json();
     },

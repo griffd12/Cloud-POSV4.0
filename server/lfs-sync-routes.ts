@@ -450,10 +450,10 @@ async function syncEntity(
         const cloudId = await resolveCloudId(id);
         const { id: _id, offlineTransactionId: _otxn, ...updateData } = remapped;
         return await storage.updateCheckPayment(cloudId, updateData as Parameters<typeof storage.updateCheckPayment>[1]);
-      } else if (operationType === "delete") {
+      } else if (operationType === "delete" || operationType === "void") {
         const id = remapped.id as string;
         const cloudId = await resolveCloudId(id);
-        return await storage.deleteCheckPayment(cloudId);
+        return await storage.updateCheckPayment(cloudId, { status: "voided" } as Parameters<typeof storage.updateCheckPayment>[1]);
       }
       throw new Error(`Unsupported operation for check_payment: ${operationType}`);
     }
