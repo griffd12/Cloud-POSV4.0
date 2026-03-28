@@ -1,8 +1,0 @@
-{
-  "cloudUrl": "https://your-cloud-pos.replit.app",
-  "serviceHostId": "your-service-host-uuid-from-emc",
-  "token": "your-service-host-token-from-emc",
-  "propertyId": "property-uuid-from-emc",
-  "port": 3001,
-  "dataDir": "./data"
-}
