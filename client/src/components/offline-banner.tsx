@@ -28,11 +28,7 @@ export function OfflineBanner() {
         const lfsUrl = connectionManager.localServerUrl;
         if (!lfsUrl) return;
         try {
-          const headers: Record<string, string> = {};
-          const apiKey = connectionManager.lfsApiKey;
-          if (apiKey) headers["X-LFS-API-Key"] = apiKey;
           const res = await fetch(`${lfsUrl}/api/lfs/journal/count`, {
-            headers,
             signal: AbortSignal.timeout(3000),
           });
           if (res.ok) {

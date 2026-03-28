@@ -221,6 +221,14 @@ export function initSqliteSchema(db: Database.Database): void {
 
     migrateJournalTable(db);
 
+    db.exec(`CREATE TABLE IF NOT EXISTS "lfs_id_remap" (
+      "local_id" TEXT PRIMARY KEY,
+      "cloud_id" TEXT NOT NULL,
+      "created_at" TEXT NOT NULL
+    )`);
+
+    migrateExistingTables(db);
+
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
@@ -265,5 +273,28 @@ function migrateJournalTable(db: Database.Database): void {
   }
   if (migrated > 0) {
     console.log(`[LFS] Migrated lfs_transaction_journal: added ${migrated} columns`);
+  }
+}
+
+function migrateExistingTables(db: Database.Database): void {
+  const tablesToMigrate: Array<{ table: string; column: string; def: string }> = [
+    { table: "checks", column: "offline_transaction_id", def: `ALTER TABLE "checks" ADD COLUMN "offline_transaction_id" TEXT` },
+    { table: "check_items", column: "offline_transaction_id", def: `ALTER TABLE "check_items" ADD COLUMN "offline_transaction_id" TEXT` },
+    { table: "check_payments", column: "offline_transaction_id", def: `ALTER TABLE "check_payments" ADD COLUMN "offline_transaction_id" TEXT` },
+  ];
+
+  let migrated = 0;
+  for (const m of tablesToMigrate) {
+    try {
+      const cols = db.pragma(`table_info("${m.table}")`) as Array<{ name: string }>;
+      const colNames = new Set(cols.map(c => c.name));
+      if (!colNames.has(m.column)) {
+        db.exec(m.def);
+        migrated++;
+      }
+    } catch { /* table may not exist yet */ }
+  }
+  if (migrated > 0) {
+    console.log(`[LFS] Added offline_transaction_id to ${migrated} existing table(s)`);
   }
 }
