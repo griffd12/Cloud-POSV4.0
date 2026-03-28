@@ -395,7 +395,13 @@ async function syncEntity(
     case "check": {
       if (operationType === "create") {
         const { id: localId, checkNumber: _offlineCheckNum, ...insertData } = dataWithOfflineId;
-        const created = await storage.createCheck(insertData as Parameters<typeof storage.createCheck>[0]);
+        const rvcId = insertData.rvcId as string;
+        const createFn = typeof (storage as Record<string, unknown>).createCheckAtomic === "function"
+          ? (storage as Record<string, Function>).createCheckAtomic.bind(storage)
+          : null;
+        const created = createFn && rvcId
+          ? await createFn(rvcId, insertData)
+          : await storage.createCheck(insertData as Parameters<typeof storage.createCheck>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
           await storeDurableRemap(localId, created.id);
