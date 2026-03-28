@@ -187,9 +187,8 @@ function registerLfsLocalRoutes(app: Express) {
 
   app.post("/api/lfs/reconcile-saf", async (_req: Request, res: Response) => {
     try {
-      const pendingPayments = await db.select()
-        .from(checkPayments)
-        .where(eq(checkPayments.paymentStatus, "pending_settlement"));
+      const allPayments = await storage.getAllPayments();
+      const pendingPayments = allPayments.filter(p => p.paymentStatus === "pending_settlement");
 
       if (pendingPayments.length === 0) {
         return res.json({ ok: true, total: 0, settled: 0, failed: 0, results: [] });

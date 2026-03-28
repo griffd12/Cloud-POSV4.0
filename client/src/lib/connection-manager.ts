@@ -249,6 +249,7 @@ class ConnectionManager {
         return;
       }
 
+      let safPending = 0;
       try {
         const reconRes = await fetch(`${lfsUrl}/api/lfs/reconcile-saf`, {
           method: "POST",
@@ -260,13 +261,21 @@ class ConnectionManager {
           if (reconData.settled > 0 || reconData.failed > 0) {
             console.log(`[ConnectionManager] SAF reconciliation: ${reconData.settled} settled, ${reconData.failed} failed of ${reconData.total}`);
           }
+          const stillPending = (reconData.results || []).filter((r: { status: string }) => r.status === "pending_settlement").length;
+          const failed = (reconData.results || []).filter((r: { status: string }) => r.status === "settlement_failed").length;
+          safPending = stillPending + failed;
         }
       } catch (e: unknown) {
         console.warn("[ConnectionManager] SAF reconciliation failed (non-critical):", e instanceof Error ? e.message : e);
       }
 
       this.syncRequired = false;
-      this.setState("cloud-online");
+      if (safPending > 0) {
+        console.warn(`[ConnectionManager] ${safPending} SAF payments unresolved — staying degraded`);
+        this.setState("cloud-degraded");
+      } else {
+        this.setState("cloud-online");
+      }
     } catch (e: unknown) {
       console.error("[ConnectionManager] Reconnection sync error:", e instanceof Error ? e.message : e);
       this.syncProgress = null;
