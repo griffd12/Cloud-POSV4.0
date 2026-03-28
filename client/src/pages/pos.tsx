@@ -40,7 +40,6 @@ import { SyncNotificationCenter } from "@/components/sync-notification-center";
 import { useToast } from "@/hooks/use-toast";
 import { useItemAvailability } from "@/hooks/use-item-availability";
 import { queryClient, apiRequest, getAuthHeaders, fetchWithTimeout } from "@/lib/queryClient";
-import { apiClient } from "@/lib/api-client";
 import { usePosContext } from "@/lib/pos-context";
 import { useDeviceContext } from "@/lib/device-context";
 import type { Slu, MenuItem, Check, CheckItem, CheckPayment, ModifierGroup, Modifier, Tender, OrderType, TaxGroup, PosLayout, PosLayoutCell, Discount } from "@shared/schema";
@@ -1304,7 +1303,7 @@ export default function PosPage() {
         const lockRes = await apiRequest("POST", `/api/checks/${checkId}/lock`, {
           workstationId,
           employeeId: currentEmployee.id,
-          lockMode: apiClient.getMode(),
+          lockMode: "cloud",
         }, wsHeaders());
         
         if (!lockRes.ok) {

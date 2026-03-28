@@ -252,6 +252,28 @@ function handlePosEvent(event: PosEvent) {
       });
       break;
 
+    case "config_update":
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = getKeyString(query.queryKey[0]);
+          return key.includes("/api/properties") ||
+            key.includes("/api/rvcs") ||
+            key.includes("/api/enterprises") ||
+            key.includes("/api/workstations") ||
+            key.includes("/api/pos-config") ||
+            key.includes("/api/menu-items") ||
+            key.includes("/api/slus") ||
+            key.includes("/api/modifier") ||
+            key.includes("/api/tenders") ||
+            key.includes("/api/order-types") ||
+            key.includes("/api/tax") ||
+            key.includes("/api/discounts") ||
+            key.includes("/api/service-charges") ||
+            key.includes("/api/pos-layouts");
+        }
+      });
+      break;
+
     case "inventory_update":
       queryClient.invalidateQueries({
         predicate: (query) => {
