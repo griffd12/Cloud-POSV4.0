@@ -1,17 +1,22 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import { db } from "./db";
-import { checks, checkItems, checkPayments, checkDiscounts, checkServiceCharges, rounds } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { checks, checkItems, checkPayments } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { getConfigSyncService } from "./config-sync";
 
 const isLocalMode = process.env.DB_MODE === "local";
 
 function requireLfsApiKey(req: Request, res: Response, next: NextFunction) {
   const expectedKey = process.env.LFS_API_KEY;
   if (!expectedKey) {
+    if (!isLocalMode) {
+      console.warn("[LFS Sync] LFS_API_KEY not configured — sync routes are unprotected");
+    }
     return next();
   }
-  const provided = req.headers["x-lfs-api-key"] || req.headers["authorization"]?.replace("Bearer ", "");
+  const provided = req.headers["x-lfs-api-key"] as string | undefined
+    || (req.headers["authorization"] as string | undefined)?.replace("Bearer ", "");
   if (provided !== expectedKey) {
     return res.status(403).json({ error: "Invalid or missing LFS API key" });
   }
@@ -26,42 +31,69 @@ export function registerLfsSyncRoutes(app: Express) {
   }
 }
 
+interface JournalCapableStorage {
+  getPendingTransactions(): unknown[];
+  getPendingTransactionCount(): number;
+  markTransactionSynced(id: string): void;
+}
+
+function hasJournalMethods(s: unknown): s is JournalCapableStorage {
+  const obj = s as Record<string, unknown>;
+  return typeof obj.getPendingTransactions === "function"
+    && typeof obj.getPendingTransactionCount === "function"
+    && typeof obj.markTransactionSynced === "function";
+}
+
 function registerLfsLocalRoutes(app: Express) {
-  const sqliteStorage = storage as any;
+  if (!hasJournalMethods(storage)) {
+    console.error("[LFS Sync] Storage does not support journal methods");
+    return;
+  }
+  const journalStorage = storage;
 
   app.get("/api/lfs/journal/pending", async (_req: Request, res: Response) => {
     try {
-      const entries = sqliteStorage.getPendingTransactions();
-      const count = sqliteStorage.getPendingTransactionCount();
+      const entries = journalStorage.getPendingTransactions();
+      const count = journalStorage.getPendingTransactionCount();
       res.json({ entries, count });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
     }
   });
 
   app.get("/api/lfs/journal/count", async (_req: Request, res: Response) => {
     try {
-      const count = sqliteStorage.getPendingTransactionCount();
+      const count = journalStorage.getPendingTransactionCount();
       res.json({ count });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
     }
   });
 
   app.post("/api/lfs/journal/:id/synced", async (req: Request, res: Response) => {
     try {
-      sqliteStorage.markTransactionSynced(req.params.id);
+      journalStorage.markTransactionSynced(req.params.id);
       res.json({ ok: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
     }
   });
 
   app.post("/api/lfs/sync/config-down", async (_req: Request, res: Response) => {
     try {
-      res.json({ ok: true, message: "Config sync triggered on LFS" });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      const syncService = getConfigSyncService();
+      if (syncService) {
+        await syncService.runInitialSync();
+        res.json({ ok: true, message: "Config sync completed" });
+      } else {
+        res.json({ ok: false, message: "Config sync service not available" });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
     }
   });
 }
@@ -86,9 +118,10 @@ function registerLfsCloudRoutes(app: Express) {
 
       const result = await syncEntity(entry.entity_type, entry.operation_type || entry.operationType, payload, offlineTransactionId);
       res.json({ ok: true, result });
-    } catch (e: any) {
-      console.error("[LFS Sync] Transaction upload error:", e.message);
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      console.error("[LFS Sync] Transaction upload error:", msg);
+      res.status(500).json({ error: msg });
     }
   });
 
@@ -120,14 +153,16 @@ function registerLfsCloudRoutes(app: Express) {
             offlineTransactionId
           );
           results.push({ id: entry.id, ok: true, result });
-        } catch (e: any) {
-          results.push({ id: entry.id, ok: false, error: e.message });
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : "Unknown error";
+          results.push({ id: entry.id, ok: false, error: msg });
         }
       }
 
       res.json({ ok: true, results });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
     }
   });
 }
@@ -161,7 +196,9 @@ async function checkDuplicate(entityType: string, offlineTransactionId: string):
       default:
         return null;
     }
-  } catch {
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    console.error(`[LFS Sync] Dedup check failed for ${entityType}/${offlineTransactionId}: ${msg}`);
     return null;
   }
 }
@@ -169,9 +206,9 @@ async function checkDuplicate(entityType: string, offlineTransactionId: string):
 async function syncEntity(
   entityType: string,
   operationType: string,
-  payload: any,
+  payload: Record<string, unknown>,
   offlineTransactionId?: string,
-): Promise<any> {
+): Promise<unknown> {
   const dataWithOfflineId = offlineTransactionId
     ? { ...payload, offlineTransactionId }
     : payload;

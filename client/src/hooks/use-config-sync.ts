@@ -157,8 +157,28 @@ export function useConfigSync() {
     isUnmountedRef.current = false;
     connect();
 
+    const unsubscribe = connectionManager.subscribe((newState, prevState) => {
+      if (isUnmountedRef.current) return;
+      const wasOffline = prevState === "cloud-offline" || prevState === "reconnecting";
+      const isOnline = newState === "cloud-online";
+      const wentOffline = newState === "cloud-offline" && prevState !== "cloud-offline";
+      if ((wasOffline && isOnline) || wentOffline) {
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        if (wsRef.current) {
+          activeConnectionIdRef.current = -1;
+          wsRef.current.close();
+          wsRef.current = null;
+        }
+        connect();
+      }
+    });
+
     return () => {
       isUnmountedRef.current = true;
+      unsubscribe();
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;

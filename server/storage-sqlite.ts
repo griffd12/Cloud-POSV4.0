@@ -700,7 +700,19 @@ export class SqliteDatabaseStorage implements IStorage {
     if (!checkIds.length) return [];
     return this.getAll("check_service_charges", `check_id IN (${checkIds.map(() => "?").join(",")})`, checkIds);
   }
-  async createCheckServiceCharge(data: InsertCheckServiceCharge): Promise<CheckServiceCharge> { return this.insertOne("check_service_charges", { ...data }); }
+  async createCheckServiceCharge(data: InsertCheckServiceCharge): Promise<CheckServiceCharge> {
+    const result = await this.insertOne("check_service_charges", { ...data });
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "check_service_charge",
+      entityId: result.id,
+      httpMethod: "POST",
+      endpoint: `/api/check-service-charges`,
+      payload: result,
+      offlineTransactionId: crypto.randomUUID(),
+    });
+    return result;
+  }
   async voidCheckServiceCharge(id: string, voidedByEmployeeId: string, voidReason?: string): Promise<CheckServiceCharge | undefined> {
     return this.updateOne("check_service_charges", id, { isVoided: true, voidedByEmployeeId, voidReason, voidedAt: new Date().toISOString() } as any);
   }
@@ -726,10 +738,24 @@ export class SqliteDatabaseStorage implements IStorage {
     return this.getAll("checks", "rvc_id = ? AND status = 'open'", [rvcId]);
   }
 
-  async createCheck(data: InsertCheck): Promise<Check> { return this.insertOne("checks", { ...data }); }
+  async createCheck(data: InsertCheck): Promise<Check> {
+    const offlineTxnId = crypto.randomUUID();
+    const result = await this.insertOne("checks", { ...data, offlineTransactionId: offlineTxnId });
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "check",
+      entityId: result.id,
+      httpMethod: "POST",
+      endpoint: "/api/checks",
+      payload: result,
+      offlineTransactionId: offlineTxnId,
+    });
+    return result;
+  }
 
   async createCheckAtomic(rvcId: string, data: Omit<InsertCheck, 'checkNumber'>): Promise<Check> {
-    const workstationId = (data as any).workstationId;
+    const dataRecord = data as Record<string, unknown>;
+    const workstationId = typeof dataRecord.workstationId === "string" ? dataRecord.workstationId : undefined;
     let checkNumber: number;
 
     if (workstationId) {
@@ -743,10 +769,35 @@ export class SqliteDatabaseStorage implements IStorage {
       checkNumber = await this.getNextCheckNumber(rvcId);
     }
 
-    return this.insertOne("checks", { ...data, rvcId, checkNumber });
+    const offlineTxnId = crypto.randomUUID();
+    const result = await this.insertOne("checks", { ...data, rvcId, checkNumber, offlineTransactionId: offlineTxnId });
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "check",
+      entityId: result.id,
+      httpMethod: "POST",
+      endpoint: "/api/checks",
+      payload: result,
+      offlineTransactionId: offlineTxnId,
+    });
+    return result;
   }
 
-  async updateCheck(id: string, data: Partial<Check>): Promise<Check | undefined> { return this.updateOne("checks", id, data); }
+  async updateCheck(id: string, data: Partial<Check>): Promise<Check | undefined> {
+    const result = await this.updateOne("checks", id, data);
+    if (result) {
+      this.recordTransaction({
+        operationType: "update",
+        entityType: "check",
+        entityId: id,
+        httpMethod: "PATCH",
+        endpoint: `/api/checks/${id}`,
+        payload: { id, ...data },
+        offlineTransactionId: result.offlineTransactionId || crypto.randomUUID(),
+      });
+    }
+    return result;
+  }
   async deleteCheck(id: string): Promise<boolean> { return this.deleteOne("checks", id); }
 
   async getNextCheckNumber(rvcId: string): Promise<number> {
@@ -847,8 +898,35 @@ export class SqliteDatabaseStorage implements IStorage {
   // ========================================================================
   async getCheckItems(checkId: string): Promise<CheckItem[]> { return this.getAll("check_items", "check_id = ?", [checkId]); }
   async getCheckItem(id: string): Promise<CheckItem | undefined> { return this.getById("check_items", id); }
-  async createCheckItem(data: InsertCheckItem): Promise<CheckItem> { return this.insertOne("check_items", { ...data }); }
-  async updateCheckItem(id: string, data: Partial<CheckItem>): Promise<CheckItem | undefined> { return this.updateOne("check_items", id, data); }
+  async createCheckItem(data: InsertCheckItem): Promise<CheckItem> {
+    const offlineTxnId = crypto.randomUUID();
+    const result = await this.insertOne("check_items", { ...data, offlineTransactionId: offlineTxnId });
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "check_item",
+      entityId: result.id,
+      httpMethod: "POST",
+      endpoint: `/api/check-items`,
+      payload: result,
+      offlineTransactionId: offlineTxnId,
+    });
+    return result;
+  }
+  async updateCheckItem(id: string, data: Partial<CheckItem>): Promise<CheckItem | undefined> {
+    const result = await this.updateOne("check_items", id, data);
+    if (result) {
+      this.recordTransaction({
+        operationType: "update",
+        entityType: "check_item",
+        entityId: id,
+        httpMethod: "PATCH",
+        endpoint: `/api/check-items/${id}`,
+        payload: { id, ...data },
+        offlineTransactionId: result.offlineTransactionId || crypto.randomUUID(),
+      });
+    }
+    return result;
+  }
   async deleteCheckItem(id: string): Promise<boolean> { return this.deleteOne("check_items", id); }
 
   // ========================================================================
@@ -856,13 +934,37 @@ export class SqliteDatabaseStorage implements IStorage {
   // ========================================================================
   async getCheckDiscounts(checkId: string): Promise<CheckDiscount[]> { return this.getAll("check_discounts", "check_id = ?", [checkId]); }
   async getCheckDiscount(id: string): Promise<CheckDiscount | undefined> { return this.getById("check_discounts", id); }
-  async createCheckDiscount(data: InsertCheckDiscount): Promise<CheckDiscount> { return this.insertOne("check_discounts", { ...data }); }
+  async createCheckDiscount(data: InsertCheckDiscount): Promise<CheckDiscount> {
+    const result = await this.insertOne("check_discounts", { ...data });
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "check_discount",
+      entityId: result.id,
+      httpMethod: "POST",
+      endpoint: `/api/check-discounts`,
+      payload: result,
+      offlineTransactionId: crypto.randomUUID(),
+    });
+    return result;
+  }
   async deleteCheckDiscount(id: string): Promise<boolean> { return this.deleteOne("check_discounts", id); }
 
   // ========================================================================
   // ROUNDS
   // ========================================================================
-  async createRound(data: InsertRound): Promise<Round> { return this.insertOne("rounds", { ...data }); }
+  async createRound(data: InsertRound): Promise<Round> {
+    const result = await this.insertOne("rounds", { ...data });
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "round",
+      entityId: result.id,
+      httpMethod: "POST",
+      endpoint: `/api/rounds`,
+      payload: result,
+      offlineTransactionId: crypto.randomUUID(),
+    });
+    return result;
+  }
   async getRounds(checkId: string): Promise<Round[]> { return this.getAll("rounds", "check_id = ?", [checkId]); }
 
   // ========================================================================
@@ -893,7 +995,20 @@ export class SqliteDatabaseStorage implements IStorage {
   // ========================================================================
   // PAYMENTS
   // ========================================================================
-  async createPayment(data: InsertCheckPayment): Promise<CheckPayment> { return this.insertOne("check_payments", { ...data }); }
+  async createPayment(data: InsertCheckPayment): Promise<CheckPayment> {
+    const offlineTxnId = crypto.randomUUID();
+    const result = await this.insertOne("check_payments", { ...data, offlineTransactionId: offlineTxnId });
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "check_payment",
+      entityId: result.id,
+      httpMethod: "POST",
+      endpoint: `/api/check-payments`,
+      payload: result,
+      offlineTransactionId: offlineTxnId,
+    });
+    return result;
+  }
   async getPayments(checkId: string): Promise<CheckPayment[]> { return this.getAll("check_payments", "check_id = ?", [checkId]); }
   async getAllPayments(): Promise<CheckPayment[]> { return this.getAll("check_payments"); }
   async updateCheckPayment(id: string, data: Partial<CheckPayment>): Promise<CheckPayment | undefined> { return this.updateOne("check_payments", id, data); }

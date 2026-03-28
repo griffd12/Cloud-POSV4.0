@@ -127,9 +127,29 @@ export function usePosWebSocket() {
 
     connect();
 
+    const unsubscribe = connectionManager.subscribe((newState, prevState) => {
+      if (isUnmountedRef.current) return;
+      const wasOffline = prevState === "cloud-offline" || prevState === "reconnecting";
+      const isOnline = newState === "cloud-online";
+      const wentOffline = newState === "cloud-offline" && prevState !== "cloud-offline";
+      if ((wasOffline && isOnline) || wentOffline) {
+        reconnectAttemptRef.current = 0;
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        if (wsRef.current) {
+          try { wsRef.current.close(); } catch { /* ignore */ }
+          wsRef.current = null;
+        }
+        connect();
+      }
+    });
+
     return () => {
       isUnmountedRef.current = true;
       connIdRef.current++;
+      unsubscribe();
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
