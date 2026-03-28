@@ -95,7 +95,12 @@ function registerLfsLocalRoutes(app: Express) {
       const syncService = getConfigSyncService();
       if (syncService) {
         await syncService.runInitialSync();
-        res.json({ ok: true, message: "Config sync completed" });
+        const status = syncService.getStatus();
+        if (status.lastSyncError) {
+          res.json({ ok: false, message: `Config sync failed: ${status.lastSyncError}` });
+        } else {
+          res.json({ ok: true, message: "Config sync completed" });
+        }
       } else {
         res.json({ ok: false, message: "Config sync service not available" });
       }
@@ -106,9 +111,9 @@ function registerLfsLocalRoutes(app: Express) {
   });
 
   app.post("/api/lfs/sync/push-to-cloud", async (req: Request, res: Response) => {
-    const cloudUrl = process.env.CLOUD_SERVER_URL || "";
+    const cloudUrl = process.env.LFS_CLOUD_URL || "";
     if (!cloudUrl) {
-      return res.status(400).json({ error: "CLOUD_SERVER_URL env must be configured on LFS" });
+      return res.status(400).json({ error: "LFS_CLOUD_URL env must be configured on LFS" });
     }
     const apiKey = process.env.LFS_API_KEY || "";
 
@@ -440,6 +445,15 @@ async function syncEntity(
           await storeDurableRemap(localId, created.id);
         }
         return created;
+      } else if (operationType === "update") {
+        const id = remapped.id as string;
+        const cloudId = await resolveCloudId(id);
+        const { id: _id, offlineTransactionId: _otxn, ...updateData } = remapped;
+        return await storage.updateCheckPayment(cloudId, updateData as Parameters<typeof storage.updateCheckPayment>[1]);
+      } else if (operationType === "delete") {
+        const id = remapped.id as string;
+        const cloudId = await resolveCloudId(id);
+        return await storage.deleteCheckPayment(cloudId);
       }
       throw new Error(`Unsupported operation for check_payment: ${operationType}`);
     }

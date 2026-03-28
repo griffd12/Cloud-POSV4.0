@@ -1080,7 +1080,21 @@ export class SqliteDatabaseStorage implements IStorage {
   }
   async getPayments(checkId: string): Promise<CheckPayment[]> { return this.getAll("check_payments", "check_id = ?", [checkId]); }
   async getAllPayments(): Promise<CheckPayment[]> { return this.getAll("check_payments"); }
-  async updateCheckPayment(id: string, data: Partial<CheckPayment>): Promise<CheckPayment | undefined> { return this.updateOne("check_payments", id, data); }
+  async updateCheckPayment(id: string, data: Partial<CheckPayment>): Promise<CheckPayment | undefined> {
+    const result = await this.updateOne("check_payments", id, data);
+    if (result) {
+      this.recordTransaction({
+        operationType: "update",
+        entityType: "check_payment",
+        entityId: id,
+        httpMethod: "PATCH",
+        endpoint: `/api/checks/payments/${id}`,
+        payload: data as Record<string, unknown>,
+        offlineTransactionId: (data as Record<string, unknown>).offlineTransactionId as string || crypto.randomUUID(),
+      });
+    }
+    return result;
+  }
   async getAllCheckItems(): Promise<CheckItem[]> { return this.getAll("check_items"); }
 
   // ========================================================================
