@@ -156,7 +156,17 @@ export class ConfigSyncService {
   }
 
   private async syncTable(tableName: string): Promise<void> {
-    const url = `${this.config.cloudBaseUrl}/api/lfs/sync/${tableName}?propertyId=${this.config.propertyId}`;
+    const syncStatus = this.db.prepare(
+      `SELECT last_synced_at, record_count FROM "lfs_sync_status" WHERE table_name = ?`
+    ).get(tableName) as { last_synced_at: string; record_count: number } | undefined;
+
+    const lastSyncedAt = syncStatus?.last_synced_at || null;
+
+    let url = `${this.config.cloudBaseUrl}/api/lfs/sync/${tableName}?propertyId=${this.config.propertyId}`;
+    if (lastSyncedAt) {
+      url += `&since=${encodeURIComponent(lastSyncedAt)}`;
+    }
+
     const response = await fetch(url, {
       headers: {
         "Authorization": `Bearer ${this.config.apiKey}`,
@@ -168,44 +178,70 @@ export class ConfigSyncService {
       throw new Error(`Failed to sync ${tableName}: ${response.status} ${response.statusText}`);
     }
 
-    const { rows, columns } = await response.json() as { rows: any[]; columns: string[] };
+    const { rows, columns, incremental } = await response.json() as { rows: any[]; columns: string[]; incremental?: boolean };
 
     this.db.exec("BEGIN TRANSACTION");
     try {
-      this.db.prepare(`DELETE FROM "${tableName}"`).run();
+      if (!incremental) {
+        this.db.prepare(`DELETE FROM "${tableName}"`).run();
+      }
 
       if (!rows || !rows.length) {
-        this.db.prepare(
-          `INSERT OR REPLACE INTO "lfs_sync_status" (table_name, last_synced_at, record_count) VALUES (?, ?, ?)`,
-        ).run(tableName, new Date().toISOString(), 0);
+        if (!incremental) {
+          this.db.prepare(
+            `INSERT OR REPLACE INTO "lfs_sync_status" (table_name, last_synced_at, record_count) VALUES (?, ?, ?)`,
+          ).run(tableName, new Date().toISOString(), 0);
+        }
         this.db.exec("COMMIT");
         return;
       }
 
       const placeholders = columns.map(() => "?").join(", ");
       const quotedCols = columns.map((c) => `"${c}"`).join(", ");
-      const stmt = this.db.prepare(`INSERT INTO "${tableName}" (${quotedCols}) VALUES (${placeholders})`);
 
-      for (const row of rows) {
-        const values = columns.map((col) => {
-          const val = row[col];
-          if (val === null || val === undefined) return null;
-          if (typeof val === "boolean") return val ? 1 : 0;
-          if (typeof val === "object") return JSON.stringify(val);
-          return val;
-        });
-        stmt.run(...values);
+      if (incremental) {
+        const idCol = columns.includes("id") ? "id" : null;
+        if (idCol) {
+          const upsertConflict = `ON CONFLICT ("${idCol}") DO UPDATE SET ${columns.filter(c => c !== idCol).map(c => `"${c}" = excluded."${c}"`).join(", ")}`;
+          const stmt = this.db.prepare(`INSERT INTO "${tableName}" (${quotedCols}) VALUES (${placeholders}) ${upsertConflict}`);
+          for (const row of rows) {
+            stmt.run(...this.rowToValues(row, columns));
+          }
+        } else {
+          const stmt = this.db.prepare(`INSERT OR REPLACE INTO "${tableName}" (${quotedCols}) VALUES (${placeholders})`);
+          for (const row of rows) {
+            stmt.run(...this.rowToValues(row, columns));
+          }
+        }
+      } else {
+        const stmt = this.db.prepare(`INSERT INTO "${tableName}" (${quotedCols}) VALUES (${placeholders})`);
+        for (const row of rows) {
+          stmt.run(...this.rowToValues(row, columns));
+        }
       }
 
+      const newCount = incremental
+        ? (this.db.prepare(`SELECT COUNT(*) as cnt FROM "${tableName}"`).get() as any)?.cnt || rows.length
+        : rows.length;
       this.db.prepare(
         `INSERT OR REPLACE INTO "lfs_sync_status" (table_name, last_synced_at, record_count) VALUES (?, ?, ?)`,
-      ).run(tableName, new Date().toISOString(), rows.length);
+      ).run(tableName, new Date().toISOString(), newCount);
 
       this.db.exec("COMMIT");
     } catch (e) {
       this.db.exec("ROLLBACK");
       throw e;
     }
+  }
+
+  private rowToValues(row: any, columns: string[]): unknown[] {
+    return columns.map((col) => {
+      const val = row[col];
+      if (val === null || val === undefined) return null;
+      if (typeof val === "boolean") return val ? 1 : 0;
+      if (typeof val === "object") return JSON.stringify(val);
+      return val;
+    });
   }
 }
 

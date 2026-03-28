@@ -202,8 +202,64 @@ async function ensureCloudRemapTable(): Promise<void> {
 
 let remapTableReady = false;
 
+const ALLOWED_CONFIG_TABLES = new Set([
+  "enterprises", "properties", "rvcs", "roles", "role_privileges", "role_rules",
+  "privileges", "employees", "employee_assignments", "major_groups", "family_groups",
+  "slus", "menu_item_slus", "tax_groups", "print_classes", "workstations", "printers",
+  "kds_devices", "order_devices", "order_device_printers", "order_device_kds",
+  "workstation_order_devices", "print_class_routing", "menu_items", "modifier_groups",
+  "modifiers", "modifier_group_modifiers", "menu_item_modifier_groups",
+  "ingredient_prefixes", "menu_item_recipe_ingredients", "tenders", "discounts",
+  "service_charges", "pos_layouts", "pos_layout_cells", "pos_layout_rvc_assignments",
+  "job_codes", "employee_job_codes", "descriptor_sets", "descriptor_logo_assets",
+  "payment_processors", "payment_gateway_config", "overtime_rules", "break_rules",
+  "minor_labor_rules", "tip_pool_policies", "tip_rules", "tip_rule_job_percentages",
+  "loyalty_programs", "loyalty_rewards", "emc_option_flags",
+]);
+
 function registerLfsCloudRoutes(app: Express) {
   ensureCloudRemapTable().then(() => { remapTableReady = true; }).catch(() => {});
+
+  app.get("/api/lfs/sync/:tableName", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const tableName = req.params.tableName;
+      if (!ALLOWED_CONFIG_TABLES.has(tableName)) {
+        return res.status(400).json({ error: `Table '${tableName}' is not allowed for config sync` });
+      }
+      const propertyId = req.query.propertyId as string | undefined;
+      const since = req.query.since as string | undefined;
+
+      const colsResult = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name = ${tableName}`);
+      const allCols = new Set((colsResult.rows || []).map((r: any) => r.column_name as string));
+      const hasPropertyId = allCols.has("property_id");
+      const hasUpdatedAt = allCols.has("updated_at");
+
+      let incremental = false;
+      let result;
+      if (since && hasUpdatedAt) {
+        incremental = true;
+        if (propertyId && hasPropertyId) {
+          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "property_id" = ${propertyId} AND "updated_at" > ${since}`);
+        } else {
+          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "updated_at" > ${since}`);
+        }
+      } else {
+        if (propertyId && hasPropertyId) {
+          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "property_id" = ${propertyId}`);
+        } else {
+          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)}`);
+        }
+      }
+      const rows = result.rows || [];
+      const columns = rows.length > 0 ? Object.keys(rows[0] as Record<string, unknown>) : [];
+      res.json({ rows, columns, incremental });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      console.error(`[LFS Sync] Config export error:`, msg);
+      res.status(500).json({ error: msg });
+    }
+  });
+
   app.post("/api/lfs/sync/transaction-up", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
       const entry = req.body;
@@ -459,7 +515,7 @@ async function syncEntity(
       } else if (operationType === "delete" || operationType === "void") {
         const id = remapped.id as string;
         const cloudId = await resolveCloudId(id);
-        return await storage.updateCheckPayment(cloudId, { status: "voided" } as Parameters<typeof storage.updateCheckPayment>[1]);
+        return await storage.updateCheckPayment(cloudId, { paymentStatus: "voided" } as Parameters<typeof storage.updateCheckPayment>[1]);
       }
       throw new Error(`Unsupported operation for check_payment: ${operationType}`);
     }
