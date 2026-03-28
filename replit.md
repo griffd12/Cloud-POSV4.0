@@ -40,7 +40,24 @@ All POS operations go directly to the cloud Express server and commit to Postgre
 ### Technical Stack
 - **Frontend**: React 18, TypeScript, Vite, Wouter, TanStack React Query, React Context, shadcn/ui, Tailwind CSS.
 - **Backend**: Node.js, Express, TypeScript, RESTful JSON API with WebSocket.
-- **Database**: PostgreSQL with Drizzle ORM.
+- **Database**: PostgreSQL with Drizzle ORM (cloud), SQLite via better-sqlite3 (local failover).
+
+### Local Failover Server (LFS) Architecture
+The same Express codebase runs against either PostgreSQL (cloud) or SQLite (local) based on `DB_MODE` env var.
+
+- **DB_MODE=local**: Server uses SQLite (better-sqlite3) via `SqliteDatabaseStorage`. Single LFS per property serves all workstations on LAN.
+- **DB_MODE unset/cloud**: Normal cloud PostgreSQL mode via `DatabaseStorage` with Drizzle ORM.
+- **Key Files**:
+  - `server/db.ts` — DB factory: conditionally initializes PG pool or SQLite connection
+  - `server/sqlite-init.ts` — Auto-generates SQLite schema from PG Drizzle table definitions (no manual SQL)
+  - `server/storage-sqlite.ts` — Full `IStorage` implementation using raw SQL against SQLite
+  - `server/config-sync.ts` — Background service that pulls config from cloud API to local SQLite
+- **Schema-Driven Column Filtering**: `insertOne()` and `updateOne()` automatically filter out keys that don't exist as columns on the target SQLite table, so passing extra fields (e.g. `propertyId` on a table without that column) is safely ignored.
+- **Offline Check Numbering**: Each workstation has configurable offline check number ranges (`lfs_offline_sequence` table) to prevent collisions between workstations.
+- **Transaction Journal**: `lfs_transaction_journal` table tracks all write operations for later sync-up to cloud.
+- **Config Sync**: Runs on configurable interval (default 60s). Syncs config DOWN first (menu, employees, tax, tenders, discounts), then transactions UP.
+- **Health Endpoint**: `GET /api/health` returns mode, database type, and sync status.
+- **Env Vars for LFS**: `DB_MODE=local`, `SQLITE_PATH`, `LFS_CLOUD_URL`, `LFS_API_KEY`, `LFS_PROPERTY_ID`, `LFS_SYNC_INTERVAL_MS`.
 
 ### Key Features
 - **Device Configuration**: Hierarchical setup for Workstations, Printers, KDS.

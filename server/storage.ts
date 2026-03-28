@@ -6920,4 +6920,18 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-export const storage = new DatabaseStorage();
+import { isLocalMode, sqliteDb } from "./db";
+import { SqliteDatabaseStorage } from "./storage-sqlite";
+import { initSqliteSchema } from "./sqlite-init";
+
+function createStorage(): IStorage {
+  if (isLocalMode && sqliteDb) {
+    initSqliteSchema(sqliteDb);
+    console.log("[LFS] Using SQLite storage (local mode)");
+    return new SqliteDatabaseStorage(sqliteDb);
+  }
+  console.log("[Cloud] Using PostgreSQL storage");
+  return new DatabaseStorage();
+}
+
+export const storage = createStorage();

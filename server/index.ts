@@ -5,6 +5,8 @@ import { createServer } from "http";
 import { startFiscalScheduler } from "./fiscalScheduler";
 import { startAlertEngine } from "./alertEngine";
 import { storage } from "./storage";
+import { isLocalMode, sqliteDb } from "./db";
+import { startConfigSync, getConfigSyncService } from "./config-sync";
 import path from "path";
 
 const app = express();
@@ -66,7 +68,24 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get("/api/health", (_req, res) => {
+  const syncService = getConfigSyncService();
+  res.json({
+    status: "ok",
+    mode: isLocalMode ? "local" : "cloud",
+    database: isLocalMode ? "sqlite" : "postgresql",
+    timestamp: new Date().toISOString(),
+    ...(isLocalMode && syncService ? { sync: syncService.getStatus() } : {}),
+  });
+});
+
 (async () => {
+  if (isLocalMode) {
+    log("Starting in LOCAL FAILOVER SERVER mode (SQLite)", "lfs");
+  } else {
+    log("Starting in CLOUD mode (PostgreSQL)", "cloud");
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -100,8 +119,13 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
-      startFiscalScheduler();
-      startAlertEngine(storage);
+      if (isLocalMode && sqliteDb) {
+        startConfigSync(sqliteDb);
+        log("Local Failover Server ready", "lfs");
+      } else {
+        startFiscalScheduler();
+        startAlertEngine(storage);
+      }
     },
   );
 })();
