@@ -83,16 +83,39 @@ function registerLfsLocalRoutes(app: Express) {
   app.get("/api/lfs/capabilities", async (_req: Request, res: Response) => {
     try {
       const cloudUrl = process.env.LFS_CLOUD_URL || "";
+      let cloudReachable = false;
       let internetAvailable = false;
-      if (cloudUrl) {
+
+      const internetProbe = async () => {
         try {
-          const ctrl = new AbortController();
-          const tid = setTimeout(() => ctrl.abort(), 3000);
-          await fetch(`${cloudUrl}/api/health`, { signal: ctrl.signal });
-          clearTimeout(tid);
-          internetAvailable = true;
-        } catch { internetAvailable = false; }
-      }
+          await fetch("https://dns.google/resolve?name=example.com", {
+            signal: AbortSignal.timeout(3000),
+          });
+          return true;
+        } catch {
+          try {
+            await fetch("https://1.1.1.1/dns-query?name=example.com&type=A", {
+              headers: { accept: "application/dns-json" },
+              signal: AbortSignal.timeout(3000),
+            });
+            return true;
+          } catch {
+            return false;
+          }
+        }
+      };
+
+      const cloudProbe = async () => {
+        if (!cloudUrl) return false;
+        try {
+          await fetch(`${cloudUrl}/api/health`, { signal: AbortSignal.timeout(3000) });
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      [internetAvailable, cloudReachable] = await Promise.all([internetProbe(), cloudProbe()]);
 
       res.json({
         mode: "local",
@@ -104,6 +127,7 @@ function registerLfsLocalRoutes(app: Express) {
           reporting: false,
         },
         internetAvailable,
+        cloudReachable,
         cloudUrl: cloudUrl || null,
         paymentCapabilities: {
           cashPayments: true,
@@ -122,25 +146,27 @@ function registerLfsLocalRoutes(app: Express) {
     try {
       const cloudUrl = process.env.LFS_CLOUD_URL || "";
       let cloudReachable = false;
-      if (cloudUrl) {
-        try {
-          const ctrl = new AbortController();
-          const tid = setTimeout(() => ctrl.abort(), 3000);
-          const resp = await fetch(`${cloudUrl}/api/health`, { signal: ctrl.signal });
-          clearTimeout(tid);
-          cloudReachable = resp.ok;
-        } catch { cloudReachable = false; }
-      }
+      let internetAvailable = false;
+
+      const checks = await Promise.allSettled([
+        cloudUrl ? fetch(`${cloudUrl}/api/health`, { signal: AbortSignal.timeout(3000) }).then(r => r.ok) : Promise.resolve(false),
+        fetch("https://dns.google/resolve?name=example.com", { signal: AbortSignal.timeout(3000) }).then(() => true).catch(() => false),
+      ]);
+      cloudReachable = checks[0].status === "fulfilled" && checks[0].value === true;
+      internetAvailable = checks[1].status === "fulfilled" && checks[1].value === true;
 
       res.json({
         localMode: true,
         cloudReachable,
+        internetAvailable,
         cashAvailable: true,
         cardAvailable: true,
-        cardMode: cloudReachable ? "online" : "store_and_forward",
-        message: cloudReachable
-          ? "Processing payments normally via cloud"
-          : "Card payments handled by terminal store-and-forward. Settlements will sync when cloud reconnects.",
+        cardMode: internetAvailable ? "online" : "store_and_forward",
+        message: internetAvailable
+          ? (cloudReachable
+              ? "Processing payments normally via cloud"
+              : "Cloud unavailable but internet up — processing card payments directly via processor")
+          : "Internet down — card payments handled by terminal store-and-forward. Settlements will sync when connectivity restores.",
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
@@ -211,6 +237,38 @@ function registerLfsLocalRoutes(app: Express) {
 
       for (const payment of pendingPayments) {
         try {
+          let settlementStatus: "confirmed" | "failed" | "pending" = "pending";
+          let settlementTransactionId = payment.paymentTransactionId;
+
+          if (payment.paymentTransactionId) {
+            try {
+              const verifyRes = await fetch(`${cloudUrl}/api/lfs/sync/verify-processor-settlement`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(apiKey ? { "x-lfs-api-key": apiKey } : {}),
+                },
+                body: JSON.stringify({
+                  transactionId: payment.paymentTransactionId,
+                  amount: payment.amount,
+                  tenderId: payment.tenderId,
+                }),
+                signal: AbortSignal.timeout(10000),
+              });
+              if (verifyRes.ok) {
+                const verifyData = await verifyRes.json();
+                if (verifyData.verified) {
+                  settlementStatus = "confirmed";
+                  settlementTransactionId = verifyData.transactionId || payment.paymentTransactionId;
+                } else if (verifyData.declined) {
+                  settlementStatus = "failed";
+                }
+              }
+            } catch {
+              settlementStatus = "pending";
+            }
+          }
+
           const settleRes = await fetch(`${cloudUrl}/api/lfs/sync/settle-payment`, {
             method: "POST",
             headers: {
@@ -220,7 +278,8 @@ function registerLfsLocalRoutes(app: Express) {
             body: JSON.stringify({
               paymentId: payment.id,
               offlineTransactionId: payment.offlineTransactionId,
-              settlementTransactionId: payment.paymentTransactionId,
+              settlementTransactionId,
+              settlementStatus,
               amount: payment.amount,
               checkId: payment.checkId,
               tenderId: payment.tenderId,
@@ -555,6 +614,42 @@ function registerLfsCloudRoutes(app: Express) {
     }
   });
 
+  app.post("/api/lfs/sync/verify-processor-settlement", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const { transactionId, amount, tenderId } = req.body;
+      if (!transactionId) {
+        return res.status(400).json({ error: "transactionId is required" });
+      }
+
+      try {
+        const { getPaymentAdapter } = await import("./payments/registry");
+        const adapter = await getPaymentAdapter(tenderId);
+
+        if (adapter && typeof adapter.verifyTransaction === "function") {
+          const verification = await adapter.verifyTransaction(transactionId, amount);
+          return res.json({
+            verified: verification.settled === true,
+            declined: verification.declined === true,
+            transactionId: verification.transactionId || transactionId,
+            processorResponse: verification.message,
+          });
+        }
+      } catch (adapterErr) {
+        console.warn(`[SAF Verify] Adapter lookup failed for tender ${tenderId}: ${adapterErr}`);
+      }
+
+      return res.json({
+        verified: false,
+        declined: false,
+        transactionId,
+        message: "No processor adapter available for verification — payment stays pending",
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
   app.post("/api/lfs/sync/settle-payment", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
       const { paymentId, offlineTransactionId, settlementTransactionId, settlementStatus, amount, checkId, tenderId } = req.body;
@@ -594,6 +689,10 @@ function registerLfsCloudRoutes(app: Express) {
         return res.json({ ok: true, paymentId: payment.id, newStatus, reason: "amount_mismatch" });
       }
 
+      if (!settlementStatus) {
+        return res.status(400).json({ error: "settlementStatus is required (confirmed, failed, or pending)" });
+      }
+
       if (settlementStatus === "failed") {
         await storage.updateCheckPayment(payment.id, {
           paymentStatus: "settlement_failed",
@@ -602,9 +701,21 @@ function registerLfsCloudRoutes(app: Express) {
         return res.json({ ok: true, paymentId: payment.id, newStatus: "settlement_failed", requiresManagerReview: true });
       }
 
+      if (settlementStatus === "pending") {
+        return res.json({ ok: true, paymentId: payment.id, newStatus: "pending_settlement", message: "Awaiting processor confirmation" });
+      }
+
+      if (settlementStatus !== "confirmed") {
+        return res.status(400).json({ error: `Invalid settlementStatus: ${settlementStatus}. Must be confirmed, failed, or pending.` });
+      }
+
+      if (!settlementTransactionId) {
+        return res.status(400).json({ error: "settlementTransactionId is required when settlementStatus is confirmed" });
+      }
+
       await storage.updateCheckPayment(payment.id, {
         paymentStatus: "completed",
-        paymentTransactionId: settlementTransactionId || payment.paymentTransactionId,
+        paymentTransactionId: settlementTransactionId,
       } as Parameters<typeof storage.updateCheckPayment>[1]);
 
       res.json({ ok: true, paymentId: payment.id, newStatus: "completed" });
