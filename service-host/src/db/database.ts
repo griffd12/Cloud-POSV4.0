@@ -252,6 +252,10 @@ export class Database {
       this.migrateToV22();
     }
     
+    if (fromVersion < 23) {
+      this.migrateToV23();
+    }
+    
     this.run('INSERT INTO schema_version (version) VALUES (?)', [toVersion]);
   }
   
@@ -1226,6 +1230,33 @@ export class Database {
     this.run(`CREATE INDEX IF NOT EXISTS idx_shifts_employee ON shifts(employee_id)`);
     this.run(`CREATE INDEX IF NOT EXISTS idx_shifts_date ON shifts(shift_date)`);
     console.log('[DB] v22 migration complete — employee DOB, shift_templates, shifts added');
+  }
+  
+  private migrateToV23(): void {
+    console.log('[DB] Running v23 migration: workstation_order_devices, kds_tickets station metadata');
+    this.run(`CREATE TABLE IF NOT EXISTS workstation_order_devices (
+      id TEXT PRIMARY KEY,
+      workstation_id TEXT NOT NULL REFERENCES workstations(id),
+      order_device_id TEXT NOT NULL REFERENCES order_devices(id),
+      updated_at TEXT DEFAULT (local_now())
+    )`);
+    this.run('CREATE INDEX IF NOT EXISTS idx_workstation_order_devices_ws ON workstation_order_devices(workstation_id)');
+    this.run('CREATE INDEX IF NOT EXISTS idx_workstation_order_devices_od ON workstation_order_devices(order_device_id)');
+    const kdsCols = [
+      { name: 'station_name', def: 'TEXT' },
+      { name: 'station_type', def: 'TEXT' },
+      { name: 'order_device_name', def: 'TEXT' },
+      { name: 'subtotal', def: 'INTEGER DEFAULT 0' },
+    ];
+    for (const col of kdsCols) {
+      try {
+        this.run(`ALTER TABLE kds_tickets ADD COLUMN ${col.name} ${col.def}`);
+        console.log(`[DB] Added kds_tickets.${col.name}`);
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column')) console.log(`[DB] kds_tickets.${col.name} skipped: ${e.message}`);
+      }
+    }
+    console.log('[DB] v23 migration complete — workstation_order_devices, kds station metadata');
   }
   
   // ==========================================================================
@@ -2495,7 +2526,7 @@ export class Database {
   }
   
   getKdsDevice(id: string): any | null {
-    return this.get('SELECT * FROM kds_devices WHERE id = ? AND active = 1', [id]);
+    return this.get('SELECT * FROM kds_devices WHERE id = ?', [id]);
   }
   
   getKdsDevicesByProperty(propertyId: string): any[] {
@@ -2577,6 +2608,49 @@ export class Database {
     }
     
     return this.all(sql, params);
+  }
+  
+  resolveRoutedOrderDeviceIds(printClassId: string, propertyId: string, rvcId?: string): string[] {
+    if (rvcId) {
+      const rvcRoutes = this.all<{ order_device_id: string }>(
+        `SELECT order_device_id FROM print_class_routing WHERE print_class_id = ? AND rvc_id = ?`,
+        [printClassId, rvcId]
+      );
+      if (rvcRoutes.length > 0) return rvcRoutes.map(r => r.order_device_id);
+    }
+    const propRoutes = this.all<{ order_device_id: string }>(
+      `SELECT order_device_id FROM print_class_routing WHERE print_class_id = ? AND property_id = ? AND rvc_id IS NULL`,
+      [printClassId, propertyId]
+    );
+    if (propRoutes.length > 0) return propRoutes.map(r => r.order_device_id);
+    const globalRoutes = this.all<{ order_device_id: string }>(
+      `SELECT order_device_id FROM print_class_routing WHERE print_class_id = ? AND property_id IS NULL AND rvc_id IS NULL`,
+      [printClassId]
+    );
+    return globalRoutes.map(r => r.order_device_id);
+  }
+  
+  getWorkstationAllowedDeviceIds(workstationId?: string): string[] | null {
+    if (!workstationId || workstationId === 'default') return null;
+    const rows = this.all<{ order_device_id: string }>(
+      'SELECT order_device_id FROM workstation_order_devices WHERE workstation_id = ?',
+      [workstationId]
+    );
+    if (rows.length === 0) return null;
+    return rows.map(r => r.order_device_id);
+  }
+  
+  upsertWorkstationOrderDevice(wod: any): void {
+    this.run(
+      `INSERT OR REPLACE INTO workstation_order_devices (id, workstation_id, order_device_id, updated_at)
+       VALUES (?, ?, ?, local_now())`,
+      [wod.id, wod.workstationId, wod.orderDeviceId]
+    );
+  }
+  
+  getOrderDeviceSendMode(orderDeviceId: string): string {
+    const row = this.get<{ send_on: string | null }>('SELECT send_on FROM order_devices WHERE id = ?', [orderDeviceId]);
+    return row?.send_on || 'send_button';
   }
   
   // ==========================================================================

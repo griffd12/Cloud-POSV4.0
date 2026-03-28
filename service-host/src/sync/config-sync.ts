@@ -58,6 +58,7 @@ interface FullConfigResponse {
   orderDevices?: any[];
   orderDevicePrinters?: any[];
   orderDeviceKds?: any[];
+  workstationOrderDevices?: any[];
   printClassRouting?: any[];
   terminalDevices?: any[];
   
@@ -242,6 +243,7 @@ export class ConfigSync {
         orderDevices: innerData.orderDevices,
         orderDevicePrinters: innerData.orderDevicePrinters,
         orderDeviceKds: innerData.orderDeviceKds,
+        workstationOrderDevices: innerData.workstationOrderDevices,
         printClassRouting: innerData.printClassRouting,
         terminalDevices: innerData.terminalDevices,
         taxGroups: innerData.taxGroups,
@@ -579,6 +581,18 @@ export class ConfigSync {
         console.log(`  Synced ${config.orderDeviceKds.length} order device KDS`);
       } catch (e) {
         errors.push(`orderDeviceKds: ${(e as Error).message}`);
+      }
+    }
+    
+    if (config.workstationOrderDevices) {
+      try {
+        for (const wod of config.workstationOrderDevices) {
+          this.db.upsertWorkstationOrderDevice(wod);
+          count++;
+        }
+        console.log(`  Synced ${config.workstationOrderDevices.length} workstation order devices`);
+      } catch (e) {
+        errors.push(`workstationOrderDevices: ${(e as Error).message}`);
       }
     }
     
@@ -995,6 +1009,9 @@ export class ConfigSync {
       case 'printClassRouting':
         this.db.upsertPrintClassRouting(data);
         break;
+      case 'workstationOrderDevice':
+        this.db.upsertWorkstationOrderDevice(data);
+        break;
       case 'terminalDevice':
         this.db.upsertTerminalDevice(data);
         break;
@@ -1154,6 +1171,7 @@ export class ConfigSync {
       employeeJobCode: 'employee_job_codes',
       orderDevicePrinter: 'order_device_printers',
       orderDeviceKds: 'order_device_kds',
+      workstationOrderDevice: 'workstation_order_devices',
       printClassRouting: 'print_class_routing',
       posLayoutCell: 'pos_layout_cells',
       posLayoutRvcAssignment: 'pos_layout_rvc_assignments',

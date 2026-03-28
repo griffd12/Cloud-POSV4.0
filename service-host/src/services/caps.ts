@@ -12,6 +12,7 @@
 import { Database } from '../db/database.js';
 import { TransactionSync } from '../sync/transaction-sync.js';
 import { randomUUID } from 'crypto';
+import { calculateBusinessDate } from './business-date.js';
 
 export class CapsService {
   db: Database;
@@ -70,23 +71,7 @@ export class CapsService {
       return property.current_business_date;
     }
 
-    const tz = property?.timezone || 'America/New_York';
-    const rolloverParts = (property?.business_date_rollover_time || '04:00').split(':');
-    const rolloverMinutes = parseInt(rolloverParts[0], 10) * 60 + parseInt(rolloverParts[1] || '0', 10);
-
-    const now = new Date();
-    const localDateStr = now.toLocaleDateString('en-CA', { timeZone: tz });
-    const localHour = parseInt(now.toLocaleTimeString('en-US', { timeZone: tz, hour12: false, hour: '2-digit' }), 10);
-    const localMinute = parseInt(now.toLocaleTimeString('en-US', { timeZone: tz, hour12: false, minute: '2-digit' }), 10);
-    const localTotalMinutes = localHour * 60 + localMinute;
-
-    if (localTotalMinutes < rolloverMinutes) {
-      const d = new Date(localDateStr + 'T12:00:00');
-      d.setDate(d.getDate() - 1);
-      return d.toISOString().split('T')[0];
-    }
-
-    return localDateStr;
+    return calculateBusinessDate(property?.timezone, property?.business_date_rollover_time);
   }
   
   getTxnGroupId(checkId: string): string {

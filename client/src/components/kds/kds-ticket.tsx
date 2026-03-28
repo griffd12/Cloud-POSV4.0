@@ -36,6 +36,7 @@ interface KdsTicketProps {
   ticketId: string;
   checkNumber: number;
   orderType: string;
+  stationName?: string;
   stationType?: string;
   items: KdsItem[];
   isDraft: boolean;
@@ -113,6 +114,7 @@ export function KdsTicket({
   ticketId,
   checkNumber,
   orderType,
+  stationName,
   stationType,
   items,
   isDraft,
@@ -230,6 +232,15 @@ export function KdsTicket({
             <Badge className="text-xs bg-purple-600 text-white">
               <RotateCcw className="w-3 h-3 mr-1" />
               RECALL
+            </Badge>
+          )}
+          {stationName && (
+            <Badge
+              variant="outline"
+              className={`text-xs ${!hasAlert ? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600" : "border-current"}`}
+              data-testid={`badge-station-name-${ticketId}`}
+            >
+              {stationName}
             </Badge>
           )}
           {stationType && (
@@ -388,7 +399,7 @@ export function KdsTicket({
           <Separator className={hasAlert ? "bg-current/20" : ""} />
           <div className={`px-4 py-2 flex items-center justify-between ${hasAlert ? "" : "text-muted-foreground"}`}>
             <span className="text-base font-medium">Subtotal</span>
-            <span className="text-base font-bold tabular-nums">${parseFloat(subtotal).toFixed(2)}</span>
+            <span className="text-base font-bold tabular-nums">${(parseFloat(subtotal) / 100).toFixed(2)}</span>
           </div>
         </>
       )}

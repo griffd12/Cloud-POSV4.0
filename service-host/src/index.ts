@@ -33,6 +33,7 @@ import { PaymentController } from './services/payment-controller.js';
 import { createApiRoutes } from './routes/api.js';
 import { CloudConnection } from './sync/cloud-connection.js';
 import { createAuthMiddleware, createPropertyScopeMiddleware } from './middleware/auth.js';
+import { FiscalScheduler } from './services/fiscal-scheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -218,6 +219,7 @@ class ServiceHost {
   private printController: PrintController;
   private kdsController: KdsController;
   private paymentController: PaymentController;
+  private fiscalScheduler: FiscalScheduler;
   private deviceTracker: CapsDeviceTracker;
   private printAgentClients: Map<WebSocket, { agentId: string; agentName: string; authenticatedAt: string }> = new Map();
   private cloudHeartbeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -252,6 +254,10 @@ class ServiceHost {
     this.printController = new PrintController(this.db);
     this.kdsController = new KdsController(this.db);
     this.paymentController = new PaymentController(this.db, this.transactionSync, this.cloudConnection);
+    this.fiscalScheduler = new FiscalScheduler(this.db, (event, data) => {
+      this.broadcastToAll({ type: event, ...data });
+    });
+    this.fiscalScheduler.start();
     
     // Initialize CAPS device tracker
     this.deviceTracker = new CapsDeviceTracker();

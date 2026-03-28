@@ -11,6 +11,7 @@
 import { Database } from '../db/database.js';
 import { WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
+import { calculateBusinessDate } from './business-date.js';
 
 export class KdsController {
   private db: Database;
@@ -53,10 +54,11 @@ export class KdsController {
   createTicket(params: CreateTicketParams): KdsTicket {
     const id = randomUUID();
     const isPreview = params.isPreview ? 1 : 0;
+    const subtotal = params.items.reduce((sum, i) => sum + (i.price || 0), 0);
     
     this.db.run(
-      `INSERT INTO kds_tickets (id, check_id, check_number, round_number, order_type, items, station_id, status, is_preview, priority)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+      `INSERT INTO kds_tickets (id, check_id, check_number, round_number, order_type, items, station_id, station_name, station_type, order_device_name, subtotal, status, is_preview, priority)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
       [
         id,
         params.checkId,
@@ -65,6 +67,10 @@ export class KdsController {
         params.orderType,
         JSON.stringify(params.items),
         params.stationId,
+        params.stationName || null,
+        params.stationType || null,
+        params.orderDeviceName || null,
+        subtotal || null,
         isPreview,
         params.priority || 0,
       ]
@@ -77,6 +83,10 @@ export class KdsController {
       orderType: params.orderType,
       items: params.items,
       stationId: params.stationId,
+      stationName: params.stationName,
+      stationType: params.stationType,
+      orderDeviceName: params.orderDeviceName,
+      subtotal: subtotal || undefined,
       status: 'active',
       isPreview: !!params.isPreview,
       priority: params.priority || 0,
@@ -152,7 +162,7 @@ export class KdsController {
     return rows.map(row => this.mapTicketRow(row));
   }
   
-  addItemToPreviewTicket(checkId: string, checkNumber: number, orderType: string | undefined, stationId: string | undefined, item: KdsItem): void {
+  addItemToPreviewTicket(checkId: string, checkNumber: number, orderType: string | undefined, stationId: string | undefined, item: KdsItem, stationName?: string, stationType?: string, orderDeviceName?: string): void {
     const existing = this.db.get<KdsTicketRow>(
       `SELECT * FROM kds_tickets WHERE check_id = ? AND is_preview = 1 AND status = 'active' AND (station_id = ? OR (station_id IS NULL AND ? IS NULL))`,
       [checkId, stationId || null, stationId || null]
@@ -160,8 +170,9 @@ export class KdsController {
     if (existing) {
       const items = JSON.parse(existing.items);
       items.push(item);
-      this.db.run('UPDATE kds_tickets SET items = ? WHERE id = ?', [JSON.stringify(items), existing.id]);
-      const ticket = this.mapTicketRow({ ...existing, items: JSON.stringify(items) });
+      const subtotal = items.reduce((sum: number, i: any) => sum + (i.price || 0), 0);
+      this.db.run('UPDATE kds_tickets SET items = ?, subtotal = ? WHERE id = ?', [JSON.stringify(items), subtotal || null, existing.id]);
+      const ticket = this.mapTicketRow({ ...existing, items: JSON.stringify(items), subtotal });
       this.broadcastToStation(existing.station_id, {
         type: 'kds_ticket_updated',
         ticket,
@@ -172,6 +183,9 @@ export class KdsController {
         checkNumber,
         orderType,
         stationId,
+        stationName,
+        stationType,
+        orderDeviceName,
         items: [item],
         isPreview: true,
       });
@@ -303,6 +317,10 @@ export class KdsController {
       orderType: row.order_type || 'dine-in',
       items,
       stationId: row.station_id || undefined,
+      stationName: row.station_name || undefined,
+      stationType: row.station_type || undefined,
+      orderDeviceName: row.order_device_name || undefined,
+      subtotal: row.subtotal || undefined,
       status: row.status as 'active' | 'bumped' | 'recalled',
       isPreview: !!row.is_preview,
       priority: row.priority,
@@ -410,20 +428,7 @@ export class KdsController {
     if (property?.current_business_date) {
       return property.current_business_date;
     }
-    const tz = property?.timezone || 'America/New_York';
-    const rolloverParts = (property?.business_date_rollover_time || '04:00').split(':');
-    const rolloverMinutes = parseInt(rolloverParts[0], 10) * 60 + parseInt(rolloverParts[1] || '0', 10);
-    const now = new Date();
-    const localDateStr = now.toLocaleDateString('en-CA', { timeZone: tz });
-    const localHour = parseInt(now.toLocaleTimeString('en-US', { timeZone: tz, hour12: false, hour: '2-digit' }), 10);
-    const localMinute = parseInt(now.toLocaleTimeString('en-US', { timeZone: tz, hour12: false, minute: '2-digit' }), 10);
-    const localTotalMinutes = localHour * 60 + localMinute;
-    if (localTotalMinutes < rolloverMinutes) {
-      const d = new Date(localDateStr + 'T12:00:00');
-      d.setDate(d.getDate() - 1);
-      return d.toISOString().split('T')[0];
-    }
-    return localDateStr;
+    return calculateBusinessDate(property?.timezone, property?.business_date_rollover_time);
   }
 
   private writeJournal(checkId: string, txnGroupId: string, eventType: string, payload: any): void {
@@ -485,6 +490,9 @@ interface CreateTicketParams {
   orderType?: string;
   items: KdsItem[];
   stationId?: string;
+  stationName?: string;
+  stationType?: string;
+  orderDeviceName?: string;
   priority?: number;
   isPreview?: boolean;
 }
@@ -495,6 +503,7 @@ interface KdsItem {
   modifiers?: (string | { name: string })[];
   seatNumber?: number;
   checkItemId?: string;
+  price?: number;
 }
 
 interface KdsTicket {
@@ -504,6 +513,10 @@ interface KdsTicket {
   orderType?: string;
   items: KdsItem[];
   stationId?: string;
+  stationName?: string;
+  stationType?: string;
+  orderDeviceName?: string;
+  subtotal?: number;
   status: 'active' | 'bumped' | 'recalled';
   isPreview: boolean;
   priority: number;
@@ -518,6 +531,10 @@ interface KdsTicketRow {
   order_type: string | null;
   items: string;
   station_id: string | null;
+  station_name: string | null;
+  station_type: string | null;
+  order_device_name: string | null;
+  subtotal: number | null;
   status: string;
   is_preview: number;
   priority: number;

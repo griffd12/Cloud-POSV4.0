@@ -168,217 +168,230 @@ export class PrintController {
     });
   }
   
-  // Build ESC/POS content based on job type
   private buildPrintContent(jobType: string, content: any): Buffer {
-    const commands: number[] = [];
-    
-    // Initialize printer
-    commands.push(0x1B, 0x40); // ESC @
-    
-    // Center alignment
-    commands.push(0x1B, 0x61, 0x01); // ESC a 1
-    
+    const b = new ESCPOSBuilder();
+
     if (jobType === 'receipt') {
-      this.buildReceiptContent(commands, content);
+      this.buildReceiptContent(b, content);
     } else if (jobType === 'kitchen') {
-      this.buildKitchenTicketContent(commands, content);
+      this.buildKitchenTicketContent(b, content);
     } else if (jobType === 'report') {
-      this.buildReportContent(commands, content);
+      this.buildReportContent(b, content);
     }
-    
-    // Cut paper
-    commands.push(0x1D, 0x56, 0x00); // GS V 0
-    
-    return Buffer.from(commands);
+
+    b.cut();
+    return b.build();
   }
-  
-  private buildReceiptContent(commands: number[], content: any): void {
-    // Header
+
+  private buildReceiptContent(b: ESCPOSBuilder, content: any): void {
+    if (content.cashDrawer) {
+      b.kickDrawer();
+    }
+
+    b.center();
     if (content.header) {
-      this.addText(commands, content.header, { bold: true, doubleWidth: true });
-      this.addNewLine(commands);
+      b.bold(true).doubleSize(true).text(content.header).newLine().doubleSize(false).bold(false);
     }
-    
-    // Date/Time
+    if (content.rvcHeader) {
+      b.text(content.rvcHeader).newLine();
+    }
     if (content.dateTime) {
-      this.addText(commands, content.dateTime);
-      this.addNewLine(commands);
+      b.text(content.dateTime).newLine();
     }
-    
-    // Separator
-    this.addText(commands, '-'.repeat(32));
-    this.addNewLine(commands);
-    
-    // Left align for items
-    commands.push(0x1B, 0x61, 0x00);
-    
-    // Items
+    if (content.orderType) {
+      b.bold(true).text(`** ${content.orderType.toUpperCase()} **`).newLine().bold(false);
+    }
+    if (content.checkNumber) {
+      b.text(`Check #${content.checkNumber}`).newLine();
+    }
+    if (content.serverName) {
+      b.text(`Server: ${content.serverName}`).newLine();
+    }
+
+    b.separator();
+    b.left();
+
     if (content.items && Array.isArray(content.items)) {
       for (const item of content.items) {
         const qty = item.quantity || 1;
         const name = item.name || '';
-        const price = this.formatMoney(item.total || item.price || 0);
-        
-        this.addText(commands, `${qty}x ${name}`);
-        this.addNewLine(commands);
-        
-        // Right-align price
-        commands.push(0x1B, 0x61, 0x02);
-        this.addText(commands, price);
-        this.addNewLine(commands);
-        commands.push(0x1B, 0x61, 0x00);
-        
-        // Modifiers
+        const price = formatMoney(item.total || item.price || 0);
+        b.threeColumn(`${qty}x`, name, price);
+
         if (item.modifiers && Array.isArray(item.modifiers)) {
           for (const mod of item.modifiers) {
-            this.addText(commands, `  - ${mod.name || mod}`);
-            this.addNewLine(commands);
+            const modName = mod.name || mod;
+            const modPrice = mod.price ? formatMoney(mod.price) : '';
+            b.threeColumn('', `  ${modName}`, modPrice);
           }
         }
       }
     }
-    
-    // Separator
-    this.addText(commands, '-'.repeat(32));
-    this.addNewLine(commands);
-    
-    // Totals
+
+    b.separator();
+
+    if (content.discounts && Array.isArray(content.discounts)) {
+      for (const d of content.discounts) {
+        b.threeColumn('', d.name || 'Discount', `-${formatMoney(d.amount || 0)}`);
+      }
+    }
+    if (content.serviceCharges && Array.isArray(content.serviceCharges)) {
+      for (const sc of content.serviceCharges) {
+        b.threeColumn('', sc.name || 'Service Charge', formatMoney(sc.amount || 0));
+      }
+    }
+
     if (content.totals) {
-      commands.push(0x1B, 0x61, 0x02); // Right align
-      
+      b.right();
       if (content.totals.subtotal !== undefined) {
-        this.addText(commands, `Subtotal: ${this.formatMoney(content.totals.subtotal)}`);
-        this.addNewLine(commands);
+        b.text(`Subtotal: ${formatMoney(content.totals.subtotal)}`).newLine();
       }
       if (content.totals.tax !== undefined) {
-        this.addText(commands, `Tax: ${this.formatMoney(content.totals.tax)}`);
-        this.addNewLine(commands);
+        b.text(`Tax: ${formatMoney(content.totals.tax)}`).newLine();
       }
       if (content.totals.total !== undefined) {
-        this.addText(commands, `TOTAL: ${this.formatMoney(content.totals.total)}`, { bold: true });
-        this.addNewLine(commands);
+        b.bold(true).text(`TOTAL: ${formatMoney(content.totals.total)}`).newLine().bold(false);
+      }
+      if (content.totals.tip !== undefined) {
+        b.text(`Tip: ${formatMoney(content.totals.tip)}`).newLine();
       }
     }
-    
-    // Footer
-    commands.push(0x1B, 0x61, 0x01); // Center
-    this.addNewLine(commands);
-    this.addText(commands, 'Thank you!');
-    this.addNewLine(commands);
-    this.addNewLine(commands);
+
+    b.center().newLine();
+    if (content.rvcTrailer) {
+      b.text(content.rvcTrailer).newLine();
+    }
+    b.text(content.footer || 'Thank you!').newLine().newLine();
   }
-  
-  private buildKitchenTicketContent(commands: number[], content: any): void {
-    // Large text for order number
-    commands.push(0x1D, 0x21, 0x11); // Double height and width
-    
+
+  private buildKitchenTicketContent(b: ESCPOSBuilder, content: any): void {
+    b.center().doubleSize(true);
     if (content.orderType) {
-      this.addText(commands, content.orderType.toUpperCase());
-      this.addNewLine(commands);
+      b.text(content.orderType.toUpperCase()).newLine();
     }
-    
     if (content.checkNumber) {
-      this.addText(commands, `#${content.checkNumber}`);
-      this.addNewLine(commands);
+      b.text(`#${content.checkNumber}`).newLine();
     }
-    
-    // Normal size
-    commands.push(0x1D, 0x21, 0x00);
-    
+    b.doubleSize(false);
+
+    if (content.stationName) {
+      b.bold(true).text(content.stationName).newLine().bold(false);
+    }
     if (content.tableNumber) {
-      this.addText(commands, `Table: ${content.tableNumber}`);
-      this.addNewLine(commands);
+      b.text(`Table: ${content.tableNumber}`).newLine();
     }
-    
-    // Separator
-    this.addText(commands, '='.repeat(32));
-    this.addNewLine(commands);
-    
-    // Left align for items
-    commands.push(0x1B, 0x61, 0x00);
-    
-    // Items
+    if (content.serverName) {
+      b.text(`Server: ${content.serverName}`).newLine();
+    }
+
+    b.separator('=');
+    b.left();
+
     if (content.items && Array.isArray(content.items)) {
       for (const item of content.items) {
         const qty = item.quantity || 1;
         const name = item.name || '';
-        
-        // Bold for quantity and name
-        commands.push(0x1B, 0x45, 0x01);
-        this.addText(commands, `${qty}x ${name}`);
-        commands.push(0x1B, 0x45, 0x00);
-        this.addNewLine(commands);
-        
-        // Modifiers
+        b.bold(true).text(`${qty}x ${name}`).bold(false).newLine();
+
         if (item.modifiers && Array.isArray(item.modifiers)) {
           for (const mod of item.modifiers) {
-            this.addText(commands, `   > ${mod.name || mod}`);
-            this.addNewLine(commands);
+            b.text(`   > ${mod.name || mod}`).newLine();
           }
         }
-        
-        this.addNewLine(commands);
+        b.newLine();
       }
     }
-    
-    // Footer with time
-    commands.push(0x1B, 0x61, 0x01); // Center
-    this.addText(commands, new Date().toLocaleTimeString());
-    this.addNewLine(commands);
-    this.addNewLine(commands);
+
+    b.center();
+    b.text(new Date().toLocaleTimeString()).newLine().newLine();
   }
-  
-  private buildReportContent(commands: number[], content: any): void {
-    // Title
+
+  private buildReportContent(b: ESCPOSBuilder, content: any): void {
+    b.center();
     if (content.title) {
-      this.addText(commands, content.title, { bold: true });
-      this.addNewLine(commands);
+      b.bold(true).text(content.title).newLine().bold(false);
     }
-    
-    this.addText(commands, '='.repeat(32));
-    this.addNewLine(commands);
-    
-    // Left align
-    commands.push(0x1B, 0x61, 0x00);
-    
-    // Report lines
+    b.separator('=');
+    b.left();
+
     if (content.lines && Array.isArray(content.lines)) {
       for (const line of content.lines) {
-        this.addText(commands, line);
-        this.addNewLine(commands);
+        b.text(line).newLine();
       }
     }
-    
-    this.addNewLine(commands);
+    b.newLine();
   }
-  
-  private addText(commands: number[], text: string, options?: { bold?: boolean; doubleWidth?: boolean }): void {
-    if (options?.bold) {
-      commands.push(0x1B, 0x45, 0x01); // Bold on
-    }
-    if (options?.doubleWidth) {
-      commands.push(0x1D, 0x21, 0x10); // Double width
-    }
-    
-    for (const char of text) {
-      commands.push(char.charCodeAt(0));
-    }
-    
-    if (options?.bold) {
-      commands.push(0x1B, 0x45, 0x00); // Bold off
-    }
-    if (options?.doubleWidth) {
-      commands.push(0x1D, 0x21, 0x00); // Normal
-    }
+}
+
+class ESCPOSBuilder {
+  private buf: number[] = [];
+  private lineWidth = 42;
+
+  constructor() {
+    this.buf.push(0x1B, 0x40);
   }
-  
-  private addNewLine(commands: number[]): void {
-    commands.push(0x0A); // LF
+
+  text(s: string): this {
+    for (const c of s) this.buf.push(c.charCodeAt(0) & 0xFF);
+    return this;
   }
-  
-  private formatMoney(cents: number): string {
-    return `$${(cents / 100).toFixed(2)}`;
+
+  newLine(): this {
+    this.buf.push(0x0A);
+    return this;
   }
+
+  left(): this { this.buf.push(0x1B, 0x61, 0x00); return this; }
+  center(): this { this.buf.push(0x1B, 0x61, 0x01); return this; }
+  right(): this { this.buf.push(0x1B, 0x61, 0x02); return this; }
+
+  bold(on: boolean): this {
+    this.buf.push(0x1B, 0x45, on ? 0x01 : 0x00);
+    return this;
+  }
+
+  doubleSize(on: boolean): this {
+    this.buf.push(0x1D, 0x21, on ? 0x11 : 0x00);
+    return this;
+  }
+
+  separator(ch = '-'): this {
+    this.left();
+    this.text(ch.repeat(this.lineWidth));
+    this.newLine();
+    return this;
+  }
+
+  threeColumn(left: string, middle: string, right: string): this {
+    this.left();
+    const lw = Math.min(left.length, 4);
+    const rw = Math.max(right.length, 8);
+    const mw = this.lineWidth - lw - rw - 2;
+    const l = left.padEnd(lw);
+    const m = middle.length > mw ? middle.substring(0, mw) : middle.padEnd(mw);
+    const r = right.padStart(rw);
+    this.text(`${l} ${m} ${r}`);
+    this.newLine();
+    return this;
+  }
+
+  kickDrawer(pin = 0): this {
+    this.buf.push(0x1B, 0x70, pin, 0x19, 0xFA);
+    return this;
+  }
+
+  cut(): this {
+    this.buf.push(0x1D, 0x56, 0x00);
+    return this;
+  }
+
+  build(): Buffer {
+    return Buffer.from(this.buf);
+  }
+}
+
+function formatMoney(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
 }
 
 interface PrintJobParams {

@@ -28,6 +28,7 @@ interface Ticket {
   id: string;
   checkNumber: number;
   orderType: string;
+  stationName?: string;
   stationType?: string;
   items: KdsItem[];
   isDraft: boolean;
@@ -516,6 +517,7 @@ export function KdsDisplay({
                       ticketId={ticket.id}
                       checkNumber={ticket.checkNumber}
                       orderType={ticket.orderType}
+                      stationName={ticket.stationName}
                       stationType={ticket.stationType}
                       items={ticket.items}
                       isDraft={false}
@@ -536,6 +538,7 @@ export function KdsDisplay({
                       ticketId={ticket.id}
                       checkNumber={ticket.checkNumber}
                       orderType={ticket.orderType}
+                      stationName={ticket.stationName}
                       stationType={ticket.stationType}
                       items={ticket.items}
                       isDraft={true}

@@ -14,7 +14,7 @@
 // CONFIGURATION TABLES (Synced from cloud)
 // =============================================================================
 
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 export const CREATE_SCHEMA_SQL = `
 -- Schema version tracking
@@ -387,6 +387,13 @@ CREATE TABLE IF NOT EXISTS print_class_routing (
   updated_at TEXT DEFAULT (local_now())
 );
 
+CREATE TABLE IF NOT EXISTS workstation_order_devices (
+  id TEXT PRIMARY KEY,
+  workstation_id TEXT NOT NULL REFERENCES workstations(id),
+  order_device_id TEXT NOT NULL REFERENCES order_devices(id),
+  updated_at TEXT DEFAULT (local_now())
+);
+
 -- =============================================================================
 -- MENU ITEMS & MODIFIERS
 -- =============================================================================
@@ -692,6 +699,10 @@ CREATE TABLE IF NOT EXISTS kds_tickets (
   kds_device_id TEXT REFERENCES kds_devices(id),
   order_device_id TEXT REFERENCES order_devices(id),
   station_id TEXT,
+  station_name TEXT,
+  station_type TEXT,
+  order_device_name TEXT,
+  subtotal INTEGER,
   order_type TEXT,
   table_number TEXT,
   items TEXT NOT NULL,
@@ -1908,6 +1919,8 @@ CREATE INDEX IF NOT EXISTS idx_printers_property ON printers(property_id);
 CREATE INDEX IF NOT EXISTS idx_workstations_property ON workstations(property_id);
 CREATE INDEX IF NOT EXISTS idx_kds_devices_property ON kds_devices(property_id);
 CREATE INDEX IF NOT EXISTS idx_order_devices_property ON order_devices(property_id);
+CREATE INDEX IF NOT EXISTS idx_workstation_order_devices_ws ON workstation_order_devices(workstation_id);
+CREATE INDEX IF NOT EXISTS idx_workstation_order_devices_od ON workstation_order_devices(order_device_id);
 
 CREATE INDEX IF NOT EXISTS idx_config_cache_entity ON config_cache(entity_type, entity_id);
 

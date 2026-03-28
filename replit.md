@@ -112,6 +112,7 @@ For pilot, CAPS is the store authority. If a workstation cannot reach CAPS, the 
 - **Reporting**: Canonical Data Access Layer with 7 query functions.
 - **Customer Onboarding**: Excel-based bulk data import.
 - **Offline Mode Resilience**: Protocol interceptors, cached assets, robust transaction handling, CAPS auto-discovery, Yellow Mode failover, immutable transaction journal.
+- **CAPS-Cloud Parity (v3.1.117)**: Hierarchical KDS routing (RVC→property→global fallback with workstation device filtering), per-device send mode, station metadata on KDS tickets (stationName/stationType/orderDeviceName/subtotal), PM rollover business date logic, autonomous fiscal scheduler (auto-close/rollover/clock-out), ESCPOSBuilder (cash drawer kick, 3-column formatting, service charge/discount lines, RVC header/trailer), Z-Report and Cashier Report offline endpoints, workstation_order_devices config sync.
 - **Send-to-Kitchen Architecture**: Local interceptor, pre-sync to CAPS, retry logic.
 - **CAPS Column Fixups**: `ALTER TABLE` DDL via `db.exec()`.
 - **Workstation Identity and RVC Switching**: Locked Workstation ID, interactive RVC selection.

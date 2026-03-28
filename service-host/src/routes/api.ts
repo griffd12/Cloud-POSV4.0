@@ -150,26 +150,89 @@ export function createApiRoutes(
     initGatewayLogger(dataDir);
   }
 
-  function resolveKdsStations(itemList: any[], checkRvcId: string) {
-    const stationItemsMap = new Map<string, any[]>();
-    for (const item of itemList) {
-      let targetStations: string[] = [];
-      const printClassId = (item as any).printClassId || (item as any).print_class_id;
-      if (printClassId && db) {
-        const orderDevices = db.getOrderDevicesForPrintClass(printClassId, undefined, checkRvcId);
-        for (const od of orderDevices) {
-          if (od.kds_device_id) targetStations.push(od.kds_device_id);
-          const kdsLinks = db.getOrderDeviceKds(od.id);
-          for (const link of kdsLinks) {
-            if (link.kds_device_id && !targetStations.includes(link.kds_device_id)) targetStations.push(link.kds_device_id);
+  interface KdsRoutingTarget {
+    kdsDeviceId: string;
+    kdsDeviceName: string;
+    stationType: string;
+    orderDeviceId: string;
+    orderDeviceName: string;
+    sendOn: string;
+  }
+
+  function resolveKdsTargetsForItem(
+    printClassId: string,
+    propertyId: string,
+    rvcId?: string,
+    workstationId?: string
+  ): KdsRoutingTarget[] {
+    if (!db) return [];
+    const orderDeviceIds = db.resolveRoutedOrderDeviceIds(printClassId, propertyId, rvcId);
+    if (orderDeviceIds.length === 0) return [];
+    const allowedIds = db.getWorkstationAllowedDeviceIds(workstationId);
+    const allowedSet = allowedIds ? new Set(allowedIds) : null;
+    const targets: KdsRoutingTarget[] = [];
+    for (const odId of orderDeviceIds) {
+      if (allowedSet && !allowedSet.has(odId)) continue;
+      const od = db.getOrderDevice(odId);
+      if (!od) continue;
+      const odSendOn = od.send_on || db.getOrderDeviceSendMode(odId);
+      if (!od.kds_device_id) {
+        const kdsLinks = db.getOrderDeviceKds(odId);
+        for (const link of kdsLinks) {
+          if (!link.kds_device_id) continue;
+          const kd = db.getKdsDevice(link.kds_device_id);
+          if (kd && kd.active) {
+            targets.push({
+              kdsDeviceId: kd.id,
+              kdsDeviceName: kd.name,
+              stationType: kd.station_type || 'hot',
+              orderDeviceId: od.id,
+              orderDeviceName: od.name,
+              sendOn: odSendOn,
+            });
           }
         }
+        continue;
       }
-      if (targetStations.length === 0) targetStations = ['default'];
-      for (const stationId of targetStations) {
-        if (!stationItemsMap.has(stationId)) stationItemsMap.set(stationId, []);
-        stationItemsMap.get(stationId)!.push(item);
+      const kd = db.getKdsDevice(od.kds_device_id);
+      if (kd && kd.active) {
+        targets.push({
+          kdsDeviceId: kd.id,
+          kdsDeviceName: kd.name,
+          stationType: kd.station_type || 'hot',
+          orderDeviceId: od.id,
+          orderDeviceName: od.name,
+          sendOn: odSendOn,
+        });
       }
+    }
+    return targets;
+  }
+
+  function resolveKdsStations(itemList: any[], checkRvcId: string, propertyId?: string, workstationId?: string, sendModeFilter?: string | string[]) {
+    const stationItemsMap = new Map<string, { items: any[]; target?: KdsRoutingTarget }>();
+    const prop = propertyId || (db ? db.get<{ id: string }>('SELECT id FROM properties WHERE active = 1 LIMIT 1')?.id : undefined);
+    const allowedModes = sendModeFilter
+      ? (Array.isArray(sendModeFilter) ? new Set(sendModeFilter) : new Set([sendModeFilter]))
+      : null;
+    for (const item of itemList) {
+      const printClassId = (item as any).printClassId || (item as any).print_class_id;
+      if (printClassId && db && prop) {
+        let targets = resolveKdsTargetsForItem(printClassId, prop, checkRvcId, workstationId);
+        if (allowedModes) targets = targets.filter(t => allowedModes.has(t.sendOn));
+        if (targets.length > 0) {
+          const seen = new Set<string>();
+          for (const t of targets) {
+            if (seen.has(t.kdsDeviceId)) continue;
+            seen.add(t.kdsDeviceId);
+            if (!stationItemsMap.has(t.kdsDeviceId)) stationItemsMap.set(t.kdsDeviceId, { items: [], target: t });
+            stationItemsMap.get(t.kdsDeviceId)!.items.push(item);
+          }
+          continue;
+        }
+      }
+      if (!stationItemsMap.has('default')) stationItemsMap.set('default', { items: [] });
+      stationItemsMap.get('default')!.items.push(item);
     }
     return stationItemsMap;
   }
@@ -186,25 +249,52 @@ export function createApiRoutes(
       checkItemId: i.id,
       name: i.name || i.menuItemName,
       quantity: i.quantity,
+      price: i.totalPrice || i.total_price || i.unitPrice || i.unit_price || i.price || 0,
       modifiers,
       seatNumber: i.seatNumber,
     };
   }
 
-  function handleDomAutoFire(check: any, rvc: any, newItems: any[], database: Database, kdsCtrl: KdsController) {
-    const domMode = rvc.dom_send_mode || 'fire_on_fly';
-    domLog.info(`DOM auto-fire: mode=${domMode}, check=${check.id}, newItems=${newItems.length}`);
+  function handleDomAutoFire(check: any, rvc: any, newItems: any[], database: Database, kdsCtrl: KdsController, workstationId?: string) {
+    const propertyId = rvc.property_id || rvc.propertyId;
 
-    if (domMode === 'fire_on_fly') {
-      const stationItemsMap = resolveKdsStations(newItems, check.rvcId);
-      for (const [stationId, stationItems] of stationItemsMap) {
-        for (const item of stationItems) {
+    const dynamicStationMap = resolveKdsStations(newItems, check.rvcId, propertyId, workstationId, 'dynamic');
+    for (const [stationId, entry] of dynamicStationMap) {
+      for (const item of entry.items) {
+        kdsCtrl.addItemToPreviewTicket(
+          check.id,
+          check.checkNumber || 0,
+          check.orderType,
+          stationId === 'default' ? undefined : stationId,
+          toKdsItem(item),
+          entry.target?.kdsDeviceName,
+          entry.target?.stationType,
+          entry.target?.orderDeviceName,
+        );
+      }
+    }
+    const dynamicHandledItemIds = new Set<string>();
+    for (const [, entry] of dynamicStationMap) {
+      for (const item of entry.items) dynamicHandledItemIds.add(item.id);
+    }
+
+    const nonDynamicItems = newItems.filter(i => !dynamicHandledItemIds.has(i.id));
+    const domMode = rvc.dom_send_mode || 'fire_on_fly';
+    domLog.info(`DOM auto-fire: mode=${domMode}, check=${check.id}, newItems=${newItems.length}, dynamicHandled=${dynamicHandledItemIds.size}`);
+
+    if (domMode === 'fire_on_fly' && nonDynamicItems.length > 0) {
+      const stationItemsMap = resolveKdsStations(nonDynamicItems, check.rvcId, propertyId, workstationId, 'fire_on_fly');
+      for (const [stationId, entry] of stationItemsMap) {
+        for (const item of entry.items) {
           kdsCtrl.addItemToPreviewTicket(
             check.id,
             check.checkNumber || 0,
             check.orderType,
             stationId === 'default' ? undefined : stationId,
-            toKdsItem(item)
+            toKdsItem(item),
+            entry.target?.kdsDeviceName,
+            entry.target?.stationType,
+            entry.target?.orderDeviceName,
           );
         }
       }
@@ -213,15 +303,18 @@ export function createApiRoutes(
       const previousItems = allUnsent.filter((i: any) => !newItems.some((ni: any) => ni.id === i.id));
       if (previousItems.length > 0) {
         domLog.info(`fire_on_next: sending ${previousItems.length} previous unsent items as preview`);
-        const stationItemsMap = resolveKdsStations(previousItems, check.rvcId);
-        for (const [stationId, stationItems] of stationItemsMap) {
-          for (const item of stationItems) {
+        const stationItemsMap = resolveKdsStations(previousItems, check.rvcId, propertyId, workstationId, 'fire_on_fly');
+        for (const [stationId, entry] of stationItemsMap) {
+          for (const item of entry.items) {
             kdsCtrl.addItemToPreviewTicket(
               check.id,
               check.checkNumber || 0,
               check.orderType,
               stationId === 'default' ? undefined : stationId,
-              toKdsItem(item)
+              toKdsItem(item),
+              entry.target?.kdsDeviceName,
+              entry.target?.stationType,
+              entry.target?.orderDeviceName,
             );
           }
         }
@@ -483,7 +576,7 @@ export function createApiRoutes(
         if (check && db) {
           const rvc = db.getRvc(check.rvcId);
           if (rvc && rvc.dynamic_order_mode) {
-            handleDomAutoFire(check, rvc, items, db, kds);
+            handleDomAutoFire(check, rvc, items, db, kds, workstationId);
           }
         }
       } catch (kdsErr) {
@@ -530,15 +623,19 @@ export function createApiRoutes(
           const uncoveredItems = preSendUnsent.filter((i: any) => !alreadyCoveredItemIds.has(i.id));
 
           if (uncoveredItems.length > 0) {
-            const stationItemsMap = resolveKdsStations(uncoveredItems, preSendCheck.rvcId);
-            for (const [stationId, items] of stationItemsMap) {
+            const propertyId = db ? db.get<{ id: string }>('SELECT id FROM properties WHERE active = 1 LIMIT 1')?.id : undefined;
+            const stationItemsMap = resolveKdsStations(uncoveredItems, preSendCheck.rvcId, propertyId, workstationId, ['send_button', 'fire_on_fly']);
+            for (const [stationId, entry] of stationItemsMap) {
               kds.createTicket({
                 checkId: preSendCheck.id,
                 checkNumber: preSendCheck.checkNumber || 0,
                 roundNumber: result.roundNumber || 0,
                 orderType: preSendCheck.orderType,
                 stationId: stationId === 'default' ? undefined : stationId,
-                items: items.map((i: any) => toKdsItem(i)),
+                items: entry.items.map((i: any) => toKdsItem(i)),
+                stationName: entry.target?.kdsDeviceName,
+                stationType: entry.target?.stationType,
+                orderDeviceName: entry.target?.orderDeviceName,
               });
             }
           }
@@ -618,19 +715,23 @@ export function createApiRoutes(
           const rvc = db.getRvc(prePayCheck.rvcId);
           if (rvc && rvc.dynamic_order_mode) {
             const domMode = rvc.dom_send_mode || 'fire_on_fly';
+            const propertyId = db ? db.get<{ id: string }>('SELECT id FROM properties WHERE active = 1 LIMIT 1')?.id : undefined;
             if (domMode === 'fire_on_tender') {
               domLog.info(`fire_on_tender: payment initiated, sending unsent items for check ${req.params.id}`);
               const unsentItems = (prePayCheck.items || []).filter((i: any) => !i.voided && !i.sent && !i.sentToKitchen);
               if (unsentItems.length > 0) {
                 caps.sendToKitchen(req.params.id, workstationId);
-                const stationItemsMap = resolveKdsStations(unsentItems, prePayCheck.rvcId);
-                for (const [stationId, stationItems] of stationItemsMap) {
+                const stationItemsMap = resolveKdsStations(unsentItems, prePayCheck.rvcId, propertyId, workstationId, 'fire_on_tender');
+                for (const [stationId, entry] of stationItemsMap) {
                   kds.createTicket({
                     checkId: prePayCheck.id,
                     checkNumber: prePayCheck.checkNumber || 0,
                     orderType: prePayCheck.orderType,
                     stationId: stationId === 'default' ? undefined : stationId,
-                    items: stationItems.map((i: any) => toKdsItem(i)),
+                    items: entry.items.map((i: any) => toKdsItem(i)),
+                    stationName: entry.target?.kdsDeviceName,
+                    stationType: entry.target?.stationType,
+                    orderDeviceName: entry.target?.orderDeviceName,
                   });
                 }
               }
@@ -650,14 +751,17 @@ export function createApiRoutes(
                 caps.sendToKitchen(req.params.id, workstationId);
                 const uncovered = unsentItems.filter((i: any) => !coveredIds.has(i.id));
                 if (uncovered.length > 0) {
-                  const stationItemsMap = resolveKdsStations(uncovered, prePayCheck.rvcId);
-                  for (const [stationId, stationItems] of stationItemsMap) {
+                  const stationItemsMap = resolveKdsStations(uncovered, prePayCheck.rvcId, propertyId, workstationId, ['send_button', 'fire_on_fly']);
+                  for (const [stationId, entry] of stationItemsMap) {
                     kds.createTicket({
                       checkId: prePayCheck.id,
                       checkNumber: prePayCheck.checkNumber || 0,
                       orderType: prePayCheck.orderType,
                       stationId: stationId === 'default' ? undefined : stationId,
-                      items: stationItems.map((i: any) => toKdsItem(i)),
+                      items: entry.items.map((i: any) => toKdsItem(i)),
+                      stationName: entry.target?.kdsDeviceName,
+                      stationType: entry.target?.stationType,
+                      orderDeviceName: entry.target?.orderDeviceName,
                     });
                   }
                 }
@@ -2058,7 +2162,7 @@ export function createApiRoutes(
         if (check && db) {
           const rvc = db.getRvc(check.rvcId);
           if (rvc && rvc.dynamic_order_mode) {
-            handleDomAutoFire(check, rvc, items, db, kds);
+            handleDomAutoFire(check, rvc, items, db, kds, workstationId);
           }
         }
       } catch (kdsErr) {
@@ -2101,15 +2205,19 @@ export function createApiRoutes(
         if (preSendUnsent.length > 0 && preSendCheck) {
           const uncovered = preSendUnsent.filter((i: any) => !coveredIds.has(i.id));
           if (uncovered.length > 0) {
-            const stationItemsMap = resolveKdsStations(uncovered, preSendCheck.rvcId);
-            for (const [stationId, items] of stationItemsMap) {
+            const propertyId = db ? db.get<{ id: string }>('SELECT id FROM properties WHERE active = 1 LIMIT 1')?.id : undefined;
+            const stationItemsMap = resolveKdsStations(uncovered, preSendCheck.rvcId, propertyId, workstationId, ['send_button', 'fire_on_fly']);
+            for (const [stationId, entry] of stationItemsMap) {
               kds.createTicket({
                 checkId: preSendCheck.id,
                 checkNumber: preSendCheck.checkNumber || 0,
                 roundNumber: result.roundNumber || 0,
                 orderType: preSendCheck.orderType,
                 stationId: stationId === 'default' ? undefined : stationId,
-                items: items.map((i: any) => toKdsItem(i)),
+                items: entry.items.map((i: any) => toKdsItem(i)),
+                stationName: entry.target?.kdsDeviceName,
+                stationType: entry.target?.stationType,
+                orderDeviceName: entry.target?.orderDeviceName,
               });
             }
           }
@@ -2150,16 +2258,20 @@ export function createApiRoutes(
           if (rvc && rvc.dynamic_order_mode) {
             const domMode = rvc.dom_send_mode || 'fire_on_fly';
             const unsentItems = (prePayCheck.items || []).filter((i: any) => !i.voided && !i.sent && !i.sentToKitchen);
+            const propertyId = db ? db.get<{ id: string }>('SELECT id FROM properties WHERE active = 1 LIMIT 1')?.id : undefined;
             if (domMode === 'fire_on_tender' && unsentItems.length > 0) {
               caps.sendToKitchen(req.params.id, workstationId);
-              const stationItemsMap = resolveKdsStations(unsentItems, prePayCheck.rvcId);
-              for (const [stationId, stationItems] of stationItemsMap) {
+              const stationItemsMap = resolveKdsStations(unsentItems, prePayCheck.rvcId, propertyId, workstationId, 'fire_on_tender');
+              for (const [stationId, entry] of stationItemsMap) {
                 kds.createTicket({
                   checkId: prePayCheck.id,
                   checkNumber: prePayCheck.checkNumber || 0,
                   orderType: prePayCheck.orderType,
                   stationId: stationId === 'default' ? undefined : stationId,
-                  items: stationItems.map((i: any) => toKdsItem(i)),
+                  items: entry.items.map((i: any) => toKdsItem(i)),
+                  stationName: entry.target?.kdsDeviceName,
+                  stationType: entry.target?.stationType,
+                  orderDeviceName: entry.target?.orderDeviceName,
                 });
               }
             } else {
@@ -2177,14 +2289,17 @@ export function createApiRoutes(
                 caps.sendToKitchen(req.params.id, workstationId);
                 const uncovered = unsentItems.filter((i: any) => !coveredIds.has(i.id));
                 if (uncovered.length > 0) {
-                  const stationItemsMap = resolveKdsStations(uncovered, prePayCheck.rvcId);
-                  for (const [stationId, stationItems] of stationItemsMap) {
+                  const stationItemsMap = resolveKdsStations(uncovered, prePayCheck.rvcId, propertyId, workstationId, ['send_button', 'fire_on_fly']);
+                  for (const [stationId, entry] of stationItemsMap) {
                     kds.createTicket({
                       checkId: prePayCheck.id,
                       checkNumber: prePayCheck.checkNumber || 0,
                       orderType: prePayCheck.orderType,
                       stationId: stationId === 'default' ? undefined : stationId,
-                      items: stationItems.map((i: any) => toKdsItem(i)),
+                      items: entry.items.map((i: any) => toKdsItem(i)),
+                      stationName: entry.target?.kdsDeviceName,
+                      stationType: entry.target?.stationType,
+                      orderDeviceName: entry.target?.orderDeviceName,
                     });
                   }
                 }
@@ -5485,6 +5600,183 @@ export function createApiRoutes(
       });
     } catch (e) {
       return res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/reports/z-report', (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: 'Database not available' });
+      const businessDate = req.query.businessDate as string ||
+        db.get<{ current_business_date: string }>('SELECT current_business_date FROM properties WHERE active = 1 LIMIT 1')?.current_business_date ||
+        new Date().toISOString().split('T')[0];
+
+      const grossSales = db.get<{ total: number }>(
+        `SELECT COALESCE(SUM(subtotal), 0) as total FROM checks WHERE business_date = ? AND status IN ('closed', 'paid')`, [businessDate]
+      )?.total || 0;
+
+      const discountsTotal = db.get<{ total: number }>(
+        `SELECT COALESCE(SUM(discount_total), 0) as total FROM checks WHERE business_date = ? AND status IN ('closed', 'paid')`, [businessDate]
+      )?.total || 0;
+
+      const taxTotal = db.get<{ total: number }>(
+        `SELECT COALESCE(SUM(tax), 0) as total FROM checks WHERE business_date = ? AND status IN ('closed', 'paid')`, [businessDate]
+      )?.total || 0;
+
+      const serviceChargeTotal = db.get<{ total: number }>(
+        `SELECT COALESCE(SUM(service_charge_total), 0) as total FROM checks WHERE business_date = ? AND status IN ('closed', 'paid')`, [businessDate]
+      )?.total || 0;
+
+      const checkCount = db.get<{ cnt: number }>(
+        `SELECT COUNT(*) as cnt FROM checks WHERE business_date = ? AND status IN ('closed', 'paid')`, [businessDate]
+      )?.cnt || 0;
+
+      const guestCount = db.get<{ total: number }>(
+        `SELECT COALESCE(SUM(guest_count), 0) as total FROM checks WHERE business_date = ? AND status IN ('closed', 'paid')`, [businessDate]
+      )?.total || 0;
+
+      const voidCount = db.get<{ cnt: number }>(
+        `SELECT COUNT(*) as cnt FROM checks WHERE business_date = ? AND status = 'voided'`, [businessDate]
+      )?.cnt || 0;
+
+      const voidTotal = db.get<{ total: number }>(
+        `SELECT COALESCE(SUM(total), 0) as total FROM checks WHERE business_date = ? AND status = 'voided'`, [businessDate]
+      )?.total || 0;
+
+      const tenderBreakdown = db.all<{ tender_type: string; total: number; cnt: number }>(
+        `SELECT COALESCE(cp.tender_type, 'cash') as tender_type, SUM(cp.amount) as total, COUNT(*) as cnt
+         FROM check_payments cp
+         JOIN checks c ON c.id = cp.check_id
+         WHERE c.business_date = ? AND c.status IN ('closed', 'paid') AND cp.voided = 0
+         GROUP BY cp.tender_type`, [businessDate]
+      );
+
+      const taxBreakdown = db.all<{ tax_group_id: string; tax_group_name: string; tax_total: number }>(
+        `SELECT ci.tax_group_id, COALESCE(tg.name, 'Default Tax') as tax_group_name, SUM(ci.tax_amount) as tax_total
+         FROM check_items ci
+         JOIN checks c ON c.id = ci.check_id
+         LEFT JOIN tax_groups tg ON tg.id = ci.tax_group_id
+         WHERE c.business_date = ? AND c.status IN ('closed', 'paid') AND ci.voided = 0
+         GROUP BY ci.tax_group_id`, [businessDate]
+      );
+
+      const employeeSales = db.all<{ employee_id: string; employee_name: string; gross_sales: number; net_sales: number; check_count: number }>(
+        `SELECT c.employee_id,
+                COALESCE(e.first_name || ' ' || e.last_name, c.employee_id) as employee_name,
+                COALESCE(SUM(c.subtotal), 0) as gross_sales,
+                COALESCE(SUM(c.subtotal) - SUM(c.discount_total), 0) as net_sales,
+                COUNT(c.id) as check_count
+         FROM checks c
+         LEFT JOIN employees e ON e.id = c.employee_id
+         WHERE c.business_date = ? AND c.status IN ('closed', 'paid')
+         GROUP BY c.employee_id`, [businessDate]
+      );
+
+      const netSales = grossSales - discountsTotal;
+
+      res.json({
+        businessDate,
+        grossSales,
+        discounts: discountsTotal,
+        netSales,
+        tax: taxTotal,
+        taxBreakdown: taxBreakdown.map(t => ({ taxGroupId: t.tax_group_id, name: t.tax_group_name, total: t.tax_total })),
+        serviceCharges: serviceChargeTotal,
+        total: netSales + taxTotal + serviceChargeTotal,
+        checkCount,
+        guestCount,
+        averageCheck: checkCount > 0 ? Math.round(netSales / checkCount) : 0,
+        voidCount,
+        voidTotal,
+        tenderBreakdown: tenderBreakdown.map(t => ({ type: t.tender_type, total: t.total, count: t.cnt })),
+        employeeSales: employeeSales.map(e => ({
+          employeeId: e.employee_id,
+          name: e.employee_name,
+          grossSales: e.gross_sales,
+          netSales: e.net_sales,
+          checkCount: e.check_count,
+        })),
+      });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get('/reports/cashier-report', (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: 'Database not available' });
+      const businessDate = req.query.businessDate as string ||
+        db.get<{ current_business_date: string }>('SELECT current_business_date FROM properties WHERE active = 1 LIMIT 1')?.current_business_date ||
+        new Date().toISOString().split('T')[0];
+      const employeeId = req.query.employeeId as string | undefined;
+
+      let employeeFilter = '';
+      const params: any[] = [businessDate];
+      if (employeeId) {
+        employeeFilter = ' AND c.employee_id = ?';
+        params.push(employeeId);
+      }
+
+      const cashiers = db.all<{
+        employee_id: string;
+        employee_name: string;
+        check_count: number;
+        gross_sales: number;
+        discount_total: number;
+        tax_total: number;
+        net_sales: number;
+      }>(
+        `SELECT
+           c.employee_id,
+           COALESCE(e.first_name || ' ' || e.last_name, c.employee_id) as employee_name,
+           COUNT(c.id) as check_count,
+           COALESCE(SUM(c.subtotal), 0) as gross_sales,
+           COALESCE(SUM(c.discount_total), 0) as discount_total,
+           COALESCE(SUM(c.tax), 0) as tax_total,
+           COALESCE(SUM(c.subtotal) - SUM(c.discount_total), 0) as net_sales
+         FROM checks c
+         LEFT JOIN employees e ON e.id = c.employee_id
+         WHERE c.business_date = ? AND c.status IN ('closed', 'paid')${employeeFilter}
+         GROUP BY c.employee_id`,
+        params
+      );
+
+      const tenderParams: any[] = [businessDate];
+      if (employeeId) {
+        tenderParams.push(employeeId);
+      }
+      const tendersByEmployee = db.all<{
+        employee_id: string;
+        tender_type: string;
+        total: number;
+        cnt: number;
+      }>(
+        `SELECT c.employee_id, COALESCE(cp.tender_type, 'cash') as tender_type, SUM(cp.amount) as total, COUNT(*) as cnt
+         FROM check_payments cp
+         JOIN checks c ON c.id = cp.check_id
+         WHERE c.business_date = ? AND c.status IN ('closed', 'paid') AND cp.voided = 0${employeeId ? ' AND c.employee_id = ?' : ''}
+         GROUP BY c.employee_id, cp.tender_type`,
+        tenderParams
+      );
+
+      const result = cashiers.map(c => {
+        const tenders = tendersByEmployee
+          .filter(t => t.employee_id === c.employee_id)
+          .map(t => ({ type: t.tender_type, total: t.total, count: t.cnt }));
+        return {
+          employeeId: c.employee_id,
+          employeeName: c.employee_name,
+          checkCount: c.check_count,
+          grossSales: c.gross_sales,
+          discounts: c.discount_total,
+          netSales: c.net_sales,
+          tax: c.tax_total,
+          tenders,
+        };
+      });
+
+      res.json({ businessDate, cashiers: result });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
     }
   });
 
