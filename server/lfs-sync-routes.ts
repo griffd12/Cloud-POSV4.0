@@ -505,6 +505,48 @@ function registerLfsCloudRoutes(app: Express) {
       res.status(500).json({ error: msg });
     }
   });
+
+  app.post("/api/lfs/sync/reconcile-saf-batch", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const { propertyId } = req.body;
+      let pendingPayments;
+      if (propertyId) {
+        const joined = await db.select()
+          .from(checkPayments)
+          .innerJoin(checks, eq(checks.id, checkPayments.checkId))
+          .where(and(
+            eq(checkPayments.paymentStatus, "pending_settlement"),
+            sql`EXISTS (SELECT 1 FROM rvcs WHERE rvcs.id = ${checks.rvcId} AND rvcs.property_id = ${propertyId})`
+          ));
+        pendingPayments = joined.map(r => r.check_payments);
+      } else {
+        pendingPayments = await db.select()
+          .from(checkPayments)
+          .where(eq(checkPayments.paymentStatus, "pending_settlement"));
+      }
+
+      const results: Array<{ paymentId: string; status: string; error?: string }> = [];
+
+      for (const payment of pendingPayments) {
+        try {
+          await storage.updateCheckPayment(payment.id, {
+            paymentStatus: "completed",
+          } as Parameters<typeof storage.updateCheckPayment>[1]);
+          results.push({ paymentId: payment.id, status: "completed" });
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : "Unknown error";
+          results.push({ paymentId: payment.id, status: "failed", error: msg });
+        }
+      }
+
+      const settled = results.filter(r => r.status === "completed").length;
+      const failed = results.filter(r => r.status === "failed").length;
+      res.json({ ok: true, total: pendingPayments.length, settled, failed, results });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
 }
 
 async function storeDurableRemap(localId: string, cloudId: string): Promise<void> {

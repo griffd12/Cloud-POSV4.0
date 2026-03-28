@@ -127,10 +127,24 @@ async function getPaymentAdapter(processorId: string) {
         if (gwConfig) {
           dbFallbackCredentials = {};
           const configAny = gwConfig as Record<string, unknown>;
+          if (configAny.encryptedCredentials && typeof configAny.encryptedCredentials === "string") {
+            try {
+              const storedCreds = JSON.parse(configAny.encryptedCredentials as string);
+              for (const key of requiredKeys) {
+                if (storedCreds[key] && typeof storedCreds[key] === "string") {
+                  dbFallbackCredentials[key] = storedCreds[key];
+                }
+              }
+            } catch {
+              console.warn("[LFS] Failed to parse encryptedCredentials JSON");
+            }
+          }
           for (const key of requiredKeys) {
-            const camelKey = key.toLowerCase().replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
-            if (configAny[camelKey] && typeof configAny[camelKey] === "string") {
-              dbFallbackCredentials[key] = configAny[camelKey] as string;
+            if (!dbFallbackCredentials[key]) {
+              const camelKey = key.toLowerCase().replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+              if (configAny[camelKey] && typeof configAny[camelKey] === "string") {
+                dbFallbackCredentials[key] = configAny[camelKey] as string;
+              }
             }
           }
         }
@@ -5636,9 +5650,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // Check if this is an authorized (pre-auth) transaction
+      // Check if this is an authorized (pre-auth) transaction or SAF payment
       let paymentStatus = "completed";
-      if (paymentTransactionId) {
+      if (req.body.storeAndForward === true && process.env.DB_MODE === "local") {
+        paymentStatus = "pending_settlement";
+      } else if (paymentTransactionId) {
         const transaction = await storage.getPaymentTransaction(paymentTransactionId);
         if (transaction && transaction.status === "authorized") {
           paymentStatus = "authorized";
@@ -5694,9 +5710,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Use persisted totals from check record (set by recalculateCheckTotals)
       const total = parseFloat(check.total || "0");
-      // Only count completed payments (not voided or authorized)
       const paidAmount = Math.round(payments
-        .filter(p => p.paymentStatus === "completed")
+        .filter(p => p.paymentStatus === "completed" || p.paymentStatus === "pending_settlement")
         .reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0) * 100) / 100;
 
       // Use 5 cent tolerance to handle floating point rounding issues across multiple items

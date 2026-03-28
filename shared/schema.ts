@@ -3890,6 +3890,8 @@ export const paymentGatewayConfig = pgTable("payment_gateway_config", {
   receiptPrintMerchantCopy: boolean("receipt_print_merchant_copy").default(false),
   receiptPrintCustomerCopy: boolean("receipt_print_customer_copy").default(false),
 
+  encryptedCredentials: text("encrypted_credentials"),
+
   enableDebugLogging: boolean("enable_debug_logging").default(false),
   logRawRequests: boolean("log_raw_requests").default(false),
   logRawResponses: boolean("log_raw_responses").default(false),

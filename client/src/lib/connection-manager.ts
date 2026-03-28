@@ -249,6 +249,27 @@ class ConnectionManager {
         return;
       }
 
+      try {
+        const propertyId = localStorage.getItem("lfs_property_id") || undefined;
+        const reconRes = await fetch(`${this.cloudServerUrl}/api/lfs/sync/reconcile-saf-batch`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-lfs-api-key": localStorage.getItem("lfs_api_key") || "",
+          },
+          body: JSON.stringify({ propertyId }),
+          signal: AbortSignal.timeout(RECONNECT_SYNC_TIMEOUT),
+        });
+        if (reconRes.ok) {
+          const reconData = await reconRes.json();
+          if (reconData.settled > 0 || reconData.failed > 0) {
+            console.log(`[ConnectionManager] SAF reconciliation: ${reconData.settled} settled, ${reconData.failed} failed of ${reconData.total}`);
+          }
+        }
+      } catch (e: unknown) {
+        console.warn("[ConnectionManager] SAF reconciliation failed (non-critical):", e instanceof Error ? e.message : e);
+      }
+
       this.syncRequired = false;
       this.setState("cloud-online");
     } catch (e: unknown) {
