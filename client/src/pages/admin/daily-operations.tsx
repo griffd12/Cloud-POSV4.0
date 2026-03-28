@@ -1574,7 +1574,7 @@ export default function DailyOperationsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold" data-testid="text-ops-total-collected">
-                    {formatCurrency((tenderData?.totalAmount || 0) + (tenderData?.totalTips || 0))}
+                    {formatCurrency(tenderData?.totalAmount || 0)}
                   </div>
                 </CardContent>
               </Card>
@@ -1631,9 +1631,9 @@ export default function DailyOperationsPage() {
                         <TableRow key={t.name} data-testid={`row-ops-tender-${t.name}`}>
                           <TableCell className="font-medium">{t.name}</TableCell>
                           <TableCell className="text-right">{t.count}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(t.amount)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(t.amount - (t.tips || 0))}</TableCell>
                           <TableCell className="text-right">{formatCurrency(t.tips)}</TableCell>
-                          <TableCell className="text-right font-medium">{formatCurrency(t.amount + t.tips)}</TableCell>
+                          <TableCell className="text-right font-medium">{formatCurrency(t.amount)}</TableCell>
                         </TableRow>
                       ))}
                       {(!tenderData?.summary || tenderData.summary.length === 0) && (
@@ -1679,7 +1679,7 @@ export default function DailyOperationsPage() {
                         <TableRow key={t.id} data-testid={`row-ops-transaction-${t.id}`}>
                           <TableCell>#{t.checkNumber}</TableCell>
                           <TableCell><div className="flex items-center gap-2">{getTenderIcon(t.tenderType)}<span>{t.tenderName}</span></div></TableCell>
-                          <TableCell className="text-right font-medium">{formatCurrency(t.amount + (t.tipAmount || 0))}</TableCell>
+                          <TableCell className="text-right font-medium">{formatCurrency(t.amount)}</TableCell>
                           <TableCell className="text-muted-foreground text-sm">{formatDateTime(t.paidAt)}</TableCell>
                         </TableRow>
                       ))}

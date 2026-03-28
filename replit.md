@@ -58,6 +58,7 @@ All POS operations go directly to the cloud Express server and commit to Postgre
 - **Workstation Identity and RVC Switching**: Locked Workstation ID, interactive RVC selection.
 - **Enterprise Employee Privilege Resolution**: `getEmployeesByProperty()` includes `OR property_id IS NULL` to resolve privileges for enterprise-level employees.
 - **Price Unit Consistency**: `addItems()` response returns `unitPrice`/`totalPrice` in DOLLARS (matching `getCheckItems()`). DB stores CENTS internally.
+- **Tips in Tender/Payment Totals**: `tip_amount` is stored separately in `check_payments` but MUST be included in all tender/payment totals across reports (Z-Report, Daily Sales, Cashier, Validation, sales-summary, tender-mix, tender-detail, employee-balance). Tips are added AFTER the over-tender ratio capping logic. Reconciliation compares `netCollected` against `customerTotal` (which includes card tips), not raw `checkTotals`.
 - **Enterprise Effective Config Resolution**: Runtime config (tenders, discounts, tax groups, service charges, roles) resolves using enterprise→property→RVC hierarchy with RVC override > Property override > Enterprise default precedence.
 - **RVC-Scoped Employee Privileges**: `resolveEmployeePrivileges()` accepts `rvcId` and resolves employee's role assignment for the active RVC first, then falls back to primary assignment.
 

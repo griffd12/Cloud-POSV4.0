@@ -56,7 +56,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       const serviceCharges = round2(serviceChargeLines.reduce((s, l) => s + num(l.amount), 0));
       const totalRevenue = round2(netSales + totalTax + serviceCharges);
 
-      const totalCollected = round2(paymentLines.reduce((s, l) => s + num(l.amount), 0));
+      const totalCollected = round2(paymentLines.reduce((s, l) => s + num(l.amount) + num(l.tipAmount), 0));
 
       const cardTips = round2(
         paymentLines
@@ -77,7 +77,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       const tenderMap = new Map<string, number>();
       for (const p of paymentLines) {
         const name = p.tenderName || "Unknown";
-        tenderMap.set(name, (tenderMap.get(name) || 0) + num(p.amount));
+        tenderMap.set(name, (tenderMap.get(name) || 0) + num(p.amount) + num(p.tipAmount));
       }
       const tenderBreakdown = Array.from(tenderMap.entries()).map(([tenderName, amount]) => ({
         tenderName,
@@ -110,12 +110,12 @@ export function registerReportingRoutes(app: Express, storage: any) {
       const checkTotals = round2(num((changeDueResult.rows[0] as any)?.checkTotals));
 
       const cashTendered = round2(
-        paymentLines.filter(l => l.isCashMedia).reduce((s, l) => s + num(l.amount), 0)
+        paymentLines.filter(l => l.isCashMedia).reduce((s, l) => s + num(l.amount) + num(l.tipAmount), 0)
       );
       const netCashCollected = round2(cashTendered - changeDue);
 
       const netCollected = round2(totalCollected - changeDue);
-      const reconciliationDelta = round2(netCollected - checkTotals);
+      const reconciliationDelta = round2(netCollected - customerTotal);
       const balanced = Math.abs(reconciliationDelta) <= 0.02;
 
       res.json({
@@ -394,14 +394,14 @@ export function registerReportingRoutes(app: Express, storage: any) {
         const declaredCashTips = round2(empTimecards.reduce((s, l) => s + num(l.declaredCashTips), 0));
 
         const cashTendered = round2(
-          empPayments.filter(l => l.isCashMedia).reduce((s, l) => s + num(l.amount), 0)
+          empPayments.filter(l => l.isCashMedia).reduce((s, l) => s + num(l.amount) + num(l.tipAmount), 0)
         );
         const cardCollected = round2(
           empPayments
             .filter(l => l.isCardMedia)
-            .reduce((s, l) => s + num(l.amount), 0)
+            .reduce((s, l) => s + num(l.amount) + num(l.tipAmount), 0)
         );
-        const totalCollected = round2(empPayments.reduce((s, l) => s + num(l.amount), 0));
+        const totalCollected = round2(empPayments.reduce((s, l) => s + num(l.amount) + num(l.tipAmount), 0));
 
         const customerTotal = round2(netSales + tax + serviceCharges + cardTips);
 
@@ -511,7 +511,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       const totalTax = round2(itemTax + serviceChargeTax);
       const serviceChargesAmt = round2(serviceChargeLines.reduce((s, l) => s + num(l.amount), 0));
       const totalRevenue = round2(netSales + totalTax + serviceChargesAmt);
-      const totalCollected = round2(paymentLines.reduce((s, l) => s + num(l.amount), 0));
+      const totalCollected = round2(paymentLines.reduce((s, l) => s + num(l.amount) + num(l.tipAmount), 0));
       const voidCount = voidLines.length;
       const voidAmount = round2(voidLines.reduce((s, l) => s + num(l.voidAmount), 0));
       const checkCount = new Set(salesLines.map(l => l.checkId)).size;
@@ -519,7 +519,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       const tenderMap = new Map<string, number>();
       for (const p of paymentLines) {
         const name = p.tenderName || "Unknown";
-        tenderMap.set(name, (tenderMap.get(name) || 0) + num(p.amount));
+        tenderMap.set(name, (tenderMap.get(name) || 0) + num(p.amount) + num(p.tipAmount));
       }
       const tenderBreakdown = Array.from(tenderMap.entries()).map(([tenderName, amount]) => ({
         tenderName,
@@ -619,7 +619,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       const checkTotals = round2(num((changeDueResult.rows[0] as any)?.checkTotals));
 
       const cashTendered = round2(
-        paymentLines.filter(l => l.isCashMedia).reduce((s, l) => s + num(l.amount), 0)
+        paymentLines.filter(l => l.isCashMedia).reduce((s, l) => s + num(l.amount) + num(l.tipAmount), 0)
       );
       const netCashCollected = round2(cashTendered - changeDue);
       const netCollected = round2(totalCollected - changeDue);
@@ -1027,7 +1027,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
           .filter(l => l.isCardMedia)
           .reduce((s, l) => s + num(l.tipAmount), 0)
       );
-      const reconTotalPayments = round2(pmtLines.reduce((s, l) => s + num(l.amount), 0));
+      const reconTotalPayments = round2(pmtLines.reduce((s, l) => s + num(l.amount) + num(l.tipAmount), 0));
 
       const reconChangeDueResult = await db.execute(sql`
         SELECT COALESCE(SUM(
@@ -1063,7 +1063,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
 
       const customerTotal = round2(reconNetSales + reconTotalTax + reconServiceCharges + reconCardTips);
       const reconNetCollected = round2(reconTotalPayments - reconChangeDue);
-      const paymentDelta = round2(reconNetCollected - reconCheckTotals);
+      const paymentDelta = round2(reconNetCollected - customerTotal);
       const toleranceMet = Math.abs(paymentDelta) <= 0.02;
 
       const paymentReconciliation = {

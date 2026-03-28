@@ -8840,6 +8840,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
       // Calculate tips from all payments in period
       const totalTips = paymentsInPeriod.reduce((sum, p) => sum + parseFloat(p.tipAmount || "0"), 0);
+      totalPayments += totalTips;
       
       // REFUNDS - Subtract refund amounts from payments received
       // Refunds are money going OUT, so they reduce net payments received
@@ -9301,7 +9302,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             tenderTotals[id] = { name: payment.tenderName, count: 0, amount: 0 };
           }
           tenderTotals[id].count += 1;
-          tenderTotals[id].amount += parseFloat(payment.amount) * ratio;
+          tenderTotals[id].amount += parseFloat(payment.amount) * ratio + parseFloat(payment.tipAmount || "0");
         }
       });
       
@@ -9828,13 +9829,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const emp = check ? employees.find(e => e.id === check.employeeId) : null;
         const ratio = paymentAppliedRatios.get(p.id) ?? 1;
         
+        const tipAmt = parseFloat(p.tipAmount || "0");
         return {
           id: p.id,
           checkNumber: check?.checkNumber || 0,
           tenderName: tender?.name || "Unknown",
           tenderType: tender?.type || "unknown",
-          amount: parseFloat(p.amount || "0") * ratio,
-          tipAmount: parseFloat(p.tipAmount || "0"),
+          amount: parseFloat(p.amount || "0") * ratio + tipAmt,
+          baseAmount: parseFloat(p.amount || "0") * ratio,
+          tipAmount: tipAmt,
           employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "Unknown",
           rvcName: rvc?.name || "Unknown",
           paidAt: p.paidAt,
@@ -9851,7 +9854,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           summary[name] = { count: 0, amount: 0, tips: 0 };
         }
         summary[name].count += 1;
-        summary[name].amount += parseFloat(p.amount || "0") * ratio;
+        summary[name].amount += parseFloat(p.amount || "0") * ratio + parseFloat(p.tipAmount || "0");
         summary[name].tips += parseFloat(p.tipAmount || "0");
       }
       
@@ -10670,16 +10673,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           for (const payment of checkPayments) {
             const tenderedAmount = parseFloat(payment.amount || "0");
             const appliedAmount = tenderedAmount * ratio;
-            employeeData[empId].totalCollected += appliedAmount;
-            employeeData[empId].tips += parseFloat(payment.tipAmount || "0");
+            const tipAmt = parseFloat(payment.tipAmount || "0");
+            employeeData[empId].totalCollected += appliedAmount + tipAmt;
+            employeeData[empId].tips += tipAmt;
             
             const tender = tenders.find(t => t.id === payment.tenderId);
             if (tender?.popDrawer) {
-              employeeData[empId].cashCollected += appliedAmount;
+              employeeData[empId].cashCollected += appliedAmount + tipAmt;
             } else if (tender?.requiresPaymentProcessor) {
-              employeeData[empId].creditCollected += appliedAmount;
+              employeeData[empId].creditCollected += appliedAmount + tipAmt;
             } else {
-              employeeData[empId].otherCollected += appliedAmount;
+              employeeData[empId].otherCollected += appliedAmount + tipAmt;
             }
           }
         } else {
