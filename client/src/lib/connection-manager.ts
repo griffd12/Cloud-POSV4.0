@@ -250,14 +250,9 @@ class ConnectionManager {
       }
 
       try {
-        const propertyId = localStorage.getItem("lfs_property_id") || undefined;
-        const reconRes = await fetch(`${this.cloudServerUrl}/api/lfs/sync/reconcile-saf-batch`, {
+        const reconRes = await fetch(`${lfsUrl}/api/lfs/reconcile-saf`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-lfs-api-key": localStorage.getItem("lfs_api_key") || "",
-          },
-          body: JSON.stringify({ propertyId }),
+          headers: { "Content-Type": "application/json" },
           signal: AbortSignal.timeout(RECONNECT_SYNC_TIMEOUT),
         });
         if (reconRes.ok) {
