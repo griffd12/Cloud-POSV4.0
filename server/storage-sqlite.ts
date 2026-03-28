@@ -714,7 +714,19 @@ export class SqliteDatabaseStorage implements IStorage {
     return result;
   }
   async voidCheckServiceCharge(id: string, voidedByEmployeeId: string, voidReason?: string): Promise<CheckServiceCharge | undefined> {
-    return this.updateOne("check_service_charges", id, { isVoided: true, voidedByEmployeeId, voidReason, voidedAt: new Date().toISOString() } as any);
+    const result = await this.updateOne("check_service_charges", id, { isVoided: true, voidedByEmployeeId, voidReason, voidedAt: new Date().toISOString() } as any);
+    if (result) {
+      this.recordTransaction({
+        operationType: "update",
+        entityType: "check_service_charge",
+        entityId: id,
+        httpMethod: "PATCH",
+        endpoint: `/api/check-service-charges/${id}/void`,
+        payload: { id, isVoided: true, voidedByEmployeeId, voidReason },
+        offlineTransactionId: crypto.randomUUID(),
+      });
+    }
+    return result;
   }
 
   // ========================================================================
@@ -798,7 +810,21 @@ export class SqliteDatabaseStorage implements IStorage {
     }
     return result;
   }
-  async deleteCheck(id: string): Promise<boolean> { return this.deleteOne("checks", id); }
+  async deleteCheck(id: string): Promise<boolean> {
+    const result = await this.deleteOne("checks", id);
+    if (result) {
+      this.recordTransaction({
+        operationType: "delete",
+        entityType: "check",
+        entityId: id,
+        httpMethod: "DELETE",
+        endpoint: `/api/checks/${id}`,
+        payload: { id },
+        offlineTransactionId: crypto.randomUUID(),
+      });
+    }
+    return result;
+  }
 
   async getNextCheckNumber(rvcId: string): Promise<number> {
     const row = this.db.prepare(`SELECT * FROM "rvc_counters" WHERE rvc_id = ?`).get(rvcId) as any;
@@ -927,7 +953,21 @@ export class SqliteDatabaseStorage implements IStorage {
     }
     return result;
   }
-  async deleteCheckItem(id: string): Promise<boolean> { return this.deleteOne("check_items", id); }
+  async deleteCheckItem(id: string): Promise<boolean> {
+    const result = await this.deleteOne("check_items", id);
+    if (result) {
+      this.recordTransaction({
+        operationType: "delete",
+        entityType: "check_item",
+        entityId: id,
+        httpMethod: "DELETE",
+        endpoint: `/api/check-items/${id}`,
+        payload: { id },
+        offlineTransactionId: crypto.randomUUID(),
+      });
+    }
+    return result;
+  }
 
   // ========================================================================
   // CHECK DISCOUNTS
@@ -947,7 +987,21 @@ export class SqliteDatabaseStorage implements IStorage {
     });
     return result;
   }
-  async deleteCheckDiscount(id: string): Promise<boolean> { return this.deleteOne("check_discounts", id); }
+  async deleteCheckDiscount(id: string): Promise<boolean> {
+    const result = await this.deleteOne("check_discounts", id);
+    if (result) {
+      this.recordTransaction({
+        operationType: "delete",
+        entityType: "check_discount",
+        entityId: id,
+        httpMethod: "DELETE",
+        endpoint: `/api/check-discounts/${id}`,
+        payload: { id },
+        offlineTransactionId: crypto.randomUUID(),
+      });
+    }
+    return result;
+  }
 
   // ========================================================================
   // ROUNDS

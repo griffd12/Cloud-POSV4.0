@@ -219,6 +219,8 @@ export function initSqliteSchema(db: Database.Database): void {
       "cloud_response" TEXT
     )`);
 
+    migrateJournalTable(db);
+
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
@@ -226,4 +228,32 @@ export function initSqliteSchema(db: Database.Database): void {
   }
 
   console.log(`[LFS] SQLite schema initialized with ${tables.length} tables`);
+}
+
+function migrateJournalTable(db: Database.Database): void {
+  const existingCols = db.pragma('table_info("lfs_transaction_journal")') as Array<{ name: string }>;
+  const colNames = new Set(existingCols.map(c => c.name));
+
+  const requiredCols: Array<{ name: string; def: string }> = [
+    { name: "http_method", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "http_method" TEXT NOT NULL DEFAULT ''` },
+    { name: "endpoint", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "endpoint" TEXT NOT NULL DEFAULT ''` },
+    { name: "offline_transaction_id", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "offline_transaction_id" TEXT` },
+    { name: "workstation_id", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "workstation_id" TEXT` },
+    { name: "synced_at", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "synced_at" TEXT` },
+    { name: "cloud_response", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "cloud_response" TEXT` },
+  ];
+
+  for (const col of requiredCols) {
+    if (!colNames.has(col.name)) {
+      try {
+        db.exec(col.def);
+        console.log(`[LFS] Migrated lfs_transaction_journal: added column ${col.name}`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!msg.includes("duplicate column")) {
+          console.error(`[LFS] Failed to add column ${col.name}: ${msg}`);
+        }
+      }
+    }
+  }
 }

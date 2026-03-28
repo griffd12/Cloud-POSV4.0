@@ -9,10 +9,10 @@ const isLocalMode = process.env.DB_MODE === "local";
 
 function requireLfsApiKey(req: Request, res: Response, next: NextFunction) {
   const expectedKey = process.env.LFS_API_KEY;
-  if (!expectedKey) {
-    if (!isLocalMode) {
-      console.warn("[LFS Sync] LFS_API_KEY not configured — sync routes are unprotected");
-    }
+  if (!expectedKey && !isLocalMode) {
+    return res.status(500).json({ error: "LFS_API_KEY not configured on cloud server" });
+  }
+  if (!expectedKey && isLocalMode) {
     return next();
   }
   const provided = req.headers["x-lfs-api-key"] as string | undefined
@@ -251,6 +251,10 @@ async function syncEntity(
         const cloudId = idRemapCache.get(id) || id;
         const { id: _id, offlineTransactionId: _otxn, ...updateData } = dataWithOfflineId;
         return await storage.updateCheck(cloudId, updateData as Parameters<typeof storage.updateCheck>[1]);
+      } else if (operationType === "delete") {
+        const id = dataWithOfflineId.id as string;
+        const cloudId = idRemapCache.get(id) || id;
+        return await storage.deleteCheck(cloudId);
       }
       throw new Error(`Unsupported operation for check: ${operationType}`);
     }
@@ -263,6 +267,9 @@ async function syncEntity(
         const id = remapped.id as string;
         const { id: _id, offlineTransactionId: _otxn, ...updateData } = remapped;
         return await storage.updateCheckItem(id, updateData as Parameters<typeof storage.updateCheckItem>[1]);
+      } else if (operationType === "delete") {
+        const id = remapped.id as string;
+        return await storage.deleteCheckItem(id);
       }
       throw new Error(`Unsupported operation for check_item: ${operationType}`);
     }
@@ -287,6 +294,9 @@ async function syncEntity(
       if (operationType === "create") {
         const { id: _localId, ...insertData } = remapped;
         return await storage.createCheckDiscount(insertData as Parameters<typeof storage.createCheckDiscount>[0]);
+      } else if (operationType === "delete") {
+        const id = remapped.id as string;
+        return await storage.deleteCheckDiscount(id);
       }
       throw new Error(`Unsupported operation for check_discount: ${operationType}`);
     }
@@ -295,6 +305,14 @@ async function syncEntity(
       if (operationType === "create") {
         const { id: _localId, ...insertData } = remapped;
         return await storage.createCheckServiceCharge(insertData as Parameters<typeof storage.createCheckServiceCharge>[0]);
+      } else if (operationType === "update") {
+        const id = remapped.id as string;
+        const { id: _id, offlineTransactionId: _otxn, ...updateData } = remapped;
+        return await storage.voidCheckServiceCharge(
+          id,
+          (dataWithOfflineId as Record<string, unknown>).voidedByEmployeeId as string || "",
+          (dataWithOfflineId as Record<string, unknown>).voidReason as string | undefined,
+        );
       }
       throw new Error(`Unsupported operation for check_service_charge: ${operationType}`);
     }

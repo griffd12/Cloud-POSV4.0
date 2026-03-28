@@ -231,7 +231,9 @@ class ConnectionManager {
           : 0;
         this.pendingSyncCount = remaining;
         if (remaining > 0) {
-          console.warn(`[ConnectionManager] Sync incomplete: ${remaining} entries still pending`);
+          console.warn(`[ConnectionManager] Sync incomplete: ${remaining} entries still pending — staying in reconnecting`);
+          this.setState("cloud-degraded");
+          return;
         }
       } else {
         this.pendingSyncCount = 0;
@@ -241,7 +243,7 @@ class ConnectionManager {
     } catch (e: unknown) {
       console.error("[ConnectionManager] Reconnection sync error:", e instanceof Error ? e.message : e);
       this.syncProgress = null;
-      this.setState("cloud-online");
+      this.setState("cloud-degraded");
     }
   }
 
