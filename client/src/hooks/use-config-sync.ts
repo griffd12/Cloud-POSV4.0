@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, failoverFetch } from "@/lib/queryClient";
 import { useDeviceContext } from "@/lib/device-context";
 import { connectionManager } from "@/lib/connection-manager";
 
@@ -200,7 +200,7 @@ export function useConfigSyncPolling(intervalMs: number = 60000) {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const response = await fetch("/api/health");
+        const response = await failoverFetch("/api/health");
         if (response.ok) {
           const timeSinceLastCheck = Date.now() - lastCheckRef.current;
           if (timeSinceLastCheck > intervalMs * 2) {

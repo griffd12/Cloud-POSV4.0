@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -88,7 +88,7 @@ export function OptionBitsPanel({
         entityType,
         entityId,
       });
-      const res = await fetch(`/api/option-flags?${params}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/option-flags?${params}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch option flags");
       return res.json();
     },

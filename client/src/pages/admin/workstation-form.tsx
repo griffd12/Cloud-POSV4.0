@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { insertWorkstationSchema, type Workstation, type InsertWorkstation, type Property, type Printer, type OrderDevice } from "@shared/schema";
 import { Check } from "lucide-react";
 import {
@@ -89,7 +89,7 @@ const OrderDeviceRouting = forwardRef<OrderDeviceRoutingHandle, OrderDeviceRouti
         loadedForId.current = wsId;
         setRoutingLoaded(false);
         let cancelled = false;
-        fetch(`/api/workstations/${wsId}/order-devices`, { headers: getAuthHeaders() })
+        failoverFetch(`/api/workstations/${wsId}/order-devices`, { headers: getAuthHeaders() })
           .then(res => res.ok ? res.json() : [])
           .then((data) => {
             const ids: string[] = Array.isArray(data) ? data : (data?.orderDeviceIds ?? []);

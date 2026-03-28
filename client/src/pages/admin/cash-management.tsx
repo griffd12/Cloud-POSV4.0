@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePosWebSocket } from "@/hooks/use-pos-websocket";
 import { useEmcFilter } from "@/lib/emc-context";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { apiRequest, queryClient, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Loader2, Plus, DollarSign, ArrowDownToLine, ArrowUpFromLine, Wallet, Banknote, Lock } from "lucide-react";
 import type { Property, CashDrawer, DrawerAssignment, CashTransaction, SafeCount } from "@shared/schema";
 
@@ -47,7 +46,7 @@ export default function CashManagementPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -58,7 +57,7 @@ export default function CashManagementPage() {
     queryFn: async () => {
       const baseUrl = `/api/cash-drawers?propertyId=${selectedPropertyId}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch cash drawers");
       return res.json();
     },
@@ -70,7 +69,7 @@ export default function CashManagementPage() {
     queryFn: async () => {
       const baseUrl = `/api/drawer-assignments?propertyId=${selectedPropertyId}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch drawer assignments");
       return res.json();
     },
@@ -82,7 +81,7 @@ export default function CashManagementPage() {
     queryFn: async () => {
       const baseUrl = `/api/cash-transactions?propertyId=${selectedPropertyId}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch cash transactions");
       return res.json();
     },
@@ -94,7 +93,7 @@ export default function CashManagementPage() {
     queryFn: async () => {
       const baseUrl = `/api/safe-counts?propertyId=${selectedPropertyId}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch safe counts");
       return res.json();
     },

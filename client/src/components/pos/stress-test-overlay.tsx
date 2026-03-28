@@ -4,8 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { Activity, Play, Square, Trash2, X, Zap, Timer, CheckCircle2, XCircle, TrendingUp } from "lucide-react";
-import { apiRequest, getAuthHeaders, fetchWithTimeout } from "@/lib/queryClient";
-import { queryClient } from "@/lib/queryClient";
+import { apiRequest, getAuthHeaders, fetchWithTimeout, queryClient } from "@/lib/queryClient";
 import type { Check, CheckItem, MenuItem, Tender } from "@shared/schema";
 
 interface StressTestOverlayProps {

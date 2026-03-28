@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePosWebSocket } from "@/hooks/use-pos-websocket";
 import { useEmcFilter } from "@/lib/emc-context";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -97,7 +97,7 @@ export default function LaborAnalyticsPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -106,7 +106,7 @@ export default function LaborAnalyticsPage() {
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["/api/employees", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch employees");
       return res.json();
     },
@@ -117,7 +117,7 @@ export default function LaborAnalyticsPage() {
     queryFn: async () => {
       const baseUrl = `/api/reports/labor-vs-sales?propertyId=${selectedProperty}&startDate=${startDate}&endDate=${endDate}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch labor report");
       return res.json();
     },
@@ -129,7 +129,7 @@ export default function LaborAnalyticsPage() {
     queryFn: async () => {
       const baseUrl = `/api/reports/overtime?propertyId=${selectedProperty}&startDate=${startDate}&endDate=${endDate}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch overtime report");
       return res.json();
     },
@@ -141,7 +141,7 @@ export default function LaborAnalyticsPage() {
     queryFn: async () => {
       const baseUrl = `/api/reports/tips?propertyId=${selectedProperty}&startDate=${startDate}&endDate=${endDate}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch tips report");
       return res.json();
     },

@@ -16,7 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient, getAuthHeaders } from "@/lib/queryClient";
+import { apiRequest, queryClient, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { Loader2, Plus, ShoppingBag, ExternalLink, RefreshCw, Check, X, Wifi, WifiOff, Upload, TestTube, Clock, MapPin, Phone, User, Truck, Store, Settings, Trash2, AlertCircle, CheckCircle2, XCircle } from "lucide-react";
 import type { Property, Rvc, OnlineOrderSource, OnlineOrder } from "@shared/schema";
 
@@ -142,7 +142,7 @@ export default function OnlineOrderingPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -151,7 +151,7 @@ export default function OnlineOrderingPage() {
   const { data: rvcs = [] } = useQuery<Rvc[]>({
     queryKey: ["/api/rvcs", selectedPropertyId],
     queryFn: async () => {
-      const res = await fetch(`/api/rvcs?propertyId=${selectedPropertyId}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/rvcs?propertyId=${selectedPropertyId}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch RVCs");
       return res.json();
     },
@@ -161,7 +161,7 @@ export default function OnlineOrderingPage() {
   const { data: orderSources = [], isLoading: sourcesLoading } = useQuery<OnlineOrderSource[]>({
     queryKey: ["/api/online-order-sources", selectedPropertyId],
     queryFn: async () => {
-      const res = await fetch(`/api/online-order-sources?propertyId=${selectedPropertyId}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/online-order-sources?propertyId=${selectedPropertyId}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch order sources");
       return res.json();
     },
@@ -171,7 +171,7 @@ export default function OnlineOrderingPage() {
   const { data: onlineOrders = [], isLoading: ordersLoading } = useQuery<OnlineOrder[]>({
     queryKey: ["/api/online-orders", selectedPropertyId],
     queryFn: async () => {
-      const res = await fetch(`/api/online-orders?propertyId=${selectedPropertyId}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/online-orders?propertyId=${selectedPropertyId}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch online orders");
       return res.json();
     },

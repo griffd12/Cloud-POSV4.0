@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePosWebSocket } from "@/hooks/use-pos-websocket";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { useToast } from "@/hooks/use-toast";
 import { DataTable, Column, CustomAction } from "@/components/admin/data-table";
@@ -104,7 +104,7 @@ export default function LoyaltyPage() {
   const { data: programs = [], isLoading: programsLoading } = useQuery<LoyaltyProgram[]>({
     queryKey: ["/api/loyalty-programs", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/loyalty-programs${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/loyalty-programs${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch loyalty programs");
       return res.json();
     },
@@ -113,7 +113,7 @@ export default function LoyaltyPage() {
   const { data: members = [], isLoading: membersLoading } = useQuery<MemberWithEnrollments[]>({
     queryKey: ["/api/loyalty-members", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/loyalty-members${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/loyalty-members${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch loyalty members");
       return res.json();
     },
@@ -122,7 +122,7 @@ export default function LoyaltyPage() {
   const { data: rewards = [], isLoading: rewardsLoading } = useQuery<LoyaltyReward[]>({
     queryKey: ["/api/loyalty-rewards", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/loyalty-rewards${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/loyalty-rewards${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch loyalty rewards");
       return res.json();
     },
@@ -131,7 +131,7 @@ export default function LoyaltyPage() {
   const { data: menuItems = [] } = useQuery<MenuItem[]>({
     queryKey: ["/api/menu-items", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/menu-items${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/menu-items${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch menu items");
       return res.json();
     },
@@ -140,7 +140,7 @@ export default function LoyaltyPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -149,7 +149,7 @@ export default function LoyaltyPage() {
   const { data: memberTransactions = [] } = useQuery<(LoyaltyTransaction & { programName?: string })[]>({
     queryKey: ["/api/loyalty-transactions", selectedMember?.id, filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/loyalty-transactions/${selectedMember?.id}${filterParam}`, { headers: getAuthHeaders(), credentials: "include" });
+      const res = await failoverFetch(`/api/loyalty-transactions/${selectedMember?.id}${filterParam}`, { headers: getAuthHeaders(), credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch transactions");
       return res.json();
     },

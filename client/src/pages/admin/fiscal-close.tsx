@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getAuthHeaders, apiRequest } from "@/lib/queryClient";
+import { getAuthHeaders, apiRequest, failoverFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Calendar, Clock, CheckCircle2, AlertCircle, ArrowRight, CalendarClock } from "lucide-react";
 import type { Property, FiscalPeriod } from "@shared/schema";
@@ -42,7 +42,7 @@ export default function FiscalClosePage() {
   const { data: properties = [], isLoading: propertiesLoading } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -51,7 +51,7 @@ export default function FiscalClosePage() {
   const { data: businessDateInfo } = useQuery<{ currentBusinessDate: string; localDate: string; timezone: string }>({
     queryKey: ["/api/properties", selectedPropertyId, "business-date"],
     queryFn: async () => {
-      const res = await fetch(`/api/properties/${selectedPropertyId}/business-date`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties/${selectedPropertyId}/business-date`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch business date");
       return res.json();
     },
@@ -69,7 +69,7 @@ export default function FiscalClosePage() {
     queryFn: async () => {
       const baseUrl = `/api/fiscal-periods/current/${selectedPropertyId}`;
       const url = selectedEnterpriseId ? `${baseUrl}?enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch current period");
       return res.json();
     },
@@ -81,7 +81,7 @@ export default function FiscalClosePage() {
     queryFn: async () => {
       const baseUrl = `/api/fiscal-periods/totals/${selectedPropertyId}/${currentPeriod?.businessDate}`;
       const url = selectedEnterpriseId ? `${baseUrl}?enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch totals");
       return res.json();
     },
@@ -94,7 +94,7 @@ export default function FiscalClosePage() {
     queryFn: async () => {
       const baseUrl = `/api/fiscal-periods?propertyId=${selectedPropertyId}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch fiscal periods");
       return res.json();
     },

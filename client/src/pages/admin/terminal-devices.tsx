@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useEmcFilter } from "@/lib/emc-context";
 
@@ -116,7 +116,7 @@ export default function TerminalDevicesPage() {
   const { data: devices = [], isLoading } = useQuery<TerminalDevice[]>({
     queryKey: ["/api/terminal-devices", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/terminal-devices${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/terminal-devices${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -125,7 +125,7 @@ export default function TerminalDevicesPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -134,7 +134,7 @@ export default function TerminalDevicesPage() {
   const { data: workstations = [] } = useQuery<Workstation[]>({
     queryKey: ["/api/workstations", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/workstations${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/workstations${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -143,7 +143,7 @@ export default function TerminalDevicesPage() {
   const { data: processors = [] } = useQuery<PaymentProcessor[]>({
     queryKey: ["/api/payment-processors", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/payment-processors${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/payment-processors${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },

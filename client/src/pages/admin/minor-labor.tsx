@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -70,7 +70,7 @@ export default function MinorLaborPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -79,7 +79,7 @@ export default function MinorLaborPage() {
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["/api/employees", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch employees");
       return res.json();
     },
@@ -88,7 +88,7 @@ export default function MinorLaborPage() {
   const { data: minorStatuses = [], isLoading } = useQuery<EmployeeMinorStatus[]>({
     queryKey: ["/api/employee-minor-status", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/employee-minor-status${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/employee-minor-status${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch minor statuses");
       return res.json();
     },
@@ -97,7 +97,7 @@ export default function MinorLaborPage() {
   const { data: laborRules = [] } = useQuery<MinorLaborRule[]>({
     queryKey: ["/api/minor-labor-rules", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/minor-labor-rules${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/minor-labor-rules${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch labor rules");
       return res.json();
     },

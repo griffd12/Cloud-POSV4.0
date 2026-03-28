@@ -43,7 +43,7 @@ export function useEnterpriseQuery<TData = unknown>({
   return useQuery<TData>({
     queryKey,
     queryFn: async () => {
-      const response = await fetch(url, {
+      const response = await failoverFetch(url, {
         credentials: "include",
       });
       if (!response.ok) {

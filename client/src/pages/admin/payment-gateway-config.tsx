@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ContextHelpWrapper } from "@/components/ui/context-help";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { getConnectionFields, isFieldSupported, getFieldOverride, getSuggestedDefaults, isSemiIntegrated, getIntegrationModel, TERMINAL_CONNECTION_TYPES } from "@/lib/gateway-field-registry";
 import type { GatewayFieldKey } from "@/lib/gateway-field-registry";
@@ -179,7 +179,7 @@ export default function PaymentGatewayConfigPage() {
   const { data: allConfigs = [], isLoading } = useQuery<PaymentGatewayConfig[]>({
     queryKey: ["/api/payment-gateway-config", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/payment-gateway-config${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/payment-gateway-config${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },

@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient, getAuthHeaders } from "@/lib/queryClient";
+import { apiRequest, queryClient, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { Loader2, TrendingUp, Users, DollarSign, Calendar, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import type { Property, SalesForecast, LaborForecast } from "@shared/schema";
 
@@ -32,7 +32,7 @@ export default function ForecastingPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -41,7 +41,7 @@ export default function ForecastingPage() {
   const { data: salesForecasts = [], isLoading: salesLoading } = useQuery<SalesForecast[]>({
     queryKey: ["/api/sales-forecasts", selectedPropertyId, forecastDate, filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/sales-forecasts?propertyId=${selectedPropertyId}&date=${forecastDate}${selectedEnterpriseId ? `&enterpriseId=${selectedEnterpriseId}` : ""}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/sales-forecasts?propertyId=${selectedPropertyId}&date=${forecastDate}${selectedEnterpriseId ? `&enterpriseId=${selectedEnterpriseId}` : ""}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch sales forecasts");
       return res.json();
     },
@@ -51,7 +51,7 @@ export default function ForecastingPage() {
   const { data: laborForecasts = [], isLoading: laborLoading } = useQuery<LaborForecast[]>({
     queryKey: ["/api/labor-forecasts", selectedPropertyId, forecastDate, filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/labor-forecasts?propertyId=${selectedPropertyId}&date=${forecastDate}${selectedEnterpriseId ? `&enterpriseId=${selectedEnterpriseId}` : ""}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/labor-forecasts?propertyId=${selectedPropertyId}&date=${forecastDate}${selectedEnterpriseId ? `&enterpriseId=${selectedEnterpriseId}` : ""}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch labor forecasts");
       return res.json();
     },

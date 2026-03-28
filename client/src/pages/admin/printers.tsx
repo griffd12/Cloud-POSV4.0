@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { insertPrinterSchema, type Printer, type InsertPrinter, type Property, type Workstation } from "@shared/schema";
 import { Printer as PrinterIcon } from "lucide-react";
@@ -94,7 +94,7 @@ export default function PrintersPage() {
   const { data: printers = [], isLoading } = useQuery<Printer[]>({
     queryKey: ["/api/printers", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/printers${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/printers${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch printers");
       return res.json();
     },
@@ -103,7 +103,7 @@ export default function PrintersPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -112,7 +112,7 @@ export default function PrintersPage() {
   const { data: workstations = [] } = useQuery<Workstation[]>({
     queryKey: ["/api/workstations", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/workstations${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/workstations${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch workstations");
       return res.json();
     },

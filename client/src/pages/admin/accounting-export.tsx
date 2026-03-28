@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient, getAuthHeaders } from "@/lib/queryClient";
+import { apiRequest, queryClient, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { Loader2, Plus, Download, FileText, DollarSign, Calculator } from "lucide-react";
 import type { Property, GlMapping, AccountingExport } from "@shared/schema";
 
@@ -44,7 +44,7 @@ export default function AccountingExportPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -55,7 +55,7 @@ export default function AccountingExportPage() {
     enabled: !!selectedPropertyId,
     queryFn: async () => {
       const entParam = selectedEnterpriseId ? `&enterpriseId=${selectedEnterpriseId}` : "";
-      const res = await fetch(`/api/gl-mappings?propertyId=${selectedPropertyId}${entParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/gl-mappings?propertyId=${selectedPropertyId}${entParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch GL mappings");
       return res.json();
     },
@@ -66,7 +66,7 @@ export default function AccountingExportPage() {
     enabled: !!selectedPropertyId,
     queryFn: async () => {
       const entParam = selectedEnterpriseId ? `&enterpriseId=${selectedEnterpriseId}` : "";
-      const res = await fetch(`/api/accounting-exports?propertyId=${selectedPropertyId}${entParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/accounting-exports?propertyId=${selectedPropertyId}${entParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch exports");
       return res.json();
     },

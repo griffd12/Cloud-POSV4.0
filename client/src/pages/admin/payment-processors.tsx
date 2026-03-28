@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { insertPaymentProcessorSchema, type PaymentProcessor, type InsertPaymentProcessor, type Property } from "@shared/schema";
 import {
@@ -59,7 +59,7 @@ export default function PaymentProcessorsPage() {
   const { data: processors = [], isLoading } = useQuery<PaymentProcessor[]>({
     queryKey: ["/api/payment-processors", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/payment-processors${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/payment-processors${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -68,7 +68,7 @@ export default function PaymentProcessorsPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },

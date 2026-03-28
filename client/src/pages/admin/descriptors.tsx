@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { 
   Building2, 
@@ -86,7 +86,7 @@ export default function DescriptorsPage() {
   const { data: enterprises = [] } = useQuery<Enterprise[]>({
     queryKey: ["/api/enterprises", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/enterprises${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/enterprises${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -95,7 +95,7 @@ export default function DescriptorsPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -104,7 +104,7 @@ export default function DescriptorsPage() {
   const { data: rvcs = [] } = useQuery<Rvc[]>({
     queryKey: ["/api/rvcs", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/rvcs${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/rvcs${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -119,7 +119,7 @@ export default function DescriptorsPage() {
     queryKey: ["/api/descriptors", selectedEnterpriseId],
     queryFn: async () => {
       if (!selectedEnterpriseId) return [];
-      const response = await fetch(`/api/descriptors?enterpriseId=${selectedEnterpriseId}`, {
+      const response = await failoverFetch(`/api/descriptors?enterpriseId=${selectedEnterpriseId}`, {
         headers: getAuthHeaders(),
         credentials: "include",
       });
@@ -133,7 +133,7 @@ export default function DescriptorsPage() {
     queryKey: ["/api/descriptor-logos", selectedEnterpriseId],
     queryFn: async () => {
       if (!selectedEnterpriseId) return [];
-      const response = await fetch(`/api/descriptor-logos?enterpriseId=${selectedEnterpriseId}`, {
+      const response = await failoverFetch(`/api/descriptor-logos?enterpriseId=${selectedEnterpriseId}`, {
         headers: getAuthHeaders(),
         credentials: "include",
       });

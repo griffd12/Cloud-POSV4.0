@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { type Employee, type Role, type Property, type EmployeeAssignment, type JobCode, type EmployeeJobCode } from "@shared/schema";
 import { Plus, Trash2 } from "lucide-react";
@@ -55,7 +55,7 @@ export default function EmployeesPage() {
   const { data: employees = [], isLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch employees");
       return res.json();
     },
@@ -67,7 +67,7 @@ export default function EmployeesPage() {
   const { data: roles = [] } = useQuery<Role[]>({
     queryKey: ["/api/roles", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/roles${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/roles${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch roles");
       return res.json();
     },
@@ -77,7 +77,7 @@ export default function EmployeesPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", selectedEnterpriseId],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${enterpriseOnlyParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${enterpriseOnlyParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -86,7 +86,7 @@ export default function EmployeesPage() {
   const { data: jobCodes = [] } = useQuery<JobCode[]>({
     queryKey: ["/api/job-codes", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/job-codes${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/job-codes${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch job codes");
       return res.json();
     },

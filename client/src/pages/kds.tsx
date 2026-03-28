@@ -4,7 +4,7 @@ import { KdsDisplay } from "@/components/kds/kds-display";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { usePosContext } from "@/lib/pos-context";
 import { useDeviceContext } from "@/lib/device-context";
 import { usePosWebSocket, subscribeToKdsTestTicket } from "@/hooks/use-pos-websocket";
@@ -166,7 +166,7 @@ export default function KdsPage() {
 
     const sendHeartbeat = async () => {
       try {
-        await fetch("/api/registered-devices/heartbeat", {
+        await failoverFetch("/api/registered-devices/heartbeat", {
           method: "POST",
           headers: {
             ...getAuthHeaders(),
@@ -248,7 +248,7 @@ export default function KdsPage() {
   const { data: tickets = [], isLoading, refetch, isError: ticketsError } = useQuery<Ticket[]>({
     queryKey: ["/api/kds-tickets", isDedicatedKds ? propertyId : currentRvc?.id, selectedStation],
     queryFn: async () => {
-      const res = await fetch(`/api/kds-tickets?${queryParams.toString()}`, { 
+      const res = await failoverFetch(`/api/kds-tickets?${queryParams.toString()}`, { 
         credentials: "include",
         headers: getAuthHeaders(),
       });

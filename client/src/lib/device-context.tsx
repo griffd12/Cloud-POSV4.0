@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
+import { failoverFetch } from "@/lib/queryClient";
 
 const DEVICE_TYPE_KEY = "pos_device_type";
 const DEVICE_TYPE_EXPLICIT_KEY = "pos_device_type_explicit";
@@ -291,7 +292,7 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
     setValidationError(null);
 
     try {
-      const response = await fetch("/api/registered-devices/validate", {
+      const response = await failoverFetch("/api/registered-devices/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deviceToken: token }),

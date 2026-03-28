@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient, fetchWithTimeout, getAuthHeaders } from "@/lib/queryClient";
+import { apiRequest, queryClient, fetchWithTimeout, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import type { Tender, Check, TerminalDevice, TerminalSession, CheckPayment } from "@shared/schema";
 import { Banknote, CreditCard, Gift, DollarSign, Check as CheckIcon, X, ArrowLeft, Loader2, Wifi, WifiOff, Smartphone, Monitor, Clock, Receipt, Star, ChevronDown, ChevronUp, User } from "lucide-react";
 import { StripeCardForm } from "./stripe-card-form";
@@ -176,7 +176,7 @@ export function PaymentModal({
         const authHeaders = getAuthHeaders();
         const url = `/api/terminal-devices?propertyId=${propertyId}`;
         console.log("[PaymentModal] Terminal devices request URL:", url, "headers:", JSON.stringify(authHeaders));
-        const res = await fetch(url, {
+        const res = await failoverFetch(url, {
           method: "GET",
           headers: authHeaders,
           credentials: "include",

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { getAuthHeaders , failoverFetch } from "@/lib/queryClient";
 
 const HEARTBEAT_INTERVAL_MS = 30000; // Send heartbeat every 30 seconds
 
@@ -15,7 +15,7 @@ export function useDeviceHeartbeat(enabled: boolean = true) {
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
-      await fetch("/api/registered-devices/heartbeat", {
+      await failoverFetch("/api/registered-devices/heartbeat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

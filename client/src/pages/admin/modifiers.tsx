@@ -5,7 +5,7 @@ import { DataTable, type Column } from "@/components/admin/data-table";
 import { EntityForm, type FormFieldConfig } from "@/components/admin/entity-form";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { getScopeColumn, getZoneColumn, getInheritanceColumn } from "@/components/admin/scope-column";
 import { useScopeLookup } from "@/hooks/use-scope-lookup";
@@ -23,7 +23,7 @@ export default function ModifiersPage() {
   const { data: modifiers = [], isLoading } = useQuery<Modifier[]>({
     queryKey: ["/api/modifiers", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/modifiers${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/modifiers${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch modifiers");
       return res.json();
     },

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { 
   insertPrintClassSchema, 
@@ -45,7 +45,7 @@ export default function PrintClassesPage() {
   const { data: printClasses = [], isLoading } = useQuery<PrintClass[]>({
     queryKey: ["/api/print-classes", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/print-classes${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/print-classes${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -57,7 +57,7 @@ export default function PrintClassesPage() {
   const { data: orderDevices = [] } = useQuery<OrderDevice[]>({
     queryKey: ["/api/order-devices", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/order-devices${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/order-devices${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -66,7 +66,7 @@ export default function PrintClassesPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -75,7 +75,7 @@ export default function PrintClassesPage() {
   const { data: allRoutings = [] } = useQuery<PrintClassRouting[]>({
     queryKey: ["/api/print-class-routing", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/print-class-routing${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/print-class-routing${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },

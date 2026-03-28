@@ -27,6 +27,10 @@ export async function fetchWithTimeout(url: string, options: RequestInit = {}): 
   return res;
 }
 
+export function failoverFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  return fetch(resolveUrl(url), options);
+}
+
 export function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   

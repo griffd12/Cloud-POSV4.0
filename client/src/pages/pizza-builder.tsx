@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePosContext } from "@/lib/pos-context";
-import { apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Check, Minus, Plus, Pizza } from "lucide-react";
 import type { MenuItem, Modifier } from "@shared/schema";
@@ -65,7 +65,7 @@ export default function PizzaBuilderPage() {
   const { data: menuItem, isLoading: menuItemLoading } = useQuery<MenuItem>({
     queryKey: ["/api/menu-items", menuItemId],
     queryFn: async () => {
-      const res = await fetch(`/api/menu-items/${menuItemId}`, { credentials: "include", headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/menu-items/${menuItemId}`, { credentials: "include", headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch menu item");
       return res.json();
     },
@@ -75,7 +75,7 @@ export default function PizzaBuilderPage() {
   const { data: modifiers, isLoading: modifiersLoading } = useQuery<Modifier[]>({
     queryKey: ["/api/modifiers", currentRvc?.propertyId],
     queryFn: async () => {
-      const res = await fetch(`/api/modifiers?propertyId=${currentRvc?.propertyId}`, { credentials: "include", headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/modifiers?propertyId=${currentRvc?.propertyId}`, { credentials: "include", headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch modifiers");
       return res.json();
     },
@@ -91,7 +91,7 @@ export default function PizzaBuilderPage() {
   }>({
     queryKey: ["/api/check-items", editCheckItemId],
     queryFn: async () => {
-      const res = await fetch(`/api/check-items/${editCheckItemId}`, { credentials: "include", headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/check-items/${editCheckItemId}`, { credentials: "include", headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch check item");
       return res.json();
     },

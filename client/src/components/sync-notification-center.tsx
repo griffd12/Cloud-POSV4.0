@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { subscribeToSyncNotifications } from "@/hooks/use-pos-websocket";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { connectionManager } from "@/lib/connection-manager";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -202,7 +202,7 @@ export function SyncNotificationCenter({ propertyId, enterpriseId }: SyncNotific
     mutationFn: async () => {
       const qp = propertyId ? `propertyId=${propertyId}` : enterpriseId ? `enterpriseId=${enterpriseId}` : "";
       if (!qp) return;
-      await fetch(`/api/sync-notifications?${qp}`, { method: "DELETE", headers: getAuthHeaders() });
+      await failoverFetch(`/api/sync-notifications?${qp}`, { method: "DELETE", headers: getAuthHeaders() });
     },
     onSuccess: invalidateAll,
   });

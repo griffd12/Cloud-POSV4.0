@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -95,7 +95,7 @@ export default function TipRulesPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       return res.json();
     },
   });
@@ -103,7 +103,7 @@ export default function TipRulesPage() {
   const { data: jobCodes = [] } = useQuery<JobCode[]>({
     queryKey: ["/api/job-codes", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/job-codes${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/job-codes${filterParam}`, { headers: getAuthHeaders() });
       return res.json();
     },
   });
@@ -115,7 +115,7 @@ export default function TipRulesPage() {
     enabled: !!selectedPropertyId,
     retry: false,
     queryFn: async () => {
-      const res = await fetch(`/api/tip-rules/property/${selectedPropertyId}`, {
+      const res = await failoverFetch(`/api/tip-rules/property/${selectedPropertyId}`, {
         headers: getAuthHeaders(),
         credentials: "include",
       });

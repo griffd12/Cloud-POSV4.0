@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient, getAuthHeaders } from "@/lib/queryClient";
+import { apiRequest, queryClient, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { Loader2, AlertTriangle, Check, X, Plus, RefreshCw, UtensilsCrossed } from "lucide-react";
 import type { Property, MenuItem, ItemAvailability, PrepItem } from "@shared/schema";
 
@@ -41,7 +41,7 @@ export default function ItemAvailabilityPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -50,7 +50,7 @@ export default function ItemAvailabilityPage() {
   const { data: menuItems = [] } = useQuery<MenuItem[]>({
     queryKey: ["/api/menu-items", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/menu-items${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/menu-items${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch menu items");
       return res.json();
     },
@@ -63,7 +63,7 @@ export default function ItemAvailabilityPage() {
       const params = new URLSearchParams();
       params.set("propertyId", selectedPropertyId);
       if (selectedEnterpriseId) params.set("enterpriseId", selectedEnterpriseId);
-      const res = await fetch(`/api/item-availability?${params.toString()}`, {
+      const res = await failoverFetch(`/api/item-availability?${params.toString()}`, {
         credentials: "include",
         headers: getAuthHeaders(),
       });
@@ -79,7 +79,7 @@ export default function ItemAvailabilityPage() {
       const params = new URLSearchParams();
       params.set("propertyId", selectedPropertyId);
       if (selectedEnterpriseId) params.set("enterpriseId", selectedEnterpriseId);
-      const res = await fetch(`/api/prep-items?${params.toString()}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/prep-items?${params.toString()}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch prep items");
       return res.json();
     },

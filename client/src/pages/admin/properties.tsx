@@ -5,7 +5,7 @@ import { DataTable, type Column } from "@/components/admin/data-table";
 import { EntityForm, type FormFieldConfig } from "@/components/admin/entity-form";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { insertPropertySchema, type Property, type InsertProperty, type Enterprise, type Workstation } from "@shared/schema";
 
@@ -20,7 +20,7 @@ export default function PropertiesPage() {
     queryKey: ["/api/properties", selectedEnterpriseId],
     queryFn: async () => {
       const enterpriseOnlyParam = selectedEnterpriseId ? `?enterpriseId=${selectedEnterpriseId}` : "";
-      const res = await fetch(`/api/properties${enterpriseOnlyParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${enterpriseOnlyParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -38,7 +38,7 @@ export default function PropertiesPage() {
     queryKey: ["/api/workstations", selectedEnterpriseId],
     queryFn: async () => {
       const param = selectedEnterpriseId ? `?enterpriseId=${selectedEnterpriseId}` : "";
-      const res = await fetch(`/api/workstations${param}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/workstations${param}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch workstations");
       return res.json();
     },

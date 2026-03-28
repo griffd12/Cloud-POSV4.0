@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { insertRvcSchema, type Rvc, type InsertRvc, type Property, ORDER_TYPES, DOM_SEND_MODES } from "@shared/schema";
 import { FileText, Save, Loader2 } from "lucide-react";
@@ -60,7 +60,7 @@ export default function RvcsPage() {
   const { data: rvcs = [], isLoading } = useQuery<Rvc[]>({
     queryKey: ["/api/rvcs", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/rvcs${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/rvcs${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch rvcs");
       return res.json();
     },
@@ -70,7 +70,7 @@ export default function RvcsPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", selectedEnterpriseId],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${enterpriseOnlyParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${enterpriseOnlyParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -236,7 +236,7 @@ export default function RvcsPage() {
   const openDescriptors = async (rvc: Rvc) => {
     setDescriptorsRvc(rvc);
     try {
-      const response = await fetch(`/api/descriptors/rvc/${rvc.id}`, {
+      const response = await failoverFetch(`/api/descriptors/rvc/${rvc.id}`, {
         headers: getAuthHeaders(),
         credentials: "include",
       });

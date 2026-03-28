@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatInTimeZone } from "date-fns-tz";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -224,7 +224,7 @@ export function POSReportsModal({
     queryKey: ["/api/properties", propertyId, "business-date"],
     queryFn: async () => {
       if (!propertyId) throw new Error("No property ID");
-      const res = await fetch(`/api/properties/${propertyId}/business-date`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties/${propertyId}/business-date`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch business date");
       return res.json();
     },

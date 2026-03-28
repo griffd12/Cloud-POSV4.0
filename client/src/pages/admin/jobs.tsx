@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePosWebSocket } from "@/hooks/use-pos-websocket";
 import { useEmcFilter } from "@/lib/emc-context";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { DataTable, type Column } from "@/components/admin/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,6 @@ import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
 import { type JobCode, type Role } from "@shared/schema";
 import { getScopeColumn, getZoneColumn, getInheritanceColumn } from "@/components/admin/scope-column";
 import { useScopeLookup } from "@/hooks/use-scope-lookup";
@@ -41,7 +40,7 @@ export default function JobsPage() {
   const { data: jobs = [], isLoading } = useQuery<JobCode[]>({
     queryKey: ["/api/job-codes", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/job-codes${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/job-codes${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch job codes");
       return res.json();
     },
@@ -53,7 +52,7 @@ export default function JobsPage() {
   const { data: roles = [] } = useQuery<Role[]>({
     queryKey: ["/api/roles", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/roles${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/roles${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch roles");
       return res.json();
     },

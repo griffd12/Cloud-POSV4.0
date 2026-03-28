@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePosWebSocket } from "@/hooks/use-pos-websocket";
 import { useEmcFilter } from "@/lib/emc-context";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -60,7 +60,7 @@ export default function TipPoolingPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -69,7 +69,7 @@ export default function TipPoolingPage() {
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["/api/employees", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch employees");
       return res.json();
     },
@@ -80,7 +80,7 @@ export default function TipPoolingPage() {
     enabled: !!selectedProperty,
     queryFn: async () => {
       const entParam = selectedEnterpriseId ? `&enterpriseId=${selectedEnterpriseId}` : "";
-      const res = await fetch(`/api/tip-pool-policies?propertyId=${selectedProperty}${entParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/tip-pool-policies?propertyId=${selectedProperty}${entParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch policies");
       return res.json();
     },
@@ -91,7 +91,7 @@ export default function TipPoolingPage() {
     enabled: !!selectedProperty,
     queryFn: async () => {
       const entParam = selectedEnterpriseId ? `&enterpriseId=${selectedEnterpriseId}` : "";
-      const res = await fetch(`/api/tip-pool-runs?propertyId=${selectedProperty}${entParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/tip-pool-runs?propertyId=${selectedProperty}${entParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch runs");
       return res.json();
     },

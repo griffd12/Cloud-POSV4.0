@@ -1,3 +1,4 @@
+import { failoverFetch } from "@/lib/queryClient";
 import { useState, useEffect, useCallback } from "react";
 
 const DEVICE_TOKEN_KEY = "pos_device_token";
@@ -124,7 +125,7 @@ export function useDeviceEnrollment() {
 
     try {
       console.log("[DeviceEnrollment] Validating device token...");
-      const response = await fetch("/api/registered-devices/validate", {
+      const response = await failoverFetch("/api/registered-devices/validate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

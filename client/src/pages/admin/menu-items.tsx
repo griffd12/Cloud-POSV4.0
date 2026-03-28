@@ -27,7 +27,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { getScopeColumn, getZoneColumn, getInheritanceColumn } from "@/components/admin/scope-column";
 import { useScopeLookup } from "@/hooks/use-scope-lookup";
@@ -58,7 +58,7 @@ export default function MenuItemsPage() {
   const { data: menuItems = [], isLoading } = useQuery<MenuItem[]>({
     queryKey: ["/api/menu-items", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/menu-items${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/menu-items${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch menu items");
       return res.json();
     },
@@ -68,7 +68,7 @@ export default function MenuItemsPage() {
   const { data: taxGroups = [] } = useQuery<TaxGroup[]>({
     queryKey: ["/api/tax-groups", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/tax-groups${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/tax-groups${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch tax groups");
       return res.json();
     },
@@ -78,7 +78,7 @@ export default function MenuItemsPage() {
   const { data: printClasses = [] } = useQuery<PrintClass[]>({
     queryKey: ["/api/print-classes", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/print-classes${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/print-classes${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch print classes");
       return res.json();
     },
@@ -88,7 +88,7 @@ export default function MenuItemsPage() {
   const { data: slus = [] } = useQuery<Slu[]>({
     queryKey: ["/api/slus", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/slus${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/slus${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch slus");
       return res.json();
     },
@@ -98,7 +98,7 @@ export default function MenuItemsPage() {
   const { data: allMenuItemSlus = [] } = useQuery<MenuItemSlu[]>({
     queryKey: ["/api/menu-item-slus", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/menu-item-slus${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/menu-item-slus${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch menu item slus");
       return res.json();
     },
@@ -108,7 +108,7 @@ export default function MenuItemsPage() {
   const { data: modifierGroups = [] } = useQuery<ModifierGroup[]>({
     queryKey: ["/api/modifier-groups", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/modifier-groups${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/modifier-groups${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch modifier groups");
       return res.json();
     },
@@ -118,7 +118,7 @@ export default function MenuItemsPage() {
   const { data: majorGroups = [] } = useQuery<MajorGroup[]>({
     queryKey: ["/api/major-groups", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/major-groups${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/major-groups${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch major groups");
       return res.json();
     },
@@ -128,7 +128,7 @@ export default function MenuItemsPage() {
   const { data: familyGroups = [] } = useQuery<FamilyGroup[]>({
     queryKey: ["/api/family-groups", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/family-groups${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/family-groups${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch family groups");
       return res.json();
     },
@@ -416,7 +416,7 @@ export default function MenuItemsPage() {
     queryKey: ["/api/menu-items", editingItem?.id, "modifier-groups"],
     queryFn: async () => {
       if (!editingItem) return [];
-      const res = await fetch(`/api/menu-items/${editingItem.id}/modifier-groups`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/menu-items/${editingItem.id}/modifier-groups`, { headers: getAuthHeaders() });
       return res.json();
     },
     enabled: !!editingItem,
@@ -431,7 +431,7 @@ export default function MenuItemsPage() {
   const { data: ingredientPrefixes = [] } = useQuery<IngredientPrefix[]>({
     queryKey: ["/api/ingredient-prefixes", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/ingredient-prefixes${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/ingredient-prefixes${filterParam}`, { headers: getAuthHeaders() });
       return res.json();
     },
     enabled: !!selectedEnterpriseId && menuBuildEnabled,
@@ -440,7 +440,7 @@ export default function MenuItemsPage() {
   const { data: modifiers = [] } = useQuery<Modifier[]>({
     queryKey: ["/api/modifiers", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/modifiers${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/modifiers${filterParam}`, { headers: getAuthHeaders() });
       return res.json();
     },
     enabled: !!selectedEnterpriseId && menuBuildEnabled,
@@ -449,7 +449,7 @@ export default function MenuItemsPage() {
   const { data: modGroupModLinks = [] } = useQuery<ModifierGroupModifier[]>({
     queryKey: ["/api/sync/modifier-group-modifiers"],
     queryFn: async () => {
-      const res = await fetch(`/api/sync/modifier-group-modifiers`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/sync/modifier-group-modifiers`, { headers: getAuthHeaders() });
       return res.json();
     },
     enabled: !!selectedEnterpriseId && menuBuildEnabled,
@@ -459,7 +459,7 @@ export default function MenuItemsPage() {
     queryKey: ["/api/menu-items", editingItem?.id, "recipe-ingredients"],
     queryFn: async () => {
       if (!editingItem) return [];
-      const res = await fetch(`/api/menu-items/${editingItem.id}/recipe-ingredients`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/menu-items/${editingItem.id}/recipe-ingredients`, { headers: getAuthHeaders() });
       return res.json();
     },
     enabled: !!editingItem && menuBuildEnabled,

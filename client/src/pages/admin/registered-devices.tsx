@@ -5,7 +5,7 @@ import { DataTable, type Column } from "@/components/admin/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { 
   type RegisteredDevice, 
@@ -80,7 +80,7 @@ export default function RegisteredDevicesPage() {
   const { data: devices = [], isLoading } = useQuery<RegisteredDevice[]>({
     queryKey: ["/api/registered-devices", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/registered-devices${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/registered-devices${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -89,7 +89,7 @@ export default function RegisteredDevicesPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -98,7 +98,7 @@ export default function RegisteredDevicesPage() {
   const { data: workstations = [] } = useQuery<Workstation[]>({
     queryKey: ["/api/workstations", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/workstations${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/workstations${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -107,7 +107,7 @@ export default function RegisteredDevicesPage() {
   const { data: kdsDevices = [] } = useQuery<KdsDevice[]>({
     queryKey: ["/api/kds-devices", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/kds-devices${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/kds-devices${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },

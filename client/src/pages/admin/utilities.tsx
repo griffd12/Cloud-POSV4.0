@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { AlertTriangle, Trash2, Database, ShieldAlert, FileText, Loader2, Building2, Calendar, ArrowRight, ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import {
@@ -112,7 +112,7 @@ export default function UtilitiesPage() {
   const { data: properties, isLoading: propertiesLoading } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -124,7 +124,7 @@ export default function UtilitiesPage() {
     enabled: !!selectedPropertyId,
     queryFn: async () => {
       const entParam = selectedEnterpriseId ? `?enterpriseId=${selectedEnterpriseId}` : "";
-      const res = await fetch(`/api/admin/sales-data-summary/${selectedPropertyId}${entParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/admin/sales-data-summary/${selectedPropertyId}${entParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch summary");
       return res.json();
     },

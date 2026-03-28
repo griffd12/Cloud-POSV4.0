@@ -50,7 +50,7 @@ export function useSystemStatus(options: UseSystemStatusOptions = {}) {
       const url = propertyId 
         ? `/api/pos/system-status?propertyId=${propertyId}`
         : "/api/pos/system-status";
-      const res = await fetch(url, { 
+      const res = await failoverFetch(url, { 
         credentials: "include", 
         headers: getAuthHeaders() 
       });

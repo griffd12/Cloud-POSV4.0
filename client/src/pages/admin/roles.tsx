@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePosWebSocket } from "@/hooks/use-pos-websocket";
 import { useEmcFilter } from "@/lib/emc-context";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { getScopeColumn, getZoneColumn, getInheritanceColumn } from "@/components/admin/scope-column";
 import { useScopeLookup } from "@/hooks/use-scope-lookup";
 import { DataTable, type Column } from "@/components/admin/data-table";
@@ -17,7 +17,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
 import { type Role, type Privilege, type RoleRules } from "@shared/schema";
 import { useConfigOverride } from "@/hooks/use-config-override";
 import { OptionBitsPanel } from "@/components/admin/option-bits-panel";
@@ -53,7 +52,7 @@ export default function RolesPage() {
   const { data: roles = [], isLoading } = useQuery<Role[]>({
     queryKey: ["/api/roles", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/roles${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/roles${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch roles");
       return res.json();
     },
@@ -65,7 +64,7 @@ export default function RolesPage() {
   const { data: privileges = [] } = useQuery<Privilege[]>({
     queryKey: ["/api/privileges", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/privileges${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/privileges${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch privileges");
       return res.json();
     },
@@ -74,7 +73,7 @@ export default function RolesPage() {
   const { data: roleRulesData, isLoading: isLoadingRules } = useQuery<RoleRules | null>({
     queryKey: ["/api/roles", rulesRoleId, "rules"],
     queryFn: async () => {
-      const res = await fetch(`/api/roles/${rulesRoleId}/rules`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/roles/${rulesRoleId}/rules`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch role rules");
       return res.json();
     },

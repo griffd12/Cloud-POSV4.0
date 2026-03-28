@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePosWebSocket } from "@/hooks/use-pos-websocket";
 import { useEmcFilter } from "@/lib/emc-context";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -115,7 +115,7 @@ export default function SchedulingPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -124,7 +124,7 @@ export default function SchedulingPage() {
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["/api/employees", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch employees");
       return res.json();
     },
@@ -135,7 +135,7 @@ export default function SchedulingPage() {
   const { data: rvcs = [] } = useQuery<Rvc[]>({
     queryKey: ["/api/rvcs", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/rvcs${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/rvcs${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch rvcs");
       return res.json();
     },
@@ -146,7 +146,7 @@ export default function SchedulingPage() {
   const { data: jobCodes = [] } = useQuery<JobCode[]>({
     queryKey: ["/api/job-codes", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/job-codes${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/job-codes${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch job codes");
       return res.json();
     },
@@ -157,7 +157,7 @@ export default function SchedulingPage() {
   const { data: employeeAssignments = [] } = useQuery<EmployeeAssignment[]>({
     queryKey: ["/api/employee-assignments", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/employee-assignments${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/employee-assignments${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch employee assignments");
       return res.json();
     },
@@ -175,7 +175,7 @@ export default function SchedulingPage() {
       if (!selectedProperty) return [];
       const baseUrl = `/api/shifts?propertyId=${selectedProperty}&startDate=${weekStartStr}&endDate=${weekEndStr}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, {
+      const res = await failoverFetch(url, {
         credentials: "include",
         headers: getAuthHeaders(),
       });
@@ -191,7 +191,7 @@ export default function SchedulingPage() {
       if (!selectedProperty) return {};
       const baseUrl = `/api/properties/${selectedProperty}/employee-job-codes`;
       const url = selectedEnterpriseId ? `${baseUrl}?enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { credentials: "include", headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { credentials: "include", headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch employee job codes");
       return res.json();
     },

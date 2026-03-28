@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { useToast } from "@/hooks/use-toast";
 import type { CustomAction } from "@/components/admin/data-table";
@@ -45,7 +45,7 @@ export function useConfigOverride<T extends ScopeableItem>(
     queryFn: async () => {
       const params = new URLSearchParams({ entityType });
       if (selectedEnterpriseId) params.set("enterpriseId", selectedEnterpriseId);
-      const res = await fetch(`/api/config/overrides?${params}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/config/overrides?${params}`, { headers: getAuthHeaders() });
       if (!res.ok) return [];
       const allOverrides: ConfigOverrideRecord[] = await res.json();
       const scopeIds = new Set<string>();

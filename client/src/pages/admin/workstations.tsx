@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { DataTable, type Column } from "@/components/admin/data-table";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { type Workstation, type InsertWorkstation, type Property, type Rvc, type Printer, type OrderDevice } from "@shared/schema";
 import { getScopeColumn, getZoneColumn, getInheritanceColumn } from "@/components/admin/scope-column";
@@ -20,7 +20,7 @@ export default function WorkstationsPage() {
   const { data: workstations = [], isLoading } = useQuery<Workstation[]>({
     queryKey: ["/api/workstations", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/workstations${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/workstations${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch workstations");
       return res.json();
     },
@@ -29,7 +29,7 @@ export default function WorkstationsPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -38,7 +38,7 @@ export default function WorkstationsPage() {
   const { data: rvcs = [] } = useQuery<Rvc[]>({
     queryKey: ["/api/rvcs", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/rvcs${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/rvcs${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch rvcs");
       return res.json();
     },
@@ -47,7 +47,7 @@ export default function WorkstationsPage() {
   const { data: printers = [] } = useQuery<Printer[]>({
     queryKey: ["/api/printers", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/printers${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/printers${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch printers");
       return res.json();
     },
@@ -56,7 +56,7 @@ export default function WorkstationsPage() {
   const { data: orderDevices = [] } = useQuery<OrderDevice[]>({
     queryKey: ["/api/order-devices", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/order-devices${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/order-devices${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch order devices");
       return res.json();
     },

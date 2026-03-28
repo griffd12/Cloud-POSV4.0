@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { insertOrderDeviceSchema, type OrderDevice, type InsertOrderDevice, type Property, type KdsDevice } from "@shared/schema";
 import {
   Form,
@@ -42,7 +42,7 @@ export default function OrderDevicesPage() {
   const { data: orderDevices = [], isLoading } = useQuery<OrderDevice[]>({
     queryKey: ["/api/order-devices", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/order-devices${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/order-devices${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -54,7 +54,7 @@ export default function OrderDevicesPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -63,7 +63,7 @@ export default function OrderDevicesPage() {
   const { data: kdsDevices = [] } = useQuery<KdsDevice[]>({
     queryKey: ["/api/kds-devices", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/kds-devices${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/kds-devices${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },

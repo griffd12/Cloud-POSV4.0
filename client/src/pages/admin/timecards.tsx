@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmc, useEmcFilter } from "@/lib/emc-context";
 import { usePosWebSocket } from "@/hooks/use-pos-websocket";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,7 +71,7 @@ export default function TimecardsPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -83,7 +83,7 @@ export default function TimecardsPage() {
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["/api/employees", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/employees${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch employees");
       return res.json();
     },
@@ -92,7 +92,7 @@ export default function TimecardsPage() {
   const { data: jobCodes = [] } = useQuery<JobCode[]>({
     queryKey: ["/api/job-codes", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/job-codes${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/job-codes${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch job codes");
       return res.json();
     },
@@ -108,7 +108,7 @@ export default function TimecardsPage() {
     queryFn: async () => {
       const baseUrl = `/api/timecards?propertyId=${selectedProperty}&startDate=${startDateStr}&endDate=${endDateStr}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch timecards");
       return res.json();
     },
@@ -121,7 +121,7 @@ export default function TimecardsPage() {
     queryFn: async () => {
       const baseUrl = `/api/time-punches?propertyId=${selectedProperty}&startDate=${startDateStr}&endDate=${endDateStr}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch time punches");
       return res.json();
     },
@@ -133,7 +133,7 @@ export default function TimecardsPage() {
     queryFn: async () => {
       const baseUrl = `/api/timecard-exceptions?propertyId=${selectedProperty}`;
       const url = selectedEnterpriseId ? `${baseUrl}&enterpriseId=${selectedEnterpriseId}` : baseUrl;
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const res = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch exceptions");
       return res.json();
     },

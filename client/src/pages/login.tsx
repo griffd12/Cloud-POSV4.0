@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { usePosContext } from "@/lib/pos-context";
 import { useDeviceContext } from "@/lib/device-context";
-import { apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import BreakAttestationDialog from "@/components/pos/break-attestation-dialog";
 import type { Employee, Rvc, Property, Timecard, JobCode, Workstation, BreakRule } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -104,7 +104,7 @@ export default function LoginPage() {
       const url = enterpriseId 
         ? `/api/workstations?enterpriseId=${enterpriseId}` 
         : "/api/workstations";
-      const response = await fetch(url, { headers: getAuthHeaders() });
+      const response = await failoverFetch(url, { headers: getAuthHeaders() });
       if (!response.ok) throw new Error("Failed to fetch workstations");
       return response.json();
     },
@@ -169,7 +169,7 @@ export default function LoginPage() {
       try {
         const jobsController = new AbortController();
         const jobsTimeout = setTimeout(() => jobsController.abort(), 5000);
-        const jobsRes = await fetch(`/api/employees/${data.employee.id}/job-codes/details`, { credentials: "include", headers: getAuthHeaders(), signal: jobsController.signal });
+        const jobsRes = await failoverFetch(`/api/employees/${data.employee.id}/job-codes/details`, { credentials: "include", headers: getAuthHeaders(), signal: jobsController.signal });
         clearTimeout(jobsTimeout);
         if (jobsRes.ok) {
           const jobDetails = await jobsRes.json();
@@ -185,7 +185,7 @@ export default function LoginPage() {
       try {
         const statusController = new AbortController();
         const statusTimeout = setTimeout(() => statusController.abort(), 5000);
-        const statusRes = await fetch(`/api/time-punches/status/${data.employee.id}`, { credentials: "include", headers: getAuthHeaders(), signal: statusController.signal });
+        const statusRes = await failoverFetch(`/api/time-punches/status/${data.employee.id}`, { credentials: "include", headers: getAuthHeaders(), signal: statusController.signal });
         clearTimeout(statusTimeout);
         if (statusRes.ok) {
           const statusData = await statusRes.json();
@@ -233,7 +233,7 @@ export default function LoginPage() {
     onSuccess: async (data) => {
       setClockEmployee(data.employee);
       
-      const statusRes = await fetch(`/api/time-punches/status/${data.employee.id}`, { credentials: "include", headers: getAuthHeaders() });
+      const statusRes = await failoverFetch(`/api/time-punches/status/${data.employee.id}`, { credentials: "include", headers: getAuthHeaders() });
       let statusData: ClockStatusResponse | null = null;
       if (statusRes.ok) {
         const rawStatus = await statusRes.json();
@@ -244,7 +244,7 @@ export default function LoginPage() {
         setClockStatus(statusData);
       }
       
-      const jobsRes = await fetch(`/api/employees/${data.employee.id}/job-codes/details`, { credentials: "include", headers: getAuthHeaders() });
+      const jobsRes = await failoverFetch(`/api/employees/${data.employee.id}/job-codes/details`, { credentials: "include", headers: getAuthHeaders() });
       let jobs: JobCode[] = [];
       if (jobsRes.ok) {
         const jobDetails = await jobsRes.json();
@@ -274,7 +274,7 @@ export default function LoginPage() {
   });
 
   const refreshClockStatus = async (employeeId: string) => {
-    const statusRes = await fetch(`/api/time-punches/status/${employeeId}`, { credentials: "include", headers: getAuthHeaders() });
+    const statusRes = await failoverFetch(`/api/time-punches/status/${employeeId}`, { credentials: "include", headers: getAuthHeaders() });
     if (statusRes.ok) {
       const statusData = await statusRes.json();
       setClockStatus({

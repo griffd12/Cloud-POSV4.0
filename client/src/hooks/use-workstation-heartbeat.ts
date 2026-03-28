@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { apiRequest, getAuthHeaders , failoverFetch } from "@/lib/queryClient";
 
 interface HeartbeatConfig {
   workstationId: string | null;
@@ -32,7 +32,7 @@ export function useWorkstationHeartbeat({
       if (hbHeaders["X-Device-Token"]) {
         const hbController = new AbortController();
         const hbTimeout = setTimeout(() => hbController.abort(), 5000);
-        await fetch("/api/registered-devices/heartbeat", {
+        await failoverFetch("/api/registered-devices/heartbeat", {
           method: "POST",
           headers: {
             ...hbHeaders,

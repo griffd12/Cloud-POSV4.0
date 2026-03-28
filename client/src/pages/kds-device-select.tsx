@@ -25,7 +25,7 @@ export default function KdsDeviceSelectPage() {
       const url = enterpriseId 
         ? `/api/kds-devices?enterpriseId=${enterpriseId}` 
         : "/api/kds-devices";
-      const response = await fetch(url);
+      const response = await failoverFetch(url);
       if (!response.ok) throw new Error("Failed to fetch KDS devices");
       return response.json();
     },
@@ -37,7 +37,7 @@ export default function KdsDeviceSelectPage() {
       const url = enterpriseId 
         ? `/api/properties?enterpriseId=${enterpriseId}` 
         : "/api/properties";
-      const response = await fetch(url);
+      const response = await failoverFetch(url);
       if (!response.ok) throw new Error("Failed to fetch properties");
       return response.json();
     },

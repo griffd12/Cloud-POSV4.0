@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient, getAuthHeaders } from "@/lib/queryClient";
+import { apiRequest, queryClient, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { Loader2, Bell, AlertTriangle, AlertCircle, Info, Check, CheckCheck } from "lucide-react";
 import type { Property, ManagerAlert, AlertSubscription } from "@shared/schema";
 
@@ -33,7 +33,7 @@ export default function ManagerAlertsPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -45,7 +45,7 @@ export default function ManagerAlertsPage() {
       const params = new URLSearchParams();
       params.set("propertyId", selectedPropertyId);
       if (selectedEnterpriseId) params.set("enterpriseId", selectedEnterpriseId);
-      const res = await fetch(`/api/manager-alerts?${params.toString()}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/manager-alerts?${params.toString()}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch alerts");
       return res.json();
     },
@@ -58,7 +58,7 @@ export default function ManagerAlertsPage() {
       const params = new URLSearchParams();
       params.set("propertyId", selectedPropertyId);
       if (selectedEnterpriseId) params.set("enterpriseId", selectedEnterpriseId);
-      const res = await fetch(`/api/manager-alerts/unread-count?${params.toString()}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/manager-alerts/unread-count?${params.toString()}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch unread count");
       return res.json();
     },
@@ -71,7 +71,7 @@ export default function ManagerAlertsPage() {
       const params = new URLSearchParams();
       params.set("propertyId", selectedPropertyId);
       if (selectedEnterpriseId) params.set("enterpriseId", selectedEnterpriseId);
-      const res = await fetch(`/api/alert-subscriptions?${params.toString()}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/alert-subscriptions?${params.toString()}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch subscriptions");
       return res.json();
     },

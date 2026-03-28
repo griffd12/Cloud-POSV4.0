@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import {
   CheckCircle2,
   Circle,
@@ -617,7 +617,7 @@ function DataImportSection() {
   const downloadTemplate = async () => {
     setDownloading(true);
     try {
-      const response = await fetch("/api/onboarding/templates", { headers: getAuthHeaders() });
+      const response = await failoverFetch("/api/onboarding/templates", { headers: getAuthHeaders() });
       if (!response.ok) throw new Error("Failed to download template");
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -638,7 +638,7 @@ function DataImportSection() {
     setImportingPhase(phase);
     try {
       const buffer = await file.arrayBuffer();
-      const response = await fetch(`/api/onboarding/import/${phase}`, {
+      const response = await failoverFetch(`/api/onboarding/import/${phase}`, {
         method: "POST",
         headers: {
           ...getAuthHeaders(),

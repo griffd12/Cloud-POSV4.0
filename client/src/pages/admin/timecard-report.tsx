@@ -24,7 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { format, startOfWeek, endOfWeek, subWeeks } from "date-fns";
 import { CalendarIcon, DollarSign, AlertTriangle, Download, Users } from "lucide-react";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import type { Property } from "@shared/schema";
 
 interface TimecardEmployee {
@@ -82,7 +82,7 @@ export default function TimecardReportPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch properties");
       return res.json();
     },
@@ -97,7 +97,7 @@ export default function TimecardReportPage() {
     queryFn: async () => {
       const authHeaders = getAuthHeaders();
       const entParam = selectedEnterpriseId ? `&enterpriseId=${selectedEnterpriseId}` : "";
-      const res = await fetch(
+      const res = await failoverFetch(
         `/api/reports/timecard?propertyId=${selectedPropertyId}&startDate=${startDateStr}&endDate=${endDateStr}${entParam}`,
         { 
           credentials: "include",

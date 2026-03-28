@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePosWebSocket } from "@/hooks/use-pos-websocket";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
 import { useToast } from "@/hooks/use-toast";
 import { DataTable, Column, CustomAction } from "@/components/admin/data-table";
@@ -43,7 +43,7 @@ export default function GiftCardsPage() {
   const { data: giftCards = [], isLoading } = useQuery<GiftCard[]>({
     queryKey: ["/api/gift-cards", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/gift-cards${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/gift-cards${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch gift cards");
       return res.json();
     },
@@ -52,7 +52,7 @@ export default function GiftCardsPage() {
   const { data: cardTransactions = [] } = useQuery<GiftCardTransaction[]>({
     queryKey: ["/api/gift-cards", selectedCard?.id, "transactions", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/gift-cards/${selectedCard?.id}/transactions${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/gift-cards/${selectedCard?.id}/transactions${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch transactions");
       return res.json();
     },

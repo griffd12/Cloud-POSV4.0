@@ -10,13 +10,12 @@ import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { useEmcFilter } from "@/lib/emc-context";
-import { Plus, Edit, Trash2, Grid3X3, LayoutGrid, Save, X, GripVertical, Star, Upload, Image } from "lucide-react";
+import { Plus, Edit, Trash2, Grid3X3, LayoutGrid, Save, X, GripVertical, Star, Upload, Image, ChevronDown, ChevronRight, Building2 } from "lucide-react";
 import type { PosLayout, PosLayoutCell, MenuItem, Rvc, Property, PosLayoutRvcAssignment } from "@shared/schema";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, ChevronRight, Building2 } from "lucide-react";
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, useDndMonitor, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -324,7 +323,7 @@ export default function PosLayoutsPage() {
   const { data: layouts = [], isLoading } = useQuery<PosLayout[]>({
     queryKey: ["/api/pos-layouts", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/pos-layouts${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/pos-layouts${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -333,7 +332,7 @@ export default function PosLayoutsPage() {
   const { data: rvcs = [] } = useQuery<Rvc[]>({
     queryKey: ["/api/rvcs", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/rvcs${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/rvcs${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -342,7 +341,7 @@ export default function PosLayoutsPage() {
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/properties${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -351,7 +350,7 @@ export default function PosLayoutsPage() {
   const { data: menuItems = [] } = useQuery<MenuItem[]>({
     queryKey: ["/api/menu-items", filterKeys],
     queryFn: async () => {
-      const res = await fetch(`/api/menu-items${filterParam}`, { headers: getAuthHeaders() });
+      const res = await failoverFetch(`/api/menu-items${filterParam}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -451,7 +450,7 @@ export default function PosLayoutsPage() {
       setSelectedRvcId(layout.rvcId || "");
       // Load existing RVC assignments
       try {
-        const res = await fetch(`/api/pos-layouts/${layout.id}/rvc-assignments`, { credentials: "include", headers: getAuthHeaders() });
+        const res = await failoverFetch(`/api/pos-layouts/${layout.id}/rvc-assignments`, { credentials: "include", headers: getAuthHeaders() });
         const assignments: PosLayoutRvcAssignment[] = await res.json();
         setSelectedRvcAssignments(assignments.map(a => ({ 
           propertyId: a.propertyId, 
@@ -594,7 +593,7 @@ export default function PosLayoutsPage() {
     setGridRows(layout.gridRows || 4);
     setGridCols(layout.gridCols || 6);
     
-    const res = await fetch(`/api/pos-layouts/${layout.id}/cells`, { credentials: "include", headers: getAuthHeaders() });
+    const res = await failoverFetch(`/api/pos-layouts/${layout.id}/cells`, { credentials: "include", headers: getAuthHeaders() });
     const existingCells: PosLayoutCell[] = await res.json();
     
     const cellMap = new Map<string, PosLayoutCell>();

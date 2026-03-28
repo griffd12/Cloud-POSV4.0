@@ -39,11 +39,11 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { SyncNotificationCenter } from "@/components/sync-notification-center";
 import { useToast } from "@/hooks/use-toast";
 import { useItemAvailability } from "@/hooks/use-item-availability";
-import { queryClient, apiRequest, getAuthHeaders, fetchWithTimeout } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, fetchWithTimeout, failoverFetch } from "@/lib/queryClient";
 import { usePosContext } from "@/lib/pos-context";
 import { useDeviceContext } from "@/lib/device-context";
 import type { Slu, MenuItem, Check, CheckItem, CheckPayment, ModifierGroup, Modifier, Tender, OrderType, TaxGroup, PosLayout, PosLayoutCell, Discount } from "@shared/schema";
-import { LogOut, User, Receipt, Clock, Settings, Search, Square, UtensilsCrossed, Plus, List, Grid3X3, CreditCard, Star, Wifi, WifiOff, X, Printer, Maximize, Minimize } from "lucide-react";
+import { LogOut, User, Receipt, Clock, Settings, Search, Square, UtensilsCrossed, Plus, List, Grid3X3, CreditCard, Star, Wifi, WifiOff, X, Printer, Maximize, Minimize, CircleDollarSign } from "lucide-react";
 import { useFullscreen } from "@/hooks/use-fullscreen";
 import { useDocumentFontScale } from "@/hooks/use-font-scale";
 import { Link, Redirect, useLocation } from "wouter";
@@ -69,7 +69,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CircleDollarSign } from "lucide-react";
+
 
 interface MenuItemWithModifiers extends MenuItem {
   hasRequiredModifiers?: boolean;
@@ -843,7 +843,7 @@ export default function PosPage() {
       const scController = new AbortController();
       const scTimeout = setTimeout(() => scController.abort(), 5000);
       try {
-        const res = await fetch(`/api/checks/${currentCheck.id}/service-charges`, { signal: scController.signal });
+        const res = await failoverFetch(`/api/checks/${currentCheck.id}/service-charges`, { signal: scController.signal });
         clearTimeout(scTimeout);
         if (!res.ok) return [];
         return res.json();
