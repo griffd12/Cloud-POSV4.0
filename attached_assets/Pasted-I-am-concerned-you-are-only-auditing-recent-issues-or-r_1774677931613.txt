@@ -1,0 +1,74 @@
+I am concerned you are only auditing recent issues or recent changes.
+
+Do NOT do that.
+
+I need a complete apples-to-apples parity audit of the entire hybrid POS system.
+
+This is NOT a recent-issues audit.
+This is NOT a recent-commits audit.
+This is NOT a bug triage exercise.
+
+This IS a full reference-to-target comparison:
+- Cloud = reference implementation
+- CAPS/local runtime = target implementation
+
+Start from the full Cloud reference inventory and compare everything side by side whether or not it has been reported broken.
+
+Required method:
+
+Phase 1: Build complete Cloud reference inventory
+- all EMC-controlled entities
+- all config tables
+- all join/link tables
+- all runtime-operational tables that must exist locally
+- all Cloud save/update/delete routes
+- all runtime behaviors controlled by EMC
+
+Phase 2: Map each Cloud item to CAPS/local equivalent
+- local table/entity
+- local join/link table
+- sync path
+- applyChange coverage
+- effective-config resolution
+- local runtime API
+- WS/KDS/printing/payments consumer
+
+Phase 3: Compare parity
+For every item compare:
+- existence
+- schema parity
+- save/update/delete path
+- real-time broadcast
+- delta sync
+- local persistence
+- linked records
+- effective-config usage
+- response contract parity
+- runtime consumption
+- user-visible behavior parity
+
+Output format:
+ENTITY/FEATURE | CLOUD REFERENCE | CAPS EQUIVALENT | STATUS: MATCH / PARTIAL / MISSING / MISMATCH | GAP TYPE | ROOT CAUSE | FIX REQUIRED
+
+Gap type must be one of:
+- missing table/entity
+- missing link/join propagation
+- missing broadcast
+- missing delta/full sync coverage
+- missing applyChange handling
+- missing effective-config resolution
+- local API mismatch
+- response contract mismatch
+- local hardcoded behavior
+- missing device consumption
+- reporting/sync side-effect gap
+
+Do not conclude "mostly complete" until the full Cloud reference inventory is finished and mapped.
+If the inventory is incomplete, say so clearly.
+
+At the end provide:
+1. complete parity matrix
+2. top 25 mismatches by business risk
+3. top 10 EMC propagation failures
+4. top 10 local hardcoded behavior risks
+5. recommended repair order
