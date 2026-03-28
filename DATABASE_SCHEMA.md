@@ -143,6 +143,10 @@ Security roles defining what operations an employee can perform.
 | rvc_id | varchar | YES | — |
 | name | text | NO | — |
 | code | text | NO | — |
+| max_item_discount_pct | integer | YES | `0` |
+| max_check_discount_pct | integer | YES | `0` |
+| max_item_discount_amt | text | YES | `'0'` |
+| max_check_discount_amt | text | YES | `'0'` |
 | active | boolean | YES | `true` |
 
 - **Primary Key:** `id`
@@ -1323,31 +1327,31 @@ Active payment sessions on EMV terminals.
 | Column | Data Type | Nullable | Default |
 |--------|-----------|----------|---------|
 | id | varchar (UUID) | NO | `gen_random_uuid()` |
-| terminal_device_id | varchar | NO | — |
+| terminal_device_id | varchar | YES | — |
 | check_id | varchar | YES | — |
 | tender_id | varchar | YES | — |
 | employee_id | varchar | YES | — |
 | workstation_id | varchar | YES | — |
-| amount | integer | NO | — |
-| tip_amount | integer | YES | `0` |
+| amount | text | YES | — |
+| tip_amount | text | YES | `'0.00'` |
 | currency | text | YES | `'usd'` |
 | status | text | YES | `'pending'` |
 | status_message | text | YES | — |
+| transaction_type | text | YES | `'sale'` |
+| cloud_session_id | text | YES | — |
+| data | text | YES | — |
 | processor_reference | text | YES | — |
 | payment_transaction_id | varchar | YES | — |
 | initiated_at | timestamp | YES | `now()` |
 | completed_at | timestamp | YES | — |
 | expires_at | timestamp | YES | — |
 | metadata | jsonb | YES | — |
+| created_at | timestamp | NO | `now()` |
+| updated_at | timestamp | NO | `now()` |
+| cloud_synced | integer | YES | `0` |
 
 - **Primary Key:** `id`
-- **Foreign Keys:**
-  - `terminal_device_id` → `terminal_devices.id`
-  - `check_id` → `checks.id`
-  - `tender_id` → `tenders.id`
-  - `employee_id` → `employees.id`
-  - `workstation_id` → `workstations.id`
-  - `payment_transaction_id` → `payment_transactions.id`
+- **Foreign Keys:** None (CAPS runtime table — no FK constraints to avoid insert failures)
 
 ---
 
@@ -4187,7 +4191,7 @@ Dedicated boolean columns on the `tenders` table that drive all reporting and ca
 
 ## Service Host (CAPS) SQLite Parity
 
-The service-host SQLite schema (`service-host/src/db/schema.ts`, SCHEMA_VERSION=21) mirrors the cloud Postgres schema for offline operations. V20 added 6 new tables (ingredient_prefixes, menu_item_recipe_ingredients, timecards, terminal_sessions, break_attestations, break_violations). V21 added `cloud_synced` columns to the 4 operational tables (timecards, terminal_sessions, break_attestations, break_violations) for reliable CAPS→Cloud sync tracking:
+The service-host SQLite schema (`service-host/src/db/schema.ts`, SCHEMA_VERSION=23) mirrors the cloud Postgres schema for offline operations. V20 added 6 new tables (ingredient_prefixes, menu_item_recipe_ingredients, timecards, terminal_sessions, break_attestations, break_violations). V21 added `cloud_synced` columns to the 4 operational tables. V22 added shift_templates, shifts, employees.date_of_birth. V23 added workstation_order_devices and kds_tickets station metadata. **v3.1.119 critical fix**: Backported all migration-only columns into schema.ts CREATE TABLE definitions so fresh installs get correct schemas without needing migrations. Fixed: roles (4 discount-limit columns), check_items (3 tax snapshot columns), terminal_sessions (rewritten to match api.ts/payment-controller usage — data, created_at, updated_at, cloud_session_id, transaction_type, TEXT types for amount/tip_amount, no FK constraints):
 
 **Tenders**: Includes all behavior flags (`is_system`, `pop_drawer`, `allow_tips`, `allow_over_tender`, `print_check_on_payment`, `require_manager_approval`, `requires_payment_processor`, `display_order`) and media classification flags (`is_cash_media`, `is_card_media`, `is_gift_media`). Migration v3→v4 uses ALTER TABLE ADD COLUMN with try/catch for idempotency and backfills from `type` column.
 
