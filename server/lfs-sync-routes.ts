@@ -51,7 +51,7 @@ function registerLfsLocalRoutes(app: Express) {
   }
   const journalStorage = storage;
 
-  app.get("/api/lfs/journal/pending", async (_req: Request, res: Response) => {
+  app.get("/api/lfs/journal/pending", requireLfsApiKey, async (_req: Request, res: Response) => {
     try {
       const entries = journalStorage.getPendingTransactions();
       const count = journalStorage.getPendingTransactionCount();
@@ -62,7 +62,7 @@ function registerLfsLocalRoutes(app: Express) {
     }
   });
 
-  app.get("/api/lfs/journal/count", async (_req: Request, res: Response) => {
+  app.get("/api/lfs/journal/count", requireLfsApiKey, async (_req: Request, res: Response) => {
     try {
       const count = journalStorage.getPendingTransactionCount();
       res.json({ count });
@@ -72,7 +72,7 @@ function registerLfsLocalRoutes(app: Express) {
     }
   });
 
-  app.post("/api/lfs/journal/:id/synced", async (req: Request, res: Response) => {
+  app.post("/api/lfs/journal/:id/synced", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
       journalStorage.markTransactionSynced(req.params.id);
       res.json({ ok: true });
@@ -82,7 +82,7 @@ function registerLfsLocalRoutes(app: Express) {
     }
   });
 
-  app.post("/api/lfs/sync/config-down", async (_req: Request, res: Response) => {
+  app.post("/api/lfs/sync/config-down", requireLfsApiKey, async (_req: Request, res: Response) => {
     try {
       const syncService = getConfigSyncService();
       if (syncService) {
@@ -113,7 +113,7 @@ function registerLfsCloudRoutes(app: Express) {
       const payload = typeof entry.payload === "string" ? JSON.parse(entry.payload) : entry.payload;
       const offlineTransactionId = entry.offline_transaction_id || entry.offlineTransactionId;
 
-      if (offlineTransactionId) {
+      if (offlineTransactionId && operationType === "create") {
         const existing = await checkDuplicate(entityType, offlineTransactionId);
         if (existing) {
           if (entityType === "check" && payload.id) {
@@ -147,7 +147,7 @@ function registerLfsCloudRoutes(app: Express) {
           const payload = typeof entry.payload === "string" ? JSON.parse(entry.payload) : entry.payload;
           const offlineTransactionId = entry.offline_transaction_id || entry.offlineTransactionId;
 
-          if (offlineTransactionId) {
+          if (offlineTransactionId && operationType === "create") {
             const existing = await checkDuplicate(entityType, offlineTransactionId);
             if (existing) {
               if (entityType === "check" && payload.id) {

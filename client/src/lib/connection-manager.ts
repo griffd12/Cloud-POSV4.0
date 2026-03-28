@@ -167,6 +167,7 @@ class ConnectionManager {
         try {
           const configRes = await fetch(`${lfsUrl}/api/lfs/sync/config-down`, {
             method: "POST",
+            headers: this.getSyncHeaders(),
             signal: AbortSignal.timeout(RECONNECT_SYNC_TIMEOUT),
           });
           if (!configRes.ok) {
@@ -186,6 +187,7 @@ class ConnectionManager {
         let journalEntries: Array<{ id: string; [key: string]: unknown }> = [];
         try {
           const journalRes = await fetch(`${lfsUrl}/api/lfs/journal/pending`, {
+            headers: this.getSyncHeaders(),
             signal: AbortSignal.timeout(10000),
           });
           if (journalRes.ok) {
@@ -219,6 +221,7 @@ class ConnectionManager {
               if (uploadRes.ok) {
                 await fetch(`${lfsUrl}/api/lfs/journal/${journalEntries[i].id}/synced`, {
                   method: "POST",
+                  headers: this.getSyncHeaders(),
                   signal: AbortSignal.timeout(5000),
                 }).catch(() => { /* best-effort local mark */ });
               } else {
@@ -259,6 +262,7 @@ class ConnectionManager {
   private async fetchPendingCount(lfsUrl: string): Promise<number> {
     try {
       const res = await fetch(`${lfsUrl}/api/lfs/journal/count`, {
+        headers: this.getSyncHeaders(),
         signal: AbortSignal.timeout(3000),
       });
       if (res.ok) {
