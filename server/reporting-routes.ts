@@ -1081,8 +1081,8 @@ export function registerReportingRoutes(app: Express, storage: any) {
           delta: paymentDelta,
         },
         message: toleranceMet
-          ? "Payments balance: Net Collected (Tendered - Change Due) matches Check Totals within rounding tolerance."
-          : `Payment mismatch: Net Collected (${reconNetCollected}) ≠ Check Totals (${reconCheckTotals}). Delta: ${paymentDelta}. Change Due: ${reconChangeDue}`,
+          ? "Payments balance: Net Collected (Tendered - Change Due) matches Customer Total (incl. tips) within rounding tolerance."
+          : `Payment mismatch: Net Collected (${reconNetCollected}) ≠ Customer Total (${customerTotal}). Delta: ${paymentDelta}. Change Due: ${reconChangeDue}`,
       };
 
       // CHECK 6: Cash overpayments = change due (INFO), non-cash overpayments = error (FAIL)
