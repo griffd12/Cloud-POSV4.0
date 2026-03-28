@@ -50,7 +50,6 @@ integrations = ["javascript_database:1.0.0", "javascript_websocket:1.0.0", "gith
 
 [userenv.shared]
 VITE_STRIPE_PUBLISHABLE_KEY = "pk_live_51SlfOk1jUKTTHde6QCPVM55FRVeB3ewxMgQqFyozGAOdDjCKvGbzqKvfrM8HgFkLHP5zAVBhyYvF9LzqhF6zt2kI000a40hvJg"
-LFS_API_KEY = "lfs-sync-796e68tr1pn"
 
 [postMerge]
 path = "scripts/post-merge.sh"

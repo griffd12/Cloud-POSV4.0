@@ -235,25 +235,35 @@ function migrateJournalTable(db: Database.Database): void {
   const colNames = new Set(existingCols.map(c => c.name));
 
   const requiredCols: Array<{ name: string; def: string }> = [
+    { name: "operation_type", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "operation_type" TEXT NOT NULL DEFAULT ''` },
+    { name: "entity_type", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "entity_type" TEXT NOT NULL DEFAULT ''` },
+    { name: "entity_id", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "entity_id" TEXT NOT NULL DEFAULT ''` },
     { name: "http_method", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "http_method" TEXT NOT NULL DEFAULT ''` },
     { name: "endpoint", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "endpoint" TEXT NOT NULL DEFAULT ''` },
+    { name: "payload", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "payload" TEXT` },
     { name: "offline_transaction_id", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "offline_transaction_id" TEXT` },
     { name: "workstation_id", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "workstation_id" TEXT` },
+    { name: "created_at", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "created_at" TEXT NOT NULL DEFAULT ''` },
+    { name: "synced", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "synced" INTEGER DEFAULT 0` },
     { name: "synced_at", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "synced_at" TEXT` },
     { name: "cloud_response", def: `ALTER TABLE "lfs_transaction_journal" ADD COLUMN "cloud_response" TEXT` },
   ];
 
+  let migrated = 0;
   for (const col of requiredCols) {
     if (!colNames.has(col.name)) {
       try {
         db.exec(col.def);
-        console.log(`[LFS] Migrated lfs_transaction_journal: added column ${col.name}`);
+        migrated++;
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         if (!msg.includes("duplicate column")) {
-          console.error(`[LFS] Failed to add column ${col.name}: ${msg}`);
+          console.error(`[LFS] Failed to add journal column ${col.name}: ${msg}`);
         }
       }
     }
+  }
+  if (migrated > 0) {
+    console.log(`[LFS] Migrated lfs_transaction_journal: added ${migrated} columns`);
   }
 }

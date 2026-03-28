@@ -110,14 +110,23 @@ class ConnectionManager {
     }
   }
 
+  initFromWorkstation(workstation: { serviceHostUrl?: string | null; id?: string }): void {
+    if (workstation.serviceHostUrl) {
+      this.localServerUrl = workstation.serviceHostUrl;
+    }
+  }
+
   private async checkHealth(): Promise<void> {
     try {
-      const res = await fetch("/health", {
+      const res = await fetch("/api/health", {
         signal: AbortSignal.timeout(4000),
       });
       if (res.ok) {
         this.consecutiveFailures = 0;
         if (this.state === "cloud-offline") {
+          this.setState("reconnecting");
+          this.runReconnectionSync();
+        } else if (this.state === "cloud-degraded" && this.pendingSyncCount > 0) {
           this.setState("reconnecting");
           this.runReconnectionSync();
         } else if (this.state !== "reconnecting") {

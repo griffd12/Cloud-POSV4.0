@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode, type Dispatch, type SetStateAction } from "react";
 import type { Employee, Rvc, Check, CheckItem, MenuItem, Slu, ModifierGroup, Modifier, OrderType, Timecard, JobCode, Workstation } from "@shared/schema";
 import { useDeviceContext } from "./device-context";
+import { connectionManager } from "./connection-manager";
 
 const RVC_STORAGE_KEY = "pos_selected_rvc";
 const WORKSTATION_STORAGE_KEY = "pos_workstation_id";
@@ -99,7 +100,14 @@ export function PosProvider({ children }: { children: ReactNode }) {
   const [isSalariedBypass, setIsSalariedBypass] = useState<boolean>(false);
   const [currentJobCode, setCurrentJobCode] = useState<JobCode | null>(null);
   const [workstationId, setWorkstationIdState] = useState<string | null>(getInitialWorkstationId);
-  const [currentWorkstation, setCurrentWorkstation] = useState<Workstation | null>(null);
+  const [currentWorkstation, setCurrentWorkstationState] = useState<Workstation | null>(null);
+
+  const setCurrentWorkstation = useCallback((ws: Workstation | null) => {
+    setCurrentWorkstationState(ws);
+    if (ws) {
+      connectionManager.initFromWorkstation(ws);
+    }
+  }, []);
 
   useEffect(() => {
     if (linkedDeviceId && deviceType === 'pos' && !workstationId) {
