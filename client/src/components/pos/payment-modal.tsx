@@ -1935,7 +1935,7 @@ export function PaymentModal({
                     variant="outline"
                     className="w-full h-14 justify-start gap-3"
                     onClick={() => startTerminalPayment(assignedTerminal)}
-                    disabled={isProcessingCard || (isRunningLocally && !assignedTerminal.supportsStoreAndForward && assignedTerminal.status !== "online")}
+                    disabled={isProcessingCard || (isRunningLocally && !assignedTerminal.supportsStoreAndForward)}
                     data-testid="button-assigned-terminal"
                   >
                     <div className="flex items-center gap-2">
@@ -1964,7 +1964,7 @@ export function PaymentModal({
                     variant="outline"
                     className="w-full h-14 justify-start gap-3"
                     onClick={() => startTerminalPayment(terminal)}
-                    disabled={isProcessingCard || (isRunningLocally && !terminal.supportsStoreAndForward && terminal.status !== "online")}
+                    disabled={isProcessingCard || (isRunningLocally && !terminal.supportsStoreAndForward)}
                     data-testid={`button-terminal-${terminal.id}`}
                   >
                     <div className="flex items-center gap-2">
@@ -1987,6 +1987,13 @@ export function PaymentModal({
                   </Button>
                 ))}
                 
+                {isRunningLocally && availableTerminals.length > 0 && availableTerminals.every(t => !t.supportsStoreAndForward) && (
+                  <div className="text-center py-3 px-4 bg-amber-50 dark:bg-amber-900/20 rounded-md border border-amber-200 dark:border-amber-800" data-testid="text-saf-unavailable">
+                    <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">Card terminals unavailable offline</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-500 mt-1">No terminals support store-and-forward. Use cash or manual imprint instead.</p>
+                  </div>
+                )}
+
                 {availableTerminals.length === 0 && (
                   <div className="text-center py-4 text-muted-foreground text-sm">
                     <WifiOff className="w-8 h-8 mx-auto mb-2 opacity-50" />

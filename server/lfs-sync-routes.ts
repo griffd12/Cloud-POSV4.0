@@ -220,7 +220,6 @@ function registerLfsLocalRoutes(app: Express) {
             body: JSON.stringify({
               paymentId: payment.id,
               settlementTransactionId: payment.paymentTransactionId,
-              settlementStatus: "completed",
               amount: payment.amount,
               checkId: payment.checkId,
               tenderId: payment.tenderId,
@@ -230,17 +229,21 @@ function registerLfsLocalRoutes(app: Express) {
 
           if (settleRes.ok) {
             const settleData = await settleRes.json();
-            const newStatus = settleData.newStatus || "completed";
-            if (newStatus === "settlement_failed") {
+            const newStatus = settleData.newStatus;
+            if (!newStatus || newStatus === "pending_settlement") {
+              results.push({ paymentId: payment.id, status: "pending_settlement", error: "Cloud has not confirmed settlement yet — will retry" });
+            } else if (newStatus === "settlement_failed") {
               await storage.updateCheckPayment(payment.id, {
                 paymentStatus: "settlement_failed",
               } as Parameters<typeof storage.updateCheckPayment>[1]);
               results.push({ paymentId: payment.id, status: "settlement_failed", error: settleData.reason || "cloud rejected" });
-            } else {
+            } else if (newStatus === "completed") {
               await storage.updateCheckPayment(payment.id, {
-                paymentStatus: newStatus,
+                paymentStatus: "completed",
               } as Parameters<typeof storage.updateCheckPayment>[1]);
-              results.push({ paymentId: payment.id, status: newStatus });
+              results.push({ paymentId: payment.id, status: "completed" });
+            } else {
+              results.push({ paymentId: payment.id, status: "pending_settlement", error: `Unexpected status: ${newStatus} — will retry` });
             }
           } else {
             const errText = await settleRes.text().catch(() => "Unknown");
@@ -568,7 +571,11 @@ function registerLfsCloudRoutes(app: Express) {
         return res.json({ ok: true, message: "Payment already settled", status: payment.paymentStatus, newStatus: payment.paymentStatus });
       }
 
-      if (amount && payment.amount && Math.abs(parseFloat(amount) - parseFloat(payment.amount)) > 0.01) {
+      if (!amount) {
+        return res.status(400).json({ error: "amount is required for settlement verification" });
+      }
+
+      if (payment.amount && Math.abs(parseFloat(amount) - parseFloat(payment.amount)) > 0.01) {
         const newStatus = "settlement_failed";
         await storage.updateCheckPayment(paymentId, {
           paymentStatus: newStatus,
