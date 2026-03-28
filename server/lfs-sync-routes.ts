@@ -106,9 +106,14 @@ function registerLfsLocalRoutes(app: Express) {
   });
 
   app.post("/api/lfs/sync/push-to-cloud", async (req: Request, res: Response) => {
-    const cloudUrl = (req.body?.cloudUrl as string) || process.env.CLOUD_SERVER_URL || "";
+    const allowedCloudUrl = process.env.CLOUD_SERVER_URL || "";
+    const requestedUrl = (req.body?.cloudUrl as string) || "";
+    const cloudUrl = allowedCloudUrl || requestedUrl;
     if (!cloudUrl) {
-      return res.status(400).json({ error: "cloudUrl required (or set CLOUD_SERVER_URL env)" });
+      return res.status(400).json({ error: "CLOUD_SERVER_URL env must be configured" });
+    }
+    if (requestedUrl && allowedCloudUrl && requestedUrl !== allowedCloudUrl) {
+      return res.status(403).json({ error: "cloudUrl does not match configured CLOUD_SERVER_URL" });
     }
     const apiKey = process.env.LFS_API_KEY || "";
 

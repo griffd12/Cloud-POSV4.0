@@ -20,8 +20,12 @@ class ConnectionManager {
     return this.state;
   }
 
+  private syncRequired = false;
+
   get isOffline(): boolean {
-    return this.state === "cloud-offline" || this.state === "reconnecting";
+    if (this.state === "cloud-offline" || this.state === "reconnecting") return true;
+    if (this.state === "cloud-degraded" && this.syncRequired && this.localServerUrl) return true;
+    return false;
   }
 
   get localServerUrl(): string | null {
@@ -102,7 +106,7 @@ class ConnectionManager {
         if (this.state === "cloud-offline") {
           this.setState("reconnecting");
           this.runReconnectionSync();
-        } else if (this.state === "cloud-degraded" && this.pendingSyncCount > 0) {
+        } else if (this.state === "cloud-degraded" && this.syncRequired) {
           this.setState("reconnecting");
           this.runReconnectionSync();
         } else if (this.state !== "reconnecting") {
@@ -121,6 +125,7 @@ class ConnectionManager {
     this.consecutiveFailures++;
     if (this.consecutiveFailures >= FAILURE_THRESHOLD) {
       if (this.localServerUrl) {
+        this.syncRequired = true;
         this.setState("cloud-offline");
       } else {
         this.setState("cloud-degraded");
@@ -224,6 +229,7 @@ class ConnectionManager {
         return;
       }
 
+      this.syncRequired = false;
       this.setState("cloud-online");
     } catch (e: unknown) {
       console.error("[ConnectionManager] Reconnection sync error:", e instanceof Error ? e.message : e);
