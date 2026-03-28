@@ -294,32 +294,45 @@ async function syncEntity(
     case "round": {
       const remapped = remapCheckId(dataWithOfflineId);
       if (operationType === "create") {
-        const { id: _localId, ...insertData } = remapped;
-        return await storage.createRound(insertData as Parameters<typeof storage.createRound>[0]);
+        const { id: localId, ...insertData } = remapped;
+        const created = await storage.createRound(insertData as Parameters<typeof storage.createRound>[0]);
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+        }
+        return created;
       }
       throw new Error(`Unsupported operation for round: ${operationType}`);
     }
     case "check_discount": {
       const remapped = remapCheckId(dataWithOfflineId);
       if (operationType === "create") {
-        const { id: _localId, ...insertData } = remapped;
-        return await storage.createCheckDiscount(insertData as Parameters<typeof storage.createCheckDiscount>[0]);
+        const { id: localId, ...insertData } = remapped;
+        const created = await storage.createCheckDiscount(insertData as Parameters<typeof storage.createCheckDiscount>[0]);
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+        }
+        return created;
       } else if (operationType === "delete") {
-        const id = remapped.id as string;
-        return await storage.deleteCheckDiscount(id);
+        const rawId = remapped.id as string;
+        const cloudId = idRemapCache.get(rawId) || rawId;
+        return await storage.deleteCheckDiscount(cloudId);
       }
       throw new Error(`Unsupported operation for check_discount: ${operationType}`);
     }
     case "check_service_charge": {
       const remapped = remapCheckId(dataWithOfflineId);
       if (operationType === "create") {
-        const { id: _localId, ...insertData } = remapped;
-        return await storage.createCheckServiceCharge(insertData as Parameters<typeof storage.createCheckServiceCharge>[0]);
+        const { id: localId, ...insertData } = remapped;
+        const created = await storage.createCheckServiceCharge(insertData as Parameters<typeof storage.createCheckServiceCharge>[0]);
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+        }
+        return created;
       } else if (operationType === "update") {
-        const id = remapped.id as string;
-        const { id: _id, offlineTransactionId: _otxn, ...updateData } = remapped;
+        const rawId = remapped.id as string;
+        const cloudId = idRemapCache.get(rawId) || rawId;
         return await storage.voidCheckServiceCharge(
-          id,
+          cloudId,
           (dataWithOfflineId as Record<string, unknown>).voidedByEmployeeId as string || "",
           (dataWithOfflineId as Record<string, unknown>).voidReason as string | undefined,
         );

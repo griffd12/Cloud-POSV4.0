@@ -240,6 +240,13 @@ class ConnectionManager {
       const remaining = lfsUrl
         ? await this.fetchPendingCount(lfsUrl)
         : 0;
+
+      if (remaining < 0) {
+        console.warn("[ConnectionManager] Could not confirm pending count — staying degraded");
+        this.setState("cloud-degraded");
+        return;
+      }
+
       this.pendingSyncCount = remaining;
 
       if (remaining > 0) {
@@ -296,10 +303,10 @@ class ConnectionManager {
       });
       if (res.ok) {
         const data = await res.json();
-        return data.count || 0;
+        return typeof data.count === "number" ? data.count : -1;
       }
-    } catch { /* ignore */ }
-    return 0;
+    } catch { /* network error */ }
+    return -1;
   }
 
   private setState(newState: ConnectionState): void {
