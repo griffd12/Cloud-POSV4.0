@@ -907,6 +907,11 @@ export class ConfigSync {
         this.currentVersion = data.version;
         this.saveSyncState();
       }
+    } else {
+      console.log(`[ConfigSync] CONFIG_UPDATE notification (category=${data.category}, action=${data.action}, entityId=${data.entityId}) — no changes array, triggering delta sync`);
+      this.syncDelta().catch(err => {
+        console.error('[ConfigSync] Delta sync from CONFIG_UPDATE failed:', err.message);
+      });
     }
   }
   

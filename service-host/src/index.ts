@@ -524,6 +524,9 @@ class ServiceHost {
       this.readiness.configReady = true;
       console.log('Configuration synced from cloud');
 
+      this.configSync.startAutoSync();
+      console.log('[CAPS] Auto-sync started (2-min delta fallback)');
+
       const rvcs = this.db.all<{ id: string; name: string }>('SELECT id, name FROM rvcs WHERE active = 1 LIMIT 1');
       if (rvcs.length > 0) {
         this.configSync.setActiveRvcId(rvcs[0].id);
