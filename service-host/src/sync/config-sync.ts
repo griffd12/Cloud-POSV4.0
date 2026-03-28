@@ -129,6 +129,7 @@ export class ConfigSync {
   private syncInProgress: boolean = false;
   private lastSyncAt: string | null = null;
   private syncInterval: NodeJS.Timeout | null = null;
+  private configUpdatedCallbacks: Array<(category?: string, action?: string, entityId?: string) => void> = [];
   
   constructor(db: Database, cloud: CloudConnection, propertyId: string) {
     this.db = db;
@@ -168,8 +169,12 @@ export class ConfigSync {
     
     this.syncInterval = setInterval(() => {
       if (this.cloud.isConnected() && !this.syncInProgress) {
-        this.syncDelta().catch(err => {
-          console.error('Auto delta sync failed:', err.message);
+        this.syncFull().then(result => {
+          if (result.success && result.recordCount > 0) {
+            this.emitConfigUpdated();
+          }
+        }).catch(err => {
+          console.error('Auto full sync failed:', err.message);
         });
       }
     }, intervalMs);
@@ -181,6 +186,20 @@ export class ConfigSync {
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
       this.syncInterval = null;
+    }
+  }
+  
+  onConfigUpdated(callback: (category?: string, action?: string, entityId?: string) => void): void {
+    this.configUpdatedCallbacks.push(callback);
+  }
+  
+  private emitConfigUpdated(category?: string, action?: string, entityId?: string): void {
+    for (const cb of this.configUpdatedCallbacks) {
+      try {
+        cb(category, action, entityId);
+      } catch (e) {
+        console.error('[ConfigSync] Config updated callback error:', (e as Error).message);
+      }
     }
   }
   
@@ -907,10 +926,16 @@ export class ConfigSync {
         this.currentVersion = data.version;
         this.saveSyncState();
       }
+      this.emitConfigUpdated(data.category, data.action, data.entityId);
     } else {
-      console.log(`[ConfigSync] CONFIG_UPDATE notification (category=${data.category}, action=${data.action}, entityId=${data.entityId}) — no changes array, triggering delta sync`);
-      this.syncDelta().catch(err => {
-        console.error('[ConfigSync] Delta sync from CONFIG_UPDATE failed:', err.message);
+      console.log(`[ConfigSync] CONFIG_UPDATE notification (category=${data.category}, action=${data.action}, entityId=${data.entityId}) — triggering full sync`);
+      this.syncFull().then(result => {
+        if (result.success) {
+          console.log(`[ConfigSync] Full sync from CONFIG_UPDATE complete: ${result.recordCount} records`);
+          this.emitConfigUpdated(data.category, data.action, data.entityId);
+        }
+      }).catch(err => {
+        console.error('[ConfigSync] Full sync from CONFIG_UPDATE failed:', err.message);
       });
     }
   }

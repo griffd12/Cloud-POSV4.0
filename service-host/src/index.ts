@@ -525,7 +525,21 @@ class ServiceHost {
       console.log('Configuration synced from cloud');
 
       this.configSync.startAutoSync();
-      console.log('[CAPS] Auto-sync started (2-min delta fallback)');
+      console.log('[CAPS] Auto-sync started (2-min full sync fallback)');
+
+      this.configSync.onConfigUpdated((category, action, entityId) => {
+        const event = {
+          type: 'config_update',
+          payload: {
+            category: category || 'all',
+            action: action || 'update',
+            entityId: entityId || undefined,
+            timestamp: new Date().toISOString()
+          }
+        };
+        console.log(`[ConfigSync] Broadcasting config_update to workstations (category=${category || 'all'}, action=${action || 'update'})`);
+        this.broadcastToAll(event);
+      });
 
       const rvcs = this.db.all<{ id: string; name: string }>('SELECT id, name FROM rvcs WHERE active = 1 LIMIT 1');
       if (rvcs.length > 0) {
