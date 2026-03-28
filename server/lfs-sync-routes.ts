@@ -98,25 +98,32 @@ function registerLfsLocalRoutes(app: Express) {
   });
 }
 
+const idRemapCache = new Map<string, string>();
+
 function registerLfsCloudRoutes(app: Express) {
   app.post("/api/lfs/sync/transaction-up", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
       const entry = req.body;
-      if (!entry || !entry.entity_type || !entry.payload) {
-        return res.status(400).json({ error: "Missing required fields" });
+      if (!entry || !(entry.entity_type || entry.entityType) || !entry.payload) {
+        return res.status(400).json({ error: "Missing required fields: entity_type and payload" });
       }
 
+      const entityType = entry.entity_type || entry.entityType;
+      const operationType = entry.operation_type || entry.operationType;
       const payload = typeof entry.payload === "string" ? JSON.parse(entry.payload) : entry.payload;
       const offlineTransactionId = entry.offline_transaction_id || entry.offlineTransactionId;
 
       if (offlineTransactionId) {
-        const existing = await checkDuplicate(entry.entity_type, offlineTransactionId);
+        const existing = await checkDuplicate(entityType, offlineTransactionId);
         if (existing) {
+          if (entityType === "check" && payload.id) {
+            idRemapCache.set(payload.id, existing);
+          }
           return res.json({ ok: true, deduplicated: true, cloudId: existing });
         }
       }
 
-      const result = await syncEntity(entry.entity_type, entry.operation_type || entry.operationType, payload, offlineTransactionId);
+      const result = await syncEntity(entityType, operationType, payload, offlineTransactionId);
       res.json({ ok: true, result });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
@@ -135,23 +142,23 @@ function registerLfsCloudRoutes(app: Express) {
       const results = [];
       for (const entry of entries) {
         try {
+          const entityType = entry.entity_type || entry.entityType;
+          const operationType = entry.operation_type || entry.operationType;
           const payload = typeof entry.payload === "string" ? JSON.parse(entry.payload) : entry.payload;
           const offlineTransactionId = entry.offline_transaction_id || entry.offlineTransactionId;
 
           if (offlineTransactionId) {
-            const existing = await checkDuplicate(entry.entity_type || entry.entityType, offlineTransactionId);
+            const existing = await checkDuplicate(entityType, offlineTransactionId);
             if (existing) {
+              if (entityType === "check" && payload.id) {
+                idRemapCache.set(payload.id, existing);
+              }
               results.push({ id: entry.id, ok: true, deduplicated: true, cloudId: existing });
               continue;
             }
           }
 
-          const result = await syncEntity(
-            entry.entity_type || entry.entityType,
-            entry.operation_type || entry.operationType,
-            payload,
-            offlineTransactionId
-          );
+          const result = await syncEntity(entityType, operationType, payload, offlineTransactionId);
           results.push({ id: entry.id, ok: true, result });
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : "Unknown error";
@@ -164,6 +171,11 @@ function registerLfsCloudRoutes(app: Express) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });
     }
+  });
+
+  app.post("/api/lfs/sync/clear-remap-cache", requireLfsApiKey, async (_req: Request, res: Response) => {
+    idRemapCache.clear();
+    res.json({ ok: true });
   });
 }
 
@@ -203,6 +215,18 @@ async function checkDuplicate(entityType: string, offlineTransactionId: string):
   }
 }
 
+function remapCheckId(payload: Record<string, unknown>): Record<string, unknown> {
+  const checkId = payload.checkId || payload.check_id;
+  if (typeof checkId === "string" && idRemapCache.has(checkId)) {
+    return {
+      ...payload,
+      checkId: idRemapCache.get(checkId),
+      check_id: idRemapCache.get(checkId),
+    };
+  }
+  return payload;
+}
+
 async function syncEntity(
   entityType: string,
   operationType: string,
@@ -216,48 +240,63 @@ async function syncEntity(
   switch (entityType) {
     case "check": {
       if (operationType === "create") {
-        const { id: _localId, ...insertData } = dataWithOfflineId;
-        return await storage.createCheck(insertData);
+        const { id: localId, ...insertData } = dataWithOfflineId;
+        const created = await storage.createCheck(insertData as Parameters<typeof storage.createCheck>[0]);
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+        }
+        return created;
       } else if (operationType === "update") {
-        const { id, ...updateData } = dataWithOfflineId;
-        return await storage.updateCheck(id, updateData);
+        const id = dataWithOfflineId.id as string;
+        const cloudId = idRemapCache.get(id) || id;
+        const { id: _id, offlineTransactionId: _otxn, ...updateData } = dataWithOfflineId;
+        return await storage.updateCheck(cloudId, updateData as Parameters<typeof storage.updateCheck>[1]);
       }
-      break;
+      throw new Error(`Unsupported operation for check: ${operationType}`);
     }
     case "check_item": {
+      const remapped = remapCheckId(dataWithOfflineId);
       if (operationType === "create") {
-        const { id: _localId, ...insertData } = dataWithOfflineId;
-        return await storage.createCheckItem(insertData);
+        const { id: _localId, ...insertData } = remapped;
+        return await storage.createCheckItem(insertData as Parameters<typeof storage.createCheckItem>[0]);
+      } else if (operationType === "update") {
+        const id = remapped.id as string;
+        const { id: _id, offlineTransactionId: _otxn, ...updateData } = remapped;
+        return await storage.updateCheckItem(id, updateData as Parameters<typeof storage.updateCheckItem>[1]);
       }
-      break;
+      throw new Error(`Unsupported operation for check_item: ${operationType}`);
     }
     case "check_payment": {
+      const remapped = remapCheckId(dataWithOfflineId);
       if (operationType === "create") {
-        const { id: _localId, ...insertData } = dataWithOfflineId;
-        return await storage.createCheckPayment(insertData);
+        const { id: _localId, ...insertData } = remapped;
+        return await storage.createPayment(insertData as Parameters<typeof storage.createPayment>[0]);
       }
-      break;
+      throw new Error(`Unsupported operation for check_payment: ${operationType}`);
     }
     case "round": {
+      const remapped = remapCheckId(dataWithOfflineId);
       if (operationType === "create") {
-        const { id: _localId, ...insertData } = dataWithOfflineId;
-        return await storage.createRound(insertData);
+        const { id: _localId, ...insertData } = remapped;
+        return await storage.createRound(insertData as Parameters<typeof storage.createRound>[0]);
       }
-      break;
+      throw new Error(`Unsupported operation for round: ${operationType}`);
     }
     case "check_discount": {
+      const remapped = remapCheckId(dataWithOfflineId);
       if (operationType === "create") {
-        const { id: _localId, ...insertData } = dataWithOfflineId;
-        return await storage.createCheckDiscount(insertData);
+        const { id: _localId, ...insertData } = remapped;
+        return await storage.createCheckDiscount(insertData as Parameters<typeof storage.createCheckDiscount>[0]);
       }
-      break;
+      throw new Error(`Unsupported operation for check_discount: ${operationType}`);
     }
     case "check_service_charge": {
+      const remapped = remapCheckId(dataWithOfflineId);
       if (operationType === "create") {
-        const { id: _localId, ...insertData } = dataWithOfflineId;
-        return await storage.createCheckServiceCharge(insertData);
+        const { id: _localId, ...insertData } = remapped;
+        return await storage.createCheckServiceCharge(insertData as Parameters<typeof storage.createCheckServiceCharge>[0]);
       }
-      break;
+      throw new Error(`Unsupported operation for check_service_charge: ${operationType}`);
     }
     default:
       throw new Error(`Unknown entity type for sync: ${entityType}`);

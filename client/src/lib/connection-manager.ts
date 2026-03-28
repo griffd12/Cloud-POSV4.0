@@ -6,6 +6,7 @@ const FAILURE_THRESHOLD = 3;
 const RECONNECT_SYNC_TIMEOUT = 30000;
 
 const LFS_URL_KEY = "lfs_local_server_url";
+const LFS_API_KEY_KEY = "lfs_api_key";
 
 class ConnectionManager {
   private state: ConnectionState = "cloud-online";
@@ -33,6 +34,18 @@ class ConnectionManager {
       localStorage.setItem(LFS_URL_KEY, url);
     } else {
       localStorage.removeItem(LFS_URL_KEY);
+    }
+  }
+
+  get lfsApiKey(): string | null {
+    return localStorage.getItem(LFS_API_KEY_KEY);
+  }
+
+  set lfsApiKey(key: string | null) {
+    if (key) {
+      localStorage.setItem(LFS_API_KEY_KEY, key);
+    } else {
+      localStorage.removeItem(LFS_API_KEY_KEY);
     }
   }
 
@@ -65,6 +78,17 @@ class ConnectionManager {
     }
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     return `${protocol}//${window.location.host}`;
+  }
+
+  private getSyncHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    const apiKey = this.lfsApiKey;
+    if (apiKey) {
+      headers["X-LFS-API-Key"] = apiKey;
+    }
+    return headers;
   }
 
   subscribe(listener: StateListener): () => void {
@@ -126,65 +150,112 @@ class ConnectionManager {
   private async runReconnectionSync(): Promise<void> {
     this.syncProgress = { phase: "Syncing configuration...", current: 0, total: 2 };
     this.notifyListeners(this.state, this.state);
+    let hasSyncFailure = false;
 
     try {
       const lfsUrl = this.localServerUrl;
       if (lfsUrl) {
-        await fetch(`${lfsUrl}/api/lfs/sync/config-down`, {
-          method: "POST",
-          signal: AbortSignal.timeout(RECONNECT_SYNC_TIMEOUT),
-        }).catch(() => {});
+        try {
+          const configRes = await fetch(`${lfsUrl}/api/lfs/sync/config-down`, {
+            method: "POST",
+            signal: AbortSignal.timeout(RECONNECT_SYNC_TIMEOUT),
+          });
+          if (!configRes.ok) {
+            console.warn("[ConnectionManager] Config-down sync returned non-OK:", configRes.status);
+            hasSyncFailure = true;
+          }
+        } catch (e: unknown) {
+          console.warn("[ConnectionManager] Config-down sync failed:", e instanceof Error ? e.message : e);
+          hasSyncFailure = true;
+        }
       }
 
       this.syncProgress = { phase: "Uploading transactions...", current: 1, total: 2 };
       this.notifyListeners(this.state, this.state);
 
       if (lfsUrl) {
-        const journalRes = await fetch(`${lfsUrl}/api/lfs/journal/pending`, {
-          signal: AbortSignal.timeout(10000),
-        }).catch(() => null);
+        let journalEntries: Array<{ id: string; [key: string]: unknown }> = [];
+        try {
+          const journalRes = await fetch(`${lfsUrl}/api/lfs/journal/pending`, {
+            signal: AbortSignal.timeout(10000),
+          });
+          if (journalRes.ok) {
+            const data = await journalRes.json();
+            journalEntries = data.entries || [];
+          }
+        } catch {
+          hasSyncFailure = true;
+        }
 
-        if (journalRes?.ok) {
-          const { entries } = await journalRes.json();
-          if (entries && entries.length > 0) {
-            const total = entries.length;
-            for (let i = 0; i < entries.length; i++) {
-              this.syncProgress = {
-                phase: `Uploading transactions... ${i + 1} of ${total}`,
-                current: i + 1,
-                total,
-              };
-              this.notifyListeners(this.state, this.state);
+        if (journalEntries.length > 0) {
+          const total = journalEntries.length;
+          const syncHeaders = this.getSyncHeaders();
 
-              try {
-                const uploadRes = await fetch("/api/lfs/sync/transaction-up", {
+          for (let i = 0; i < journalEntries.length; i++) {
+            this.syncProgress = {
+              phase: `Uploading transactions... ${i + 1} of ${total}`,
+              current: i + 1,
+              total,
+            };
+            this.notifyListeners(this.state, this.state);
+
+            try {
+              const uploadRes = await fetch("/api/lfs/sync/transaction-up", {
+                method: "POST",
+                headers: syncHeaders,
+                body: JSON.stringify(journalEntries[i]),
+                signal: AbortSignal.timeout(10000),
+              });
+
+              if (uploadRes.ok) {
+                await fetch(`${lfsUrl}/api/lfs/journal/${journalEntries[i].id}/synced`, {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(entries[i]),
-                  signal: AbortSignal.timeout(10000),
-                });
-
-                if (uploadRes.ok) {
-                  await fetch(`${lfsUrl}/api/lfs/journal/${entries[i].id}/synced`, {
-                    method: "POST",
-                    signal: AbortSignal.timeout(5000),
-                  }).catch(() => {});
-                }
-              } catch {
-                break;
+                  signal: AbortSignal.timeout(5000),
+                }).catch(() => { /* best-effort local mark */ });
+              } else {
+                hasSyncFailure = true;
               }
+            } catch {
+              hasSyncFailure = true;
+              break;
             }
           }
         }
       }
 
       this.syncProgress = null;
-      this.pendingSyncCount = 0;
+
+      if (hasSyncFailure) {
+        const remaining = lfsUrl
+          ? await this.fetchPendingCount(lfsUrl)
+          : 0;
+        this.pendingSyncCount = remaining;
+        if (remaining > 0) {
+          console.warn(`[ConnectionManager] Sync incomplete: ${remaining} entries still pending`);
+        }
+      } else {
+        this.pendingSyncCount = 0;
+      }
+
       this.setState("cloud-online");
-    } catch {
+    } catch (e: unknown) {
+      console.error("[ConnectionManager] Reconnection sync error:", e instanceof Error ? e.message : e);
       this.syncProgress = null;
       this.setState("cloud-online");
     }
+  }
+
+  private async fetchPendingCount(lfsUrl: string): Promise<number> {
+    try {
+      const res = await fetch(`${lfsUrl}/api/lfs/journal/count`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.count || 0;
+      }
+    } catch { /* ignore */ }
+    return 0;
   }
 
   private setState(newState: ConnectionState): void {
@@ -196,7 +267,7 @@ class ConnectionManager {
 
   private notifyListeners(state: ConnectionState, prev: ConnectionState): void {
     this.listeners.forEach((fn) => {
-      try { fn(state, prev); } catch {}
+      try { fn(state, prev); } catch { /* listener error */ }
     });
   }
 }
