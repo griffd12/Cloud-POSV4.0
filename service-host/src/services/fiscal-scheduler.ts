@@ -77,13 +77,13 @@ export class FiscalScheduler {
       );
       if (existing) {
         this.db.run(
-          `UPDATE fiscal_periods SET status = 'closed', end_time = datetime('now'), closed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
+          `UPDATE fiscal_periods SET status = 'closed', end_time = local_now(), closed_at = local_now(), updated_at = local_now() WHERE id = ?`,
           [existing.id]
         );
       } else {
         this.db.run(
           `INSERT INTO fiscal_periods (id, property_id, period_type, business_date, start_time, end_time, status, closed_at)
-           VALUES (?, ?, 'daily', ?, datetime('now'), datetime('now'), 'closed', datetime('now'))`,
+           VALUES (?, ?, 'daily', ?, local_now(), local_now(), 'closed', local_now())`,
           [randomUUID(), propertyId, oldDate]
         );
       }
@@ -96,7 +96,7 @@ export class FiscalScheduler {
     try {
       this.db.run(
         `INSERT OR IGNORE INTO fiscal_periods (id, property_id, period_type, business_date, start_time, status)
-         VALUES (?, ?, 'daily', ?, datetime('now'), 'open')`,
+         VALUES (?, ?, 'daily', ?, local_now(), 'open')`,
         [randomUUID(), propertyId, newDate]
       );
     } catch (e) {
@@ -114,7 +114,7 @@ export class FiscalScheduler {
         );
         for (const entry of openClocks) {
           this.db.run(
-            `UPDATE time_entries SET clock_out = datetime('now') WHERE id = ?`,
+            `UPDATE time_entries SET clock_out = local_now() WHERE id = ?`,
             [entry.id]
           );
           console.log(`[FiscalScheduler] Auto clock-out employee ${entry.employee_id}`);
