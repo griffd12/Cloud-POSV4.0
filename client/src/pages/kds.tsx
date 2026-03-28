@@ -11,13 +11,7 @@ import { usePosWebSocket, subscribeToKdsTestTicket } from "@/hooks/use-pos-webso
 import { useDeviceHeartbeat } from "@/hooks/use-device-heartbeat";
 import { useDeviceReload } from "@/hooks/use-device-reload";
 import { useConfigSync } from "@/hooks/use-config-sync";
-import { ArrowLeft, Wifi, WifiOff, Maximize, Minimize, UtensilsCrossed, Settings, Activity } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { ArrowLeft, Wifi, WifiOff, Maximize, Minimize, UtensilsCrossed } from "lucide-react";
 import type { Property, Enterprise } from "@shared/schema";
 import { useFullscreen } from "@/hooks/use-fullscreen";
 import { useDocumentFontScale } from "@/hooks/use-font-scale";
@@ -478,7 +472,7 @@ export default function KdsPage() {
           <WifiOff className="w-12 h-12 text-orange-500 mx-auto mb-4" />
           <h2 className="text-lg font-semibold mb-2">Waiting for Store Server</h2>
           <p className="text-muted-foreground mb-4">
-            The store server (CAPS) is not available. This display will automatically connect when the server is ready.
+            The server is not available. This display will automatically connect when the server is ready.
           </p>
           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-500 mx-auto mb-4" />
           <div className="flex items-center justify-center gap-2">
@@ -578,19 +572,6 @@ export default function KdsPage() {
               {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
             </Button>
           )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" title="Settings" data-testid="button-kds-settings">
-                <Settings className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => navigate("/offline-test")} data-testid="menu-kds-system-diagnostics">
-                <Activity className="w-4 h-4 mr-2" />
-                System Diagnostics
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
           <ThemeToggle />
         </div>
       </header>
