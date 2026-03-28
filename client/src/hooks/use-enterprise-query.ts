@@ -1,4 +1,5 @@
 import { useQuery, type UseQueryOptions, type QueryKey } from "@tanstack/react-query";
+import { failoverFetch } from "@/lib/queryClient";
 import { useEmc } from "@/lib/emc-context";
 
 /**
