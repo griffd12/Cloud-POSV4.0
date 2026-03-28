@@ -63,7 +63,7 @@ export function createPaymentAdapter(
  * - ELAVON_MAIN_PIN
  * - etc.
  */
-export function resolveCredentials(keyPrefix: string, requiredKeys: string[]): GatewayCredentials {
+export function resolveCredentials(keyPrefix: string, requiredKeys: string[], dbFallbackCredentials?: GatewayCredentials): GatewayCredentials {
   const credentials: GatewayCredentials = {};
   const missingKeys: string[] = [];
   
@@ -73,6 +73,8 @@ export function resolveCredentials(keyPrefix: string, requiredKeys: string[]): G
     
     if (value) {
       credentials[key] = value;
+    } else if (dbFallbackCredentials && dbFallbackCredentials[key]) {
+      credentials[key] = dbFallbackCredentials[key];
     } else {
       missingKeys.push(envKey);
     }

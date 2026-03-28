@@ -60,6 +60,9 @@ const CONFIG_TABLES = [
   "loyalty_programs",
   "loyalty_rewards",
   "emc_option_flags",
+  "terminal_devices",
+  "print_agents",
+  "cash_drawers",
 ];
 
 export class ConfigSyncService {

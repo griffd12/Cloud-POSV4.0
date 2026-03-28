@@ -12,8 +12,9 @@ import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient, fetchWithTimeout, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
+import { connectionManager } from "@/lib/connection-manager";
 import type { Tender, Check, TerminalDevice, TerminalSession, CheckPayment } from "@shared/schema";
-import { Banknote, CreditCard, Gift, DollarSign, Check as CheckIcon, X, ArrowLeft, Loader2, Wifi, WifiOff, Smartphone, Monitor, Clock, Receipt, Star, ChevronDown, ChevronUp, User } from "lucide-react";
+import { Banknote, CreditCard, Gift, DollarSign, Check as CheckIcon, X, ArrowLeft, Loader2, Wifi, WifiOff, Smartphone, Monitor, Clock, Receipt, Star, ChevronDown, ChevronUp, User, AlertTriangle } from "lucide-react";
 import { StripeCardForm } from "./stripe-card-form";
 
 interface PaymentModalProps {
@@ -133,6 +134,9 @@ export function PaymentModal({
   const [pointsToRedeem, setPointsToRedeem] = useState("");
   const [showLoyaltySection, setShowLoyaltySection] = useState(false);
   const [loyaltyPointsEarned, setLoyaltyPointsEarned] = useState(false); // Prevent duplicate earning
+  
+  // Offline/LFS mode awareness
+  const isRunningLocally = connectionManager.isOffline;
   
   // Overage tip prompt state - when payment exceeds check total
   const [showOveragePrompt, setShowOveragePrompt] = useState(false);
@@ -1930,7 +1934,7 @@ export function PaymentModal({
                     variant="outline"
                     className="w-full h-14 justify-start gap-3"
                     onClick={() => startTerminalPayment(assignedTerminal)}
-                    disabled={isProcessingCard}
+                    disabled={isProcessingCard || (isRunningLocally && !assignedTerminal.supportsStoreAndForward && assignedTerminal.status !== "online")}
                     data-testid="button-assigned-terminal"
                   >
                     <div className="flex items-center gap-2">
@@ -1941,12 +1945,15 @@ export function PaymentModal({
                       )}
                       <Smartphone className="w-5 h-5" />
                     </div>
-                    <div className="text-left">
+                    <div className="text-left flex items-center gap-2">
                       <p className="font-medium">{assignedTerminal.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Assigned terminal {assignedTerminal.status !== "online" && `(${assignedTerminal.status})`}
-                      </p>
+                      {isRunningLocally && assignedTerminal.supportsStoreAndForward && (
+                        <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded">SAF</span>
+                      )}
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      Assigned terminal {assignedTerminal.status !== "online" && `(${assignedTerminal.status})`}
+                    </p>
                   </Button>
                 )}
                 
@@ -1956,7 +1963,7 @@ export function PaymentModal({
                     variant="outline"
                     className="w-full h-14 justify-start gap-3"
                     onClick={() => startTerminalPayment(terminal)}
-                    disabled={isProcessingCard}
+                    disabled={isProcessingCard || (isRunningLocally && !terminal.supportsStoreAndForward && terminal.status !== "online")}
                     data-testid={`button-terminal-${terminal.id}`}
                   >
                     <div className="flex items-center gap-2">
@@ -1967,12 +1974,15 @@ export function PaymentModal({
                       )}
                       <Smartphone className="w-5 h-5" />
                     </div>
-                    <div className="text-left">
+                    <div className="text-left flex items-center gap-2">
                       <p className="font-medium">{terminal.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Available terminal {terminal.status !== "online" && `(${terminal.status})`}
-                      </p>
+                      {isRunningLocally && terminal.supportsStoreAndForward && (
+                        <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded">SAF</span>
+                      )}
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      Available terminal {terminal.status !== "online" && `(${terminal.status})`}
+                    </p>
                   </Button>
                 ))}
                 
@@ -2305,6 +2315,22 @@ export function PaymentModal({
               ${remainingBalance.toFixed(2)}
             </p>
           </div>
+
+          {isRunningLocally && (
+            <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg" data-testid="banner-offline-payment">
+              <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium">Running Locally</p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    {isTerminalOnlyProcessor
+                      ? "Terminal payments handled via store-and-forward. Settlements sync when cloud reconnects."
+                      : "Cash and terminal payments available. Cloud gateway payments may be limited."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {authorizedPayments.length > 0 && (
             <div className="mb-4 space-y-2">

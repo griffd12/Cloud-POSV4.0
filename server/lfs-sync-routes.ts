@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import { db } from "./db";
 import { checks, checkItems, checkPayments } from "@shared/schema";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getConfigSyncService } from "./config-sync";
 
 const isLocalMode = process.env.DB_MODE === "local";
@@ -79,6 +79,112 @@ function registerLfsLocalRoutes(app: Express) {
   }
   const journalStorage = storage;
   const sqliteDb = (storage as Record<string, unknown>).db as import("better-sqlite3").Database | undefined;
+
+  app.get("/api/lfs/capabilities", async (_req: Request, res: Response) => {
+    try {
+      const cloudUrl = process.env.LFS_CLOUD_URL || "";
+      let internetAvailable = false;
+      if (cloudUrl) {
+        try {
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 3000);
+          await fetch(`${cloudUrl}/api/health`, { signal: ctrl.signal });
+          clearTimeout(tid);
+          internetAvailable = true;
+        } catch { internetAvailable = false; }
+      }
+
+      res.json({
+        mode: "local",
+        features: {
+          payments: true,
+          kds: true,
+          printing: true,
+          onlineOrdering: false,
+          reporting: false,
+        },
+        internetAvailable,
+        cloudUrl: cloudUrl || null,
+        paymentCapabilities: {
+          cashPayments: true,
+          semiIntegratedTerminals: true,
+          cloudGatewayPayments: internetAvailable,
+          storeAndForward: true,
+        },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.get("/api/lfs/payment-status", async (_req: Request, res: Response) => {
+    try {
+      const cloudUrl = process.env.LFS_CLOUD_URL || "";
+      let cloudReachable = false;
+      if (cloudUrl) {
+        try {
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 3000);
+          const resp = await fetch(`${cloudUrl}/api/health`, { signal: ctrl.signal });
+          clearTimeout(tid);
+          cloudReachable = resp.ok;
+        } catch { cloudReachable = false; }
+      }
+
+      res.json({
+        localMode: true,
+        cloudReachable,
+        cashAvailable: true,
+        cardAvailable: true,
+        cardMode: cloudReachable ? "online" : "store_and_forward",
+        message: cloudReachable
+          ? "Processing payments normally via cloud"
+          : "Card payments handled by terminal store-and-forward. Settlements will sync when cloud reconnects.",
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.post("/api/lfs/record-saf-payment", async (req: Request, res: Response) => {
+    try {
+      const { checkId, tenderId, amount, terminalDeviceId, transactionId, approvalCode, cardLast4, cardBrand, employeeId } = req.body;
+      if (!checkId || !tenderId || !amount) {
+        return res.status(400).json({ error: "checkId, tenderId, and amount are required" });
+      }
+
+      const payment = await storage.createPayment({
+        checkId,
+        tenderId,
+        amount: amount.toString(),
+        paymentStatus: "pending_settlement",
+        transactionId: transactionId || `SAF-${Date.now()}`,
+        approvalCode: approvalCode || "SAF-PENDING",
+        cardLast4: cardLast4 || undefined,
+        cardBrand: cardBrand || undefined,
+        employeeId: employeeId || undefined,
+      } as Parameters<typeof storage.createPayment>[0]);
+
+      if (typeof (storage as Record<string, unknown>).recordTransaction === "function") {
+        (storage as Record<string, Function>).recordTransaction({
+          operationType: "create",
+          entityType: "check_payment",
+          entityId: payment.id,
+          httpMethod: "POST",
+          endpoint: "/api/check-payments",
+          payload: payment,
+          offlineTransactionId: payment.offlineTransactionId || undefined,
+        });
+      }
+
+      res.json({ ok: true, payment });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
 
   app.get("/api/lfs/journal/count", async (_req: Request, res: Response) => {
     try {
@@ -215,6 +321,7 @@ const ALLOWED_CONFIG_TABLES = new Set([
   "payment_processors", "payment_gateway_config", "overtime_rules", "break_rules",
   "minor_labor_rules", "tip_pool_policies", "tip_rules", "tip_rule_job_percentages",
   "loyalty_programs", "loyalty_rewards", "emc_option_flags",
+  "terminal_devices", "print_agents", "cash_drawers",
 ]);
 
 function registerLfsCloudRoutes(app: Express) {
@@ -341,6 +448,62 @@ function registerLfsCloudRoutes(app: Express) {
   app.post("/api/lfs/sync/clear-remap-cache", requireLfsApiKey, async (_req: Request, res: Response) => {
     idRemapCache.clear();
     res.json({ ok: true });
+  });
+
+  app.get("/api/lfs/sync/pending-settlements", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const propertyId = req.query.propertyId as string | undefined;
+      let pendingPayments;
+      if (propertyId) {
+        pendingPayments = await db.select()
+          .from(checkPayments)
+          .innerJoin(checks, eq(checks.id, checkPayments.checkId))
+          .where(and(
+            eq(checkPayments.paymentStatus, "pending_settlement"),
+            sql`EXISTS (SELECT 1 FROM rvcs WHERE rvcs.id = ${checks.rvcId} AND rvcs.property_id = ${propertyId})`
+          ));
+        const payments = pendingPayments.map(r => r.check_payments);
+        res.json({ count: payments.length, payments });
+      } else {
+        pendingPayments = await db.select()
+          .from(checkPayments)
+          .where(eq(checkPayments.paymentStatus, "pending_settlement"));
+        res.json({ count: pendingPayments.length, payments: pendingPayments });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.post("/api/lfs/sync/settle-payment", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const { paymentId, settlementTransactionId, settlementStatus } = req.body;
+      if (!paymentId) {
+        return res.status(400).json({ error: "paymentId is required" });
+      }
+
+      const [payment] = await db.select().from(checkPayments)
+        .where(eq(checkPayments.id, paymentId)).limit(1);
+      if (!payment) {
+        return res.status(404).json({ error: "Payment not found" });
+      }
+
+      if (payment.paymentStatus !== "pending_settlement") {
+        return res.json({ ok: true, message: "Payment already settled", status: payment.paymentStatus });
+      }
+
+      const newStatus = settlementStatus === "failed" ? "settlement_failed" : "completed";
+      await storage.updateCheckPayment(paymentId, {
+        paymentStatus: newStatus,
+        paymentTransactionId: settlementTransactionId || payment.paymentTransactionId,
+      } as Parameters<typeof storage.updateCheckPayment>[1]);
+
+      res.json({ ok: true, paymentId, newStatus });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
   });
 }
 

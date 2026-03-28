@@ -114,7 +114,37 @@ async function getPaymentAdapter(processorId: string) {
   
   // Get required credential keys for this gateway type and resolve them
   const requiredKeys = getRequiredCredentialKeys(gatewayType);
-  const credentials = resolveCredentials(gatewayType.toUpperCase(), requiredKeys);
+  
+  // In LFS mode, try to resolve credentials from payment_gateway_config table as fallback
+  let dbFallbackCredentials: Record<string, string> | undefined;
+  if (process.env.DB_MODE === "local" && processor.propertyId) {
+    try {
+      const property = await storage.getProperty(processor.propertyId);
+      if (property?.enterpriseId) {
+        const gwConfig = await storage.getMergedPaymentGatewayConfig(
+          property.enterpriseId, processor.propertyId
+        );
+        if (gwConfig) {
+          dbFallbackCredentials = {};
+          const configAny = gwConfig as Record<string, unknown>;
+          for (const key of requiredKeys) {
+            const camelKey = key.toLowerCase().replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+            if (configAny[camelKey] && typeof configAny[camelKey] === "string") {
+              dbFallbackCredentials[key] = configAny[camelKey] as string;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[LFS] Failed to resolve DB credentials fallback:", e instanceof Error ? e.message : e);
+    }
+  }
+  
+  const credentials = resolveCredentials(
+    processor.credentialKeyPrefix || gatewayType.toUpperCase(),
+    requiredKeys,
+    dbFallbackCredentials
+  );
   const settings = processor.settings || {};
   const environment = (processor.environment as 'sandbox' | 'production') || 'sandbox';
   

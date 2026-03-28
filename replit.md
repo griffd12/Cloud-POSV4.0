@@ -63,6 +63,15 @@ The same Express codebase runs against either PostgreSQL (cloud) or SQLite (loca
 - **Sync-Back Routes**: `server/lfs-sync-routes.ts` — LFS mode exposes `/api/lfs/journal/pending`, `/api/lfs/journal/:id/synced`; Cloud mode exposes `/api/lfs/sync/transaction-up` and `/api/lfs/sync/batch-up` with idempotent deduplication via `offlineTransactionId`.
 - **Deduplication**: `checks`, `check_items`, `check_payments` have `offlineTransactionId` column. Sync-up checks for duplicates before inserting.
 - **Env Vars for LFS**: `DB_MODE=local`, `SQLITE_PATH`, `LFS_CLOUD_URL`, `LFS_API_KEY`, `LFS_PROPERTY_ID`, `LFS_SYNC_INTERVAL_MS`.
+- **Offline Payments (Full Feature Parity)**:
+  - **Credential Fallback**: `getPaymentAdapter` resolves credentials from `payment_gateway_config` DB table when env vars are missing (LFS mode). `resolveCredentials` accepts optional `dbFallbackCredentials` parameter.
+  - **Store-and-Forward (SAF)**: Terminal devices have `supportsStoreAndForward` flag. When cloud is down, SAF-capable terminals process payments locally; payments recorded as `pending_settlement` status. Non-SAF scenarios fall back to cash-only.
+  - **LFS Capabilities**: `/api/lfs/capabilities` reports available features (payments, KDS, printing) and internet status. `/api/lfs/payment-status` reports card payment mode (online vs store_and_forward).
+  - **SAF Payment Recording**: `/api/lfs/record-saf-payment` endpoint creates payments with `pending_settlement` status on LFS, recording to transaction journal for sync-back.
+  - **Settlement Reconciliation**: Cloud-side `/api/lfs/sync/pending-settlements` queries unresolved SAF payments (supports `propertyId` filter for multi-property scoping). `/api/lfs/sync/settle-payment` marks them as settled or failed using `paymentTransactionId` field.
+  - **Config Sync Additions**: `terminal_devices`, `print_agents`, `cash_drawers` tables added to config sync for LFS.
+  - **KDS Failover**: KDS display component uses `failoverFetch` for all API calls (bumped tickets, item availability).
+  - **Payment Modal Offline Banner**: Shows "Running Locally" with SAF/offline context when connection manager reports offline state.
 
 ### Key Features
 - **Device Configuration**: Hierarchical setup for Workstations, Printers, KDS.

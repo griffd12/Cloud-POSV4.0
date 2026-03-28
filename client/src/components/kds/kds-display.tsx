@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { apiRequest, queryClient, getAuthHeaders, fetchWithTimeout } from "@/lib/queryClient";
+import { apiRequest, queryClient, getAuthHeaders, fetchWithTimeout, failoverFetch } from "@/lib/queryClient";
 
 interface KdsItem {
   id: string;
@@ -152,7 +152,7 @@ export function KdsDisplay({
       if (rvcId) params.append("rvcId", rvcId);
       if (selectedStation !== "all") params.append("stationType", selectedStation);
       params.append("limit", "100");
-      const response = await fetchWithTimeout(`/api/kds-tickets/bumped?${params}`, {
+      const response = await failoverFetch(`/api/kds-tickets/bumped?${params}`, {
         credentials: "include",
         headers: getAuthHeaders(),
       });
@@ -168,7 +168,7 @@ export function KdsDisplay({
     queryKey: ["/api/item-availability", propertyId],
     queryFn: async () => {
       if (!propertyId) return [];
-      const response = await fetchWithTimeout(`/api/item-availability?propertyId=${propertyId}`, {
+      const response = await failoverFetch(`/api/item-availability?propertyId=${propertyId}`, {
         credentials: "include",
         headers: getAuthHeaders(),
       });

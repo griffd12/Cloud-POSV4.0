@@ -743,6 +743,7 @@ export const terminalDevices = pgTable("terminal_devices", {
   status: text("status").default("offline"), // See TERMINAL_DEVICE_STATUSES
   lastHeartbeat: timestamp("last_heartbeat"),
   capabilities: jsonb("capabilities"), // Supported features: {contactless, chip, swipe, pinDebit, cashback}
+  supportsStoreAndForward: boolean("supports_store_and_forward").default(false),
   firmwareVersion: text("firmware_version"),
   active: boolean("active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
