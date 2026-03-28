@@ -74,10 +74,19 @@ export class ConfigSyncService {
     private config: SyncConfig,
   ) {}
 
+  async runInitialSync(): Promise<void> {
+    log(`Running blocking initial config sync from ${this.config.cloudBaseUrl}...`, "lfs-sync");
+    try {
+      await this.sync();
+      log(`Initial config sync completed successfully`, "lfs-sync");
+    } catch (e: any) {
+      log(`Initial config sync failed (will retry on interval): ${e.message}`, "lfs-sync");
+    }
+  }
+
   start(): void {
     if (this.intervalHandle) return;
     log(`Config sync starting (interval: ${this.config.intervalMs}ms, cloud: ${this.config.cloudBaseUrl})`, "lfs-sync");
-    this.sync().catch((e) => log(`Initial sync failed: ${e.message}`, "lfs-sync"));
     this.intervalHandle = setInterval(() => {
       this.sync().catch((e) => log(`Sync failed: ${e.message}`, "lfs-sync"));
     }, this.config.intervalMs);
@@ -194,7 +203,6 @@ export function startConfigSync(db: Database.Database): ConfigSyncService | null
     intervalMs,
   });
 
-  syncService.start();
   return syncService;
 }
 

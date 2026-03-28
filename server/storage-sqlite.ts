@@ -729,7 +729,20 @@ export class SqliteDatabaseStorage implements IStorage {
   async createCheck(data: InsertCheck): Promise<Check> { return this.insertOne("checks", { ...data }); }
 
   async createCheckAtomic(rvcId: string, data: Omit<InsertCheck, 'checkNumber'>): Promise<Check> {
-    const checkNumber = await this.getNextCheckNumber(rvcId);
+    const workstationId = (data as any).workstationId;
+    let checkNumber: number;
+
+    if (workstationId) {
+      const offlineStatus = this.getOfflineCheckNumberStatus(workstationId);
+      if (offlineStatus && offlineStatus.remaining > 0) {
+        checkNumber = this.getNextOfflineCheckNumber(workstationId);
+      } else {
+        checkNumber = await this.getNextCheckNumber(rvcId);
+      }
+    } else {
+      checkNumber = await this.getNextCheckNumber(rvcId);
+    }
+
     return this.insertOne("checks", { ...data, rvcId, checkNumber });
   }
 

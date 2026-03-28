@@ -110,6 +110,14 @@ app.get("/api/health", (_req, res) => {
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
+  if (isLocalMode && sqliteDb) {
+    const syncService = startConfigSync(sqliteDb);
+    if (syncService) {
+      await syncService.runInitialSync();
+      syncService.start();
+    }
+  }
+
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {
@@ -119,8 +127,7 @@ app.get("/api/health", (_req, res) => {
     },
     () => {
       log(`serving on port ${port}`);
-      if (isLocalMode && sqliteDb) {
-        startConfigSync(sqliteDb);
+      if (isLocalMode) {
         log("Local Failover Server ready", "lfs");
       } else {
         startFiscalScheduler();
