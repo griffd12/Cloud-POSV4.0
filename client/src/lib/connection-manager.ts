@@ -179,13 +179,10 @@ class ConnectionManager {
       this.syncProgress = { phase: "Uploading transactions to cloud...", current: 1, total: 2 };
       this.notifyListeners(this.state, this.state);
 
-      const cloudUrl = window.location.origin;
-
       try {
         const pushRes = await fetch(`${lfsUrl}/api/lfs/sync/push-to-cloud`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cloudUrl }),
           signal: AbortSignal.timeout(RECONNECT_SYNC_TIMEOUT),
         });
 

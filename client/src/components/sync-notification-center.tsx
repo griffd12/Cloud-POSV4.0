@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { subscribeToSyncNotifications } from "@/hooks/use-pos-websocket";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { connectionManager } from "@/lib/connection-manager";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,8 @@ import {
   CheckCheck,
   Trash2,
   X,
+  Upload,
+  Loader2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -68,10 +71,70 @@ function getSeverityColor(severity: string) {
   }
 }
 
+function FailoverStatusBanner() {
+  const [connState, setConnState] = useState(connectionManager.currentState);
+  const [pendingCount, setPendingCount] = useState(connectionManager.pendingSync);
+  const [syncProgress, setSyncProgress] = useState(connectionManager.currentSyncProgress);
+
+  useEffect(() => {
+    const unsub = connectionManager.subscribe((state) => {
+      setConnState(state);
+      setPendingCount(connectionManager.pendingSync);
+      setSyncProgress(connectionManager.currentSyncProgress);
+    });
+    return unsub;
+  }, []);
+
+  if (connState === "cloud-online") return null;
+
+  const isReconnecting = connState === "reconnecting";
+  const isOffline = connState === "cloud-offline";
+
+  return (
+    <div
+      className={`px-4 py-2 border-b ${
+        isOffline ? "bg-amber-500/10 border-amber-500/30" : isReconnecting ? "bg-blue-500/10 border-blue-500/30" : "bg-yellow-500/10 border-yellow-500/30"
+      }`}
+      data-testid="failover-status-banner"
+    >
+      <div className="flex items-center gap-2 text-xs">
+        {isReconnecting ? (
+          <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
+        ) : isOffline ? (
+          <WifiOff className="h-3 w-3 text-amber-400" />
+        ) : (
+          <AlertTriangle className="h-3 w-3 text-yellow-400" />
+        )}
+        <span className={isOffline ? "text-amber-400 font-medium" : isReconnecting ? "text-blue-400 font-medium" : "text-yellow-400 font-medium"}>
+          {isReconnecting
+            ? syncProgress?.phase || "Reconnecting..."
+            : isOffline
+              ? "Running on local server"
+              : "Cloud connection degraded"}
+        </span>
+        {pendingCount > 0 && (
+          <span className="ml-auto flex items-center gap-1 text-muted-foreground">
+            <Upload className="h-3 w-3" />
+            {pendingCount} pending
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SyncNotificationCenter({ propertyId, enterpriseId }: SyncNotificationCenterProps) {
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const autoReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [failoverActive, setFailoverActive] = useState(connectionManager.currentState !== "cloud-online");
+
+  useEffect(() => {
+    const unsub = connectionManager.subscribe((state) => {
+      setFailoverActive(state !== "cloud-online");
+    });
+    return unsub;
+  }, []);
 
   const queryParams = propertyId
     ? `propertyId=${propertyId}`
@@ -179,7 +242,9 @@ export function SyncNotificationCenter({ propertyId, enterpriseId }: SyncNotific
           className="relative"
           data-testid="button-sync-notifications"
         >
-          {unreadCount > 0 ? (
+          {failoverActive ? (
+            <WifiOff className="h-5 w-5 text-amber-400" />
+          ) : unreadCount > 0 ? (
             <BellRing className="h-5 w-5" />
           ) : (
             <Bell className="h-5 w-5" />
@@ -196,6 +261,7 @@ export function SyncNotificationCenter({ propertyId, enterpriseId }: SyncNotific
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-96 p-0" align="end" data-testid="popover-sync-notifications">
+        <FailoverStatusBanner />
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <h3 className="font-semibold text-sm">Sync Notifications</h3>
           <div className="flex items-center gap-1">

@@ -106,14 +106,9 @@ function registerLfsLocalRoutes(app: Express) {
   });
 
   app.post("/api/lfs/sync/push-to-cloud", async (req: Request, res: Response) => {
-    const allowedCloudUrl = process.env.CLOUD_SERVER_URL || "";
-    const requestedUrl = (req.body?.cloudUrl as string) || "";
-    const cloudUrl = allowedCloudUrl || requestedUrl;
+    const cloudUrl = process.env.CLOUD_SERVER_URL || "";
     if (!cloudUrl) {
-      return res.status(400).json({ error: "CLOUD_SERVER_URL env must be configured" });
-    }
-    if (requestedUrl && allowedCloudUrl && requestedUrl !== allowedCloudUrl) {
-      return res.status(403).json({ error: "cloudUrl does not match configured CLOUD_SERVER_URL" });
+      return res.status(400).json({ error: "CLOUD_SERVER_URL env must be configured on LFS" });
     }
     const apiKey = process.env.LFS_API_KEY || "";
 
@@ -394,7 +389,7 @@ async function syncEntity(
   switch (entityType) {
     case "check": {
       if (operationType === "create") {
-        const { id: localId, ...insertData } = dataWithOfflineId;
+        const { id: localId, checkNumber: _offlineCheckNum, ...insertData } = dataWithOfflineId;
         const created = await storage.createCheck(insertData as Parameters<typeof storage.createCheck>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
