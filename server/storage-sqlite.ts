@@ -765,12 +765,12 @@ export class SqliteDatabaseStorage implements IStorage {
     if (!row) {
       throw new Error(`No offline check number range configured for workstation ${workstationId}`);
     }
-    if (row.current_number >= row.range_end) {
+    const current = row.current_number;
+    if (current > row.range_end) {
       throw new Error(`Offline check number range exhausted for workstation ${workstationId} (max: ${row.range_end})`);
     }
-    const next = row.current_number + 1;
-    this.db.prepare(`UPDATE "lfs_offline_sequence" SET current_number = ? WHERE workstation_id = ?`).run(next, workstationId);
-    return next;
+    this.db.prepare(`UPDATE "lfs_offline_sequence" SET current_number = ? WHERE workstation_id = ?`).run(current + 1, workstationId);
+    return current;
   }
 
   initOfflineCheckNumberRange(workstationId: string, rangeStart: number, rangeEnd: number): void {

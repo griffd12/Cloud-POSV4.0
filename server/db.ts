@@ -7,9 +7,7 @@ import * as schema from "@shared/schema";
 
 export const isLocalMode = process.env.DB_MODE === "local";
 
-let pool: pg.Pool | null = null;
-let db: ReturnType<typeof drizzle> | null = null;
-let sqliteDb: any = null;
+let _sqliteDb: any = null;
 
 if (isLocalMode) {
   const require = createRequire(import.meta.url);
@@ -21,19 +19,26 @@ if (isLocalMode) {
     fs.mkdirSync(dbDir, { recursive: true });
   }
 
-  sqliteDb = new Database(dbPath);
-  sqliteDb.pragma("journal_mode = WAL");
-  sqliteDb.pragma("foreign_keys = ON");
-  sqliteDb.pragma("busy_timeout = 5000");
-} else {
-  if (!process.env.DATABASE_URL) {
-    throw new Error(
-      "DATABASE_URL must be set. Did you forget to provision a database?",
-    );
-  }
-
-  pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-  db = drizzle(pool, { schema });
+  _sqliteDb = new Database(dbPath);
+  _sqliteDb.pragma("journal_mode = WAL");
+  _sqliteDb.pragma("foreign_keys = ON");
+  _sqliteDb.pragma("busy_timeout = 5000");
 }
 
-export { pool, db, sqliteDb };
+if (!isLocalMode && !process.env.DATABASE_URL) {
+  throw new Error(
+    "DATABASE_URL must be set. Did you forget to provision a database?",
+  );
+}
+
+const { Pool } = pg;
+
+export const pool = isLocalMode
+  ? (null as unknown as pg.Pool)
+  : new Pool({ connectionString: process.env.DATABASE_URL });
+
+export const db = isLocalMode
+  ? (null as unknown as ReturnType<typeof drizzle>)
+  : drizzle(pool, { schema });
+
+export const sqliteDb = _sqliteDb;
