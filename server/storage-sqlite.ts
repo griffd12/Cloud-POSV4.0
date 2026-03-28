@@ -1279,7 +1279,36 @@ export class SqliteDatabaseStorage implements IStorage {
   }
 
   async clearSalesData(propertyId: string): Promise<any> {
-    return { deleted: { checks: 0, checkItems: 0, payments: 0, discounts: 0, rounds: 0, kdsTicketItems: 0, kdsTickets: 0, terminalSessions: 0, checkLocks: 0, printJobs: 0, auditLogs: 0, timePunches: 0, timecards: 0, breakSessions: 0, timecardExceptions: 0, shifts: 0, tipAllocations: 0, tipPoolRuns: 0, fiscalPeriods: 0, cashTransactions: 0, drawerAssignments: 0, safeCounts: 0, giftCardTransactions: 0, giftCards: 0, loyaltyTransactions: 0, loyaltyRedemptions: 0, loyaltyMembersReset: 0, onlineOrders: 0, inventoryTransactions: 0, inventoryStock: 0, salesForecasts: 0, laborForecasts: 0, managerAlerts: 0, itemAvailability: 0, prepItems: 0, offlineQueue: 0, accountingExports: 0 } };
+    const tablesToClear = [
+      "check_items", "check_payments", "check_discounts", "check_service_charges",
+      "check_locks", "rounds", "checks",
+      "kds_ticket_items", "kds_tickets",
+      "print_jobs", "audit_logs",
+      "time_punches", "timecards", "break_sessions", "timecard_exceptions",
+      "shifts", "tip_allocations", "tip_pool_runs",
+      "fiscal_periods", "cash_transactions", "drawer_assignments", "safe_counts",
+      "gift_card_transactions", "loyalty_transactions", "loyalty_redemptions",
+      "online_orders", "inventory_transactions", "inventory_stock",
+      "sales_forecasts", "labor_forecasts", "manager_alerts",
+      "item_availability_overrides", "prep_items", "accounting_exports",
+    ];
+    const deleted: Record<string, number> = {};
+    this.db.exec("BEGIN TRANSACTION");
+    try {
+      for (const table of tablesToClear) {
+        try {
+          const result = this.db.prepare(`DELETE FROM "${table}"`).run();
+          deleted[table] = result.changes;
+        } catch {
+          deleted[table] = 0;
+        }
+      }
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+    return { deleted };
   }
 
   // ========================================================================
@@ -1579,7 +1608,14 @@ export class SqliteDatabaseStorage implements IStorage {
     return this.getAll("shifts", `id IN (${shiftIds.map(() => "?").join(",")})`, shiftIds);
   }
   async copyWeekSchedule(propertyId: string, sourceWeekStart: string, targetWeekStart: string): Promise<Shift[]> {
-    return [];
+    const sourceShifts = this.getAll<any>("shifts", "property_id = ? AND week_start = ?", [propertyId, sourceWeekStart]);
+    const created: Shift[] = [];
+    for (const shift of sourceShifts) {
+      const { id, createdAt, updatedAt, publishedAt, status, ...rest } = shift;
+      const newShift = this.insertOne<Shift>("shifts", { ...rest, weekStart: targetWeekStart, status: "draft" });
+      created.push(newShift);
+    }
+    return created;
   }
 
   async getShiftCoverRequests(filters: { shiftId?: string; requesterId?: string; status?: string }): Promise<ShiftCoverRequest[]> {
@@ -2025,13 +2061,16 @@ export class SqliteDatabaseStorage implements IStorage {
   async createAccountingExport(data: InsertAccountingExport): Promise<AccountingExport> { return this.insertOne("accounting_exports", { ...data }); }
   async updateAccountingExport(id: string, data: Partial<InsertAccountingExport>): Promise<AccountingExport | undefined> { return this.updateOne("accounting_exports", id, data); }
 
-  // Online Orders stubs
-  async getOnlineOrderSources(enterpriseId?: string): Promise<OnlineOrderSource[]> { return this.getAll("online_order_sources"); }
+  // Online Orders
+  async getOnlineOrderSources(enterpriseId?: string): Promise<OnlineOrderSource[]> {
+    if (enterpriseId) return this.getAll("online_order_sources", "enterprise_id = ?", [enterpriseId]);
+    return this.getAll("online_order_sources");
+  }
   async createOnlineOrderSource(data: InsertOnlineOrderSource): Promise<OnlineOrderSource> { return this.insertOne("online_order_sources", { ...data }); }
   async updateOnlineOrderSource(id: string, data: Partial<InsertOnlineOrderSource>): Promise<OnlineOrderSource | undefined> { return this.updateOne("online_order_sources", id, data); }
   async deleteOnlineOrderSource(id: string): Promise<boolean> { return this.deleteOne("online_order_sources", id); }
 
-  // Inventory stubs
+  // Inventory
   async getInventoryItems(propertyId?: string): Promise<InventoryItem[]> {
     if (propertyId) return this.getAll("inventory_items", "property_id = ?", [propertyId]);
     return this.getAll("inventory_items");

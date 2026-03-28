@@ -116,6 +116,7 @@ export class ConfigSyncService {
       for (const table of CONFIG_TABLES) {
         await this.syncTable(table);
       }
+      this.initOfflineCheckRangesFromWorkstations();
       this.lastSyncAt = new Date().toISOString();
       this.lastSyncError = null;
       this.syncCount++;
@@ -125,6 +126,32 @@ export class ConfigSyncService {
       log(`Config sync error: ${e.message}`, "lfs-sync");
     } finally {
       this.isSyncing = false;
+    }
+  }
+
+  private initOfflineCheckRangesFromWorkstations(): void {
+    try {
+      const workstations = this.db.prepare(`SELECT * FROM "workstations"`).all() as any[];
+      for (const ws of workstations) {
+        const rangeStart = ws.offline_check_number_start;
+        const rangeEnd = ws.offline_check_number_end;
+        if (rangeStart != null && rangeEnd != null && rangeStart < rangeEnd) {
+          const existing = this.db.prepare(`SELECT * FROM "lfs_offline_sequence" WHERE workstation_id = ?`).get(ws.id) as any;
+          if (!existing) {
+            this.db.prepare(
+              `INSERT INTO "lfs_offline_sequence" (workstation_id, current_number, range_start, range_end) VALUES (?, ?, ?, ?)`,
+            ).run(ws.id, rangeStart, rangeStart, rangeEnd);
+            log(`Initialized offline check range for workstation ${ws.name || ws.id}: ${rangeStart}-${rangeEnd}`, "lfs-sync");
+          } else if (existing.range_start !== rangeStart || existing.range_end !== rangeEnd) {
+            this.db.prepare(
+              `UPDATE "lfs_offline_sequence" SET range_start = ?, range_end = ? WHERE workstation_id = ?`,
+            ).run(rangeStart, rangeEnd, ws.id);
+            log(`Updated offline check range for workstation ${ws.name || ws.id}: ${rangeStart}-${rangeEnd}`, "lfs-sync");
+          }
+        }
+      }
+    } catch (e: any) {
+      log(`Failed to initialize offline check ranges: ${e.message}`, "lfs-sync");
     }
   }
 

@@ -8,6 +8,7 @@ import { storage } from "./storage";
 import { isLocalMode, sqliteDb } from "./db";
 import { startConfigSync, getConfigSyncService } from "./config-sync";
 import path from "path";
+import fs from "fs";
 
 const app = express();
 const httpServer = createServer(app);
@@ -68,15 +69,44 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get("/api/health", (_req, res) => {
+const serverStartTime = Date.now();
+
+function getHealthPayload() {
   const syncService = getConfigSyncService();
-  res.json({
+  const uptimeMs = Date.now() - serverStartTime;
+  const base: Record<string, any> = {
     status: "ok",
     mode: isLocalMode ? "local" : "cloud",
     database: isLocalMode ? "sqlite" : "postgresql",
+    uptimeSeconds: Math.floor(uptimeMs / 1000),
     timestamp: new Date().toISOString(),
-    ...(isLocalMode && syncService ? { sync: syncService.getStatus() } : {}),
-  });
+  };
+
+  if (isLocalMode) {
+    const sqlitePath = process.env.SQLITE_PATH || "./data/pos-local.db";
+    try {
+      const stats = fs.statSync(sqlitePath);
+      base.sqliteFileSizeBytes = stats.size;
+    } catch {}
+
+    if (syncService) {
+      const syncStatus = syncService.getStatus();
+      base.sync = syncStatus;
+      if (syncStatus.lastSyncAt) {
+        base.syncAgeSeconds = Math.floor((Date.now() - new Date(syncStatus.lastSyncAt).getTime()) / 1000);
+      }
+    }
+  }
+
+  return base;
+}
+
+app.get("/api/health", async (_req, res) => {
+  res.json(await getHealthPayload());
+});
+
+app.get("/health", async (_req, res) => {
+  res.json(await getHealthPayload());
 });
 
 (async () => {
