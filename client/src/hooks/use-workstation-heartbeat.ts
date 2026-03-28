@@ -1,5 +1,4 @@
 import { useEffect, useRef, useCallback } from "react";
-import { apiClient, useConnectionMode } from "@/lib/api-client";
 import { apiRequest, getAuthHeaders } from "@/lib/queryClient";
 
 interface HeartbeatConfig {
@@ -16,17 +15,15 @@ export function useWorkstationHeartbeat({
   enabled = true,
 }: HeartbeatConfig) {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const { mode } = useConnectionMode();
 
   const sendHeartbeat = useCallback(async () => {
     if (!workstationId) return;
 
     try {
-      // Send workstation heartbeat
       await apiRequest("POST", "/api/system-status/workstation/heartbeat", {
         workstationId,
         employeeId,
-        connectionMode: mode,
+        connectionMode: 'green',
         pendingSyncCount: 0,
         checkCount: 0,
       });
@@ -47,7 +44,7 @@ export function useWorkstationHeartbeat({
     } catch (error) {
       console.warn("Heartbeat failed:", error);
     }
-  }, [workstationId, employeeId, mode]);
+  }, [workstationId, employeeId]);
 
   useEffect(() => {
     if (!enabled || !workstationId) {

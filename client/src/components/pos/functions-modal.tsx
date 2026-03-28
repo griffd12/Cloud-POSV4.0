@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,15 +10,11 @@ import {
   DollarSign, 
   Grid3X3,
   Lock,
-  Activity,
   FileEdit,
   BarChart3,
   Zap,
   LockOpen,
-  Database,
 } from "lucide-react";
-import { SystemStatusModal } from "./system-status-modal";
-import { CAPSDiagnosticModal } from "./caps-diagnostic-modal";
 
 interface WorkstationInfo {
   name: string;
@@ -112,22 +107,8 @@ export function FunctionsModal({
   propertyId,
   workstation,
 }: FunctionsModalProps) {
-  const [showSystemStatus, setShowSystemStatus] = useState(false);
-  const [showDiagnostic, setShowDiagnostic] = useState(false);
-
   return (
     <>
-    <SystemStatusModal 
-      open={showSystemStatus} 
-      onClose={() => setShowSystemStatus(false)} 
-      propertyId={propertyId}
-      workstation={workstation}
-    />
-    <CAPSDiagnosticModal
-      open={showDiagnostic}
-      onClose={() => setShowDiagnostic(false)}
-    />
-    
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
@@ -218,18 +199,6 @@ export function FunctionsModal({
           <div>
             <h3 className="text-sm font-medium text-muted-foreground mb-3">System</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <FunctionButton
-                icon={<Activity className="w-5 h-5" />}
-                label="System Status"
-                description="View connectivity status"
-                onClick={() => setShowSystemStatus(true)}
-              />
-              <FunctionButton
-                icon={<Database className="w-5 h-5" />}
-                label="CAPS Diagnostic"
-                description="View sync & data health"
-                onClick={() => setShowDiagnostic(true)}
-              />
               <FunctionButton
                 icon={<Zap className="w-5 h-5" />}
                 label="Stress Test"

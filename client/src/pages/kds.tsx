@@ -5,14 +5,12 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
-import { apiClient } from "@/lib/api-client";
 import { usePosContext } from "@/lib/pos-context";
 import { useDeviceContext } from "@/lib/device-context";
 import { usePosWebSocket, subscribeToKdsTestTicket } from "@/hooks/use-pos-websocket";
 import { useDeviceHeartbeat } from "@/hooks/use-device-heartbeat";
 import { useDeviceReload } from "@/hooks/use-device-reload";
 import { useConfigSync } from "@/hooks/use-config-sync";
-import { DeviceEnrollmentGuard } from "@/components/device-enrollment-guard";
 import { ArrowLeft, Wifi, WifiOff, Maximize, Minimize, UtensilsCrossed, Settings, Activity } from "lucide-react";
 import {
   DropdownMenu,
@@ -25,7 +23,6 @@ import { useFullscreen } from "@/hooks/use-fullscreen";
 import { useDocumentFontScale } from "@/hooks/use-font-scale";
 import { Link, Redirect, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
-import { ConnectionModeBanner } from "@/components/connection-mode-banner";
 
 interface KdsItem {
   id: string;
@@ -278,8 +275,6 @@ export default function KdsPage() {
     refetchOnWindowFocus: true,
   });
 
-  // WebSocket for real-time KDS updates with auto-reconnect
-  // Adapts to connection mode: GREEN=cloud, YELLOW=CAPS, RED=skip (polling only)
   useEffect(() => {
     if (!isDedicatedKds && !currentRvc) return;
     if (isDedicatedKds && !propertyId) return;
@@ -291,33 +286,13 @@ export default function KdsPage() {
     const connect = () => {
       if (unmounted) return;
 
-      const currentMode = apiClient.getMode();
-
-      if (currentMode === 'red') {
-        reconnectTimer = setTimeout(connect, 10000);
-        return;
-      }
-
-      const serviceHostUrl = localStorage.getItem('serviceHostUrl');
-      let wsUrl: string;
-      if (serviceHostUrl) {
-        try {
-          const shUrl = new URL(serviceHostUrl);
-          const wsProtocol = shUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-          wsUrl = `${wsProtocol}//${shUrl.host}/ws`;
-        } catch {
-          reconnectTimer = setTimeout(connect, 5000);
-          return;
-        }
-      } else {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        wsUrl = `${protocol}//${window.location.host}/ws`;
-      }
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
 
       try {
         socket = new WebSocket(wsUrl);
       } catch (e) {
-        console.warn('[KDS] WebSocket construction failed (mixed-content or invalid URL), retrying in 5s:', (e as Error).message);
+        console.warn('[KDS] WebSocket construction failed, retrying in 5s:', (e as Error).message);
         reconnectTimer = setTimeout(connect, 5000);
         return;
       }
@@ -368,19 +343,8 @@ export default function KdsPage() {
 
     connect();
 
-    const modeUnsub = apiClient.onModeChange((newMode) => {
-      if (newMode === 'red') {
-        if (socket) { socket.close(); socket = null; }
-      } else {
-        if (socket) { socket.close(); socket = null; }
-        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-        reconnectTimer = setTimeout(connect, 500);
-      }
-    });
-
     return () => {
       unmounted = true;
-      modeUnsub();
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (socket) socket.close();
     };
@@ -553,9 +517,7 @@ export default function KdsPage() {
   }
 
   return (
-    <DeviceEnrollmentGuard requiredDeviceType="kds_display">
     <div className="flex flex-col h-screen">
-      <ConnectionModeBanner />
       <header className="flex-shrink-0 bg-card border-b px-3 py-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           {!isDedicatedKds && (
@@ -649,6 +611,5 @@ export default function KdsPage() {
         propertyId={propertyId || undefined}
       />
     </div>
-    </DeviceEnrollmentGuard>
   );
 }

@@ -48,33 +48,26 @@ interface PosContextType {
 
 const PosContext = createContext<PosContextType | null>(null);
 
-// Device context localStorage keys (for reading device enrollment data)
 const DEVICE_LINKED_ID_KEY = "pos_device_linked_id";
 const DEVICE_TYPE_KEY = "pos_device_type";
 
-// Helper to get workstation ID from URL param, localStorage, or device enrollment
 function getInitialWorkstationId(): string | null {
   if (typeof window !== 'undefined') {
-    // First check URL param (for testing multiple workstations)
     const urlParams = new URLSearchParams(window.location.search);
     const urlWorkstation = urlParams.get('workstation');
     if (urlWorkstation) {
-      // Save URL param to localStorage for persistence
       localStorage.setItem(WORKSTATION_STORAGE_KEY, urlWorkstation);
       return urlWorkstation;
     }
     
-    // Then check localStorage for previously selected workstation
     const storedWorkstation = localStorage.getItem(WORKSTATION_STORAGE_KEY);
     if (storedWorkstation) {
       return storedWorkstation;
     }
     
-    // Finally check device enrollment - if device is enrolled as POS, use its linked workstation
     const deviceType = localStorage.getItem(DEVICE_TYPE_KEY);
     const deviceLinkedId = localStorage.getItem(DEVICE_LINKED_ID_KEY);
     if (deviceType === "pos" && deviceLinkedId) {
-      // Auto-use the enrolled workstation
       localStorage.setItem(WORKSTATION_STORAGE_KEY, deviceLinkedId);
       return deviceLinkedId;
     }
@@ -83,7 +76,7 @@ function getInitialWorkstationId(): string | null {
 }
 
 export function PosProvider({ children }: { children: ReactNode }) {
-  const { linkedDeviceId, deviceType, isElectronLoading } = useDeviceContext();
+  const { linkedDeviceId, deviceType } = useDeviceContext();
   const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(null);
   const [currentRvc, setCurrentRvcState] = useState<Rvc | null>(() => {
     try {
@@ -109,20 +102,20 @@ export function PosProvider({ children }: { children: ReactNode }) {
   const [currentWorkstation, setCurrentWorkstation] = useState<Workstation | null>(null);
 
   useEffect(() => {
-    if (!isElectronLoading && linkedDeviceId && deviceType === 'pos' && !workstationId) {
+    if (linkedDeviceId && deviceType === 'pos' && !workstationId) {
       setWorkstationIdState(linkedDeviceId);
       localStorage.setItem(WORKSTATION_STORAGE_KEY, linkedDeviceId);
     }
-  }, [isElectronLoading, linkedDeviceId, deviceType, workstationId]);
+  }, [linkedDeviceId, deviceType, workstationId]);
 
   useEffect(() => {
-    if (!isElectronLoading && !workstationId) {
+    if (!workstationId) {
       const stored = localStorage.getItem(WORKSTATION_STORAGE_KEY);
       if (stored) {
         setWorkstationIdState(stored);
       }
     }
-  }, [isElectronLoading]);
+  }, []);
 
   const setWorkstationId = useCallback((id: string | null) => {
     setWorkstationIdState(id);
@@ -133,14 +126,12 @@ export function PosProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Persist RVC selection to localStorage when it changes
   const setCurrentRvc = useCallback((rvc: Rvc | null) => {
     setCurrentRvcState(rvc);
     if (rvc) {
       try {
         localStorage.setItem(RVC_STORAGE_KEY, JSON.stringify(rvc));
       } catch {
-        // Ignore storage errors
       }
     } else {
       localStorage.removeItem(RVC_STORAGE_KEY);
@@ -151,7 +142,6 @@ export function PosProvider({ children }: { children: ReactNode }) {
     return privileges.includes(code);
   }, [privileges]);
 
-  // Logout clears employee and transaction state but KEEPS RVC selection
   const logout = useCallback(() => {
     setCurrentEmployee(null);
     setCurrentCheck(null);
@@ -164,7 +154,6 @@ export function PosProvider({ children }: { children: ReactNode }) {
     setCurrentTimecard(null);
     setIsSalariedBypass(false);
     setCurrentJobCode(null);
-    // NOTE: We intentionally do NOT clear currentRvc - it persists until explicitly changed
   }, []);
 
   return (

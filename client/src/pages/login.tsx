@@ -3,9 +3,7 @@ import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { usePosContext } from "@/lib/pos-context";
 import { useDeviceContext } from "@/lib/device-context";
-import { apiRequest, getAuthHeaders, getIsOfflineMode, onOfflineModeChange } from "@/lib/queryClient";
-import { offlineStore } from "@/lib/offline-store";
-import { ConnectionModeBanner } from "@/components/connection-mode-banner";
+import { apiRequest, getAuthHeaders } from "@/lib/queryClient";
 import BreakAttestationDialog from "@/components/pos/break-attestation-dialog";
 import type { Employee, Rvc, Property, Timecard, JobCode, Workstation, BreakRule } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -77,23 +75,6 @@ export default function LoginPage() {
   useDeviceHeartbeat(true);
 
   const { enterpriseId, clearDeviceConfig } = useDeviceContext();
-  const employeeSyncDone = useRef(false);
-  const [isOffline, setIsOffline] = useState(getIsOfflineMode());
-
-  useEffect(() => {
-    return onOfflineModeChange((offline) => setIsOffline(offline));
-  }, []);
-
-  useEffect(() => {
-    if (!employeeSyncDone.current && !getIsOfflineMode()) {
-      employeeSyncDone.current = true;
-      offlineStore.syncEmployeesFromCloud(enterpriseId || undefined).then(count => {
-        if (count > 0) {
-          console.log(`[OfflineAuth] Cached ${count} employees for offline authentication`);
-        }
-      });
-    }
-  }, [enterpriseId]);
 
   const [selectedRvcId, setSelectedRvcId] = useState<string>("");
   const [pin, setPin] = useState("");
@@ -190,18 +171,6 @@ export default function LoginPage() {
         return;
       }
 
-      const isOfflineLogin = !!(data as any).offlineAuth || getIsOfflineMode();
-      if (isOfflineLogin) {
-        setCurrentEmployee(data.employee);
-        setPrivileges(data.privileges);
-        setIsClockedIn(true);
-        setIsSalariedBypass(false);
-        const rvc = rvcs.find((r) => r.id === selectedRvcId);
-        if (rvc) setCurrentRvc(rvc);
-        navigate("/pos");
-        return;
-      }
-
       let hasJobs = true;
       try {
         const jobsController = new AbortController();
@@ -253,54 +222,7 @@ export default function LoginPage() {
       }
       navigate("/pos");
     },
-    onError: async (_error: any, pinCode: string) => {
-      const isNetworkError = _error instanceof TypeError || 
-        (_error?.message && (/fetch|network|timeout|abort/i.test(_error.message)));
-      const shouldTryOffline = getIsOfflineMode() || isNetworkError;
-      
-      if (shouldTryOffline) {
-        try {
-          const offlineEmp = await offlineStore.authenticateByPin(pinCode);
-          if (offlineEmp) {
-            const empAsEmployee = {
-              id: offlineEmp.id,
-              firstName: offlineEmp.firstName,
-              lastName: offlineEmp.lastName,
-              pinHash: offlineEmp.pinHash,
-              roleId: offlineEmp.roleId || null,
-              active: true,
-            } as Employee;
-            
-            setCurrentEmployee(empAsEmployee);
-            setPrivileges([
-              "fast_transaction", "send_to_kitchen", "void_unsent",
-              "apply_discount", "kds_access"
-            ]);
-            setIsClockedIn(true);
-            setIsSalariedBypass(false);
-            
-            const rvc = rvcs.find((r) => r.id === selectedRvcId);
-            if (!rvc) {
-              try {
-                const savedRvc = localStorage.getItem('pos_selected_rvc');
-                if (savedRvc) {
-                  const parsedRvc = JSON.parse(savedRvc) as Rvc;
-                  setCurrentRvc(parsedRvc);
-                }
-              } catch {}
-            } else {
-              setCurrentRvc(rvc);
-            }
-            
-            toast({
-              title: "Offline Sign In",
-              description: `Signed in as ${offlineEmp.firstName} (offline mode - limited features)`,
-            });
-            navigate("/pos");
-            return;
-          }
-        } catch {}
-      }
+    onError: async () => {
       setLoginError("Invalid PIN or employee not found");
       setPin("");
     },
@@ -679,8 +601,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <ConnectionModeBanner />
-      <div className="absolute top-10 right-4 z-10 flex items-center gap-2">
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
         {fullscreenSupported && (
           <Button 
             variant="ghost" 
@@ -920,8 +841,7 @@ export default function LoginPage() {
                   </CardContent>
                 </Card>
 
-                {!isOffline && (
-                  <Button
+                <Button
                     variant="outline"
                     className="w-full h-12"
                     onClick={handleOpenClockModal}
@@ -930,7 +850,6 @@ export default function LoginPage() {
                     <Clock className="w-5 h-5 mr-2" />
                     Clock In / Out
                   </Button>
-                )}
               </>
             )}
           </div>

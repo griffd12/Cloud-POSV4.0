@@ -1,7 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
-import { queryClient, getAuthHeaders } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { getDeviceToken } from "@/hooks/use-device-enrollment";
-import { apiClient } from "@/lib/api-client";
 
 interface PosEvent {
   type: string;
@@ -56,27 +55,8 @@ export function usePosWebSocket() {
     const connect = () => {
       if (isUnmountedRef.current) return;
       
-      const currentMode = apiClient.getMode();
-      if (currentMode === 'red') {
-        reconnectTimeoutRef.current = setTimeout(connect, 10000);
-        return;
-      }
-      
-      const serviceHostUrl = localStorage.getItem('serviceHostUrl');
-      let wsUrl: string;
-      if (serviceHostUrl) {
-        try {
-          const shUrl = new URL(serviceHostUrl);
-          const wsProtocol = shUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-          wsUrl = `${wsProtocol}//${shUrl.host}/ws`;
-        } catch {
-          reconnectTimeoutRef.current = setTimeout(connect, 5000);
-          return;
-        }
-      } else {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        wsUrl = `${protocol}//${window.location.host}/ws`;
-      }
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
       
       if (wsRef.current) {
         try { wsRef.current.close(); } catch {}
@@ -144,29 +124,10 @@ export function usePosWebSocket() {
       }
     };
 
-    const modeUnsub = apiClient.onModeChange((newMode) => {
-      if (newMode === 'red') {
-        connIdRef.current++;
-        if (wsRef.current) {
-          wsRef.current.close();
-          wsRef.current = null;
-        }
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-          reconnectTimeoutRef.current = null;
-        }
-        reconnectAttemptRef.current = 0;
-      } else if (!wsRef.current && !reconnectTimeoutRef.current) {
-        reconnectAttemptRef.current = 0;
-        connect();
-      }
-    });
-
     connect();
 
     return () => {
       isUnmountedRef.current = true;
-      modeUnsub();
       connIdRef.current++;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -402,9 +363,6 @@ function handlePosEvent(event: PosEvent) {
 
     case "sales_data_cleared":
       console.log("[WebSocket] Sales data cleared for property:", event.payload?.propertyId);
-      if ((window as any).electronAPI?.clearOfflineSalesData) {
-        (window as any).electronAPI.clearOfflineSalesData();
-      }
       queryClient.invalidateQueries({
         predicate: (query) => {
           const key = getKeyString(query.queryKey[0]);
@@ -419,9 +377,6 @@ function handlePosEvent(event: PosEvent) {
 
     case "BUSINESS_DATE_ROLLOVER":
       console.log("[WebSocket] Business date rollover:", event.payload);
-      if ((window as any).electronAPI?.rotateLogsForBusinessDate && event.payload?.closedBusinessDate) {
-        (window as any).electronAPI.rotateLogsForBusinessDate(event.payload.closedBusinessDate as string);
-      }
       queryClient.invalidateQueries({
         predicate: (query) => {
           const key = getKeyString(query.queryKey[0]);

@@ -50,14 +50,6 @@ const ALL_CONFIG_QUERY_PREFIXES = Array.from(
   new Set(Object.values(CATEGORY_TO_QUERY_KEYS).flat())
 );
 
-function logConfigSync(level: string, ...args: any[]) {
-  const timestamp = new Date().toISOString().slice(11, 23);
-  console.log(`[ConfigSync ${timestamp}] [${level}]`, ...args);
-  if (typeof window !== "undefined" && (window as any).electronAPI?.log) {
-    (window as any).electronAPI.log(level, "ConfigSync", args.join(" "));
-  }
-}
-
 let connectionIdCounter = 0;
 let hasEverConnected = false;
 
@@ -81,7 +73,6 @@ export function useConfigSync() {
   }, []);
 
   const invalidateAllConfigQueries = useCallback(() => {
-    logConfigSync("INFO", "Invalidating all config queries (reconnect catch-up)");
     ALL_CONFIG_QUERY_PREFIXES.forEach((prefix) => {
       invalidateByPrefix(prefix);
     });
@@ -93,7 +84,6 @@ export function useConfigSync() {
     }
     
     const queryKeys = CATEGORY_TO_QUERY_KEYS[category] || [];
-    logConfigSync("INFO", `Config update: category=${category}, action=invalidate, keys=${queryKeys.join(", ") || "ALL"}`);
     queryKeys.forEach((key) => {
       invalidateByPrefix(key);
     });
@@ -106,32 +96,17 @@ export function useConfigSync() {
     if (isUnmountedRef.current) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const serviceHostUrl = localStorage.getItem('serviceHostUrl');
-    let wsUrl: string;
-    if (serviceHostUrl) {
-      try {
-        const shUrl = new URL(serviceHostUrl);
-        const wsProtocol = shUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-        wsUrl = `${wsProtocol}//${shUrl.host}/ws/kds`;
-      } catch {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        wsUrl = `${protocol}//${window.location.host}/ws/kds`;
-      }
-    } else {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      wsUrl = `${protocol}//${window.location.host}/ws/kds`;
-    }
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws/kds`;
     const connId = ++connectionIdCounter;
     activeConnectionIdRef.current = connId;
 
     try {
-      logConfigSync("INFO", `Connecting to ${wsUrl} (connId=${connId})`);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         if (activeConnectionIdRef.current !== connId) {
-          logConfigSync("WARN", `Stale socket opened (connId=${connId}, active=${activeConnectionIdRef.current}), closing`);
           ws.close();
           return;
         }
@@ -143,10 +118,7 @@ export function useConfigSync() {
         }));
 
         if (hasEverConnected) {
-          logConfigSync("WARN", "WebSocket reconnected — invalidating all config queries to catch up on missed updates");
           invalidateAllConfigQueries();
-        } else {
-          logConfigSync("INFO", "WebSocket connected (first connect)");
         }
         hasEverConnected = true;
       };
@@ -156,7 +128,6 @@ export function useConfigSync() {
           const data = JSON.parse(event.data);
           if (data.type === "config_update") {
             const configEvent = data as ConfigUpdateEvent;
-            logConfigSync("INFO", `Received config_update: category=${configEvent.payload.category}, action=${configEvent.payload.action}, entityId=${configEvent.payload.entityId || "none"}`);
             invalidateQueriesForCategory(configEvent.payload.category, configEvent.payload.enterpriseId);
           }
         } catch {
@@ -165,10 +136,8 @@ export function useConfigSync() {
 
       ws.onclose = () => {
         if (activeConnectionIdRef.current !== connId) {
-          logConfigSync("INFO", `Stale socket closed (connId=${connId}, active=${activeConnectionIdRef.current}), ignoring`);
           return;
         }
-        logConfigSync("WARN", "WebSocket disconnected, will reconnect in 2s");
         isConnectedRef.current = false;
         wsRef.current = null;
         if (!isUnmountedRef.current) {
@@ -177,11 +146,9 @@ export function useConfigSync() {
       };
 
       ws.onerror = () => {
-        logConfigSync("ERROR", "WebSocket error, closing connection");
         ws.close();
       };
     } catch {
-      logConfigSync("ERROR", "Failed to create WebSocket connection");
     }
   }, [invalidateQueriesForCategory, invalidateAllConfigQueries, enterpriseId]);
 

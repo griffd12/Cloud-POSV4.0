@@ -4,12 +4,8 @@ import { usePosWebSocket } from "@/hooks/use-pos-websocket";
 import { useInactivityLogout } from "@/hooks/use-inactivity-logout";
 import { useWorkstationHeartbeat } from "@/hooks/use-workstation-heartbeat";
 import { useDeviceHeartbeat } from "@/hooks/use-device-heartbeat";
-import { useCalUpdates } from "@/hooks/use-cal-updates";
 import { useDeviceReload } from "@/hooks/use-device-reload";
 import { useConfigSync } from "@/hooks/use-config-sync";
-import { DeviceEnrollmentGuard } from "@/components/device-enrollment-guard";
-import { ConnectionModeBanner } from "@/components/connection-mode-banner";
-import { CalUpdateOverlay } from "@/components/cal-update-overlay";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SluGrid } from "@/components/pos/slu-grid";
@@ -43,7 +39,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { SyncNotificationCenter } from "@/components/sync-notification-center";
 import { useToast } from "@/hooks/use-toast";
 import { useItemAvailability } from "@/hooks/use-item-availability";
-import { queryClient, apiRequest, getAuthHeaders, fetchWithTimeout, logToElectron } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders, fetchWithTimeout } from "@/lib/queryClient";
 import { apiClient } from "@/lib/api-client";
 import { usePosContext } from "@/lib/pos-context";
 import { useDeviceContext } from "@/lib/device-context";
@@ -168,13 +164,6 @@ export default function PosPage() {
     employeeId: currentEmployee?.id,
   });
   
-  // Listen for CAL update events from Service Host (when connected to hybrid mode)
-  const serviceHostUrl = wsContext?.workstation?.serviceHostUrl || null;
-  const { updateStatus: calUpdateStatus, isUpdating: isCalUpdating, dismissUpdate: dismissCalUpdate } = useCalUpdates({
-    serviceHostUrl,
-    enabled: !!serviceHostUrl && !!workstationId && !!currentEmployee,
-  });
-
   // Release lock on the current check (call before clearing check or signing out)
   const releaseCurrentCheckLock = useCallback(async (checkId?: string) => {
     const idToRelease = checkId || currentCheck?.id;
@@ -367,7 +356,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Remove customer failed:", detail, error);
-      logToElectron("ERROR", "POS", "RemoveCustomer", `Failed to remove customer: ${detail}`);
       toast({ title: "Error", description: detail || "Failed to remove customer", variant: "destructive" });
     },
   });
@@ -431,7 +419,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Void payment failed:", detail, error);
-      logToElectron("ERROR", "POS", "VoidPayment", `Failed to void payment: ${detail}`);
       toast({ title: "Error", description: detail, variant: "destructive" });
     },
   });
@@ -613,7 +600,6 @@ export default function PosPage() {
 
   const createCheckMutation = useMutation({
     mutationFn: async (orderType: OrderType) => {
-      logToElectron("DEBUG", "POS", "CreateCheck", `Creating check with workstationId: ${workstationId || 'NONE'}`);
       const response = await apiRequest("POST", "/api/checks", {
         rvcId: currentRvc?.id,
         employeeId: currentEmployee?.id,
@@ -629,7 +615,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Create check failed:", detail, error);
-      logToElectron("ERROR", "POS", "CreateCheck", `Failed to create check: ${detail}`);
       toast({ title: "Failed to create check", description: detail, variant: "destructive" });
     },
   });
@@ -655,7 +640,6 @@ export default function PosPage() {
       setItemModifierGroups([]);
       decrementQuantity(data.menuItem.id);
 
-      logToElectron("DEBUG", "POS", "AddItem", `Sending item with workstationId: ${workstationId || 'NONE'}`);
       const response = await apiRequest("POST", "/api/checks/" + currentCheck?.id + "/items", {
         menuItemId: data.menuItem.id,
         menuItemName: data.menuItem.name,
@@ -683,7 +667,6 @@ export default function PosPage() {
     onError: (error: any, variables) => {
       const detail = error?.message || String(error);
       console.error("[POS] Add item failed:", detail, error);
-      logToElectron("ERROR", "POS", "AddItem", `Failed to add item ${variables?.menuItem?.name || 'unknown'}: ${detail}`);
       setCheckItems((prev) => prev.filter(ci => !String(ci.id).startsWith("optimistic-")));
       queryClient.invalidateQueries({ queryKey: ["/api/item-availability"] });
       queryClient.invalidateQueries({ queryKey: ["/api/checks", currentCheck?.id] });
@@ -698,7 +681,6 @@ export default function PosPage() {
 
   const sendCheckMutation = useMutation({
     mutationFn: async () => {
-      logToElectron("DEBUG", "POS", "SendCheck", `Sending check with workstationId: ${workstationId || 'NONE'}`);
       const response = await apiRequest("POST", "/api/checks/" + currentCheck?.id + "/send", {
         employeeId: currentEmployee?.id,
       }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
@@ -717,7 +699,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Send order failed:", detail, error);
-      logToElectron("ERROR", "POS", "SendOrder", `Failed to send order: ${detail}`);
       toast({ title: "Failed to send order", description: detail, variant: "destructive" });
     },
   });
@@ -751,7 +732,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Cancel transaction failed:", detail, error);
-      logToElectron("ERROR", "POS", "CancelTransaction", `Failed to cancel transaction: ${detail}`);
       toast({ title: "Failed to cancel transaction", description: detail, variant: "destructive" });
     },
   });
@@ -779,7 +759,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Void item failed:", detail, error);
-      logToElectron("ERROR", "POS", "VoidItem", `Failed to void item: ${detail}`);
       if (showManagerApproval) {
         setApprovalError("Invalid manager PIN or insufficient privileges");
       } else {
@@ -812,7 +791,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Apply discount failed:", detail, error);
-      logToElectron("ERROR", "POS", "ApplyDiscount", `Failed to apply discount: ${detail}`);
       toast({ 
         title: "Failed to apply discount", 
         description: error.message || "Invalid manager PIN or insufficient privileges",
@@ -837,7 +815,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Remove discount failed:", detail, error);
-      logToElectron("ERROR", "POS", "RemoveDiscount", `Failed to remove discount: ${detail}`);
       toast({ title: "Failed to remove discount", description: detail, variant: "destructive" });
     },
   });
@@ -926,7 +903,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Update modifiers failed:", detail, error);
-      logToElectron("ERROR", "POS", "UpdateModifiers", `Failed to update modifiers: ${detail}`);
       toast({ title: "Failed to update modifiers", description: detail, variant: "destructive" });
     },
   });
@@ -1023,7 +999,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Payment failed:", detail, error);
-      logToElectron("ERROR", "POS", "Payment", `Payment failed: ${detail}`);
       setCashChangeDue(null);
       toast({ title: "Payment failed", description: detail, variant: "destructive" });
     },
@@ -1181,7 +1156,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Transfer check failed:", detail, error);
-      logToElectron("ERROR", "POS", "TransferCheck", `Failed to transfer check: ${detail}`);
       toast({ title: "Failed to transfer check", description: detail, variant: "destructive" });
     },
   });
@@ -1211,7 +1185,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Split check failed:", detail, error);
-      logToElectron("ERROR", "POS", "SplitCheck", `Failed to split check: ${detail}`);
       toast({ title: "Failed to split check", description: detail, variant: "destructive" });
     },
   });
@@ -1238,7 +1211,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Merge checks failed:", detail, error);
-      logToElectron("ERROR", "POS", "MergeChecks", `Failed to merge checks: ${detail}`);
       toast({ title: "Failed to merge checks", description: detail, variant: "destructive" });
     },
   });
@@ -1272,7 +1244,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Price override failed:", detail, error);
-      logToElectron("ERROR", "POS", "PriceOverride", `Failed to override price: ${detail}`);
       toast({ title: "Failed to override price", description: detail, variant: "destructive" });
     },
   });
@@ -1305,7 +1276,6 @@ export default function PosPage() {
     onError: (error: any) => {
       const detail = error?.message || String(error);
       console.error("[POS] Print check failed:", detail, error);
-      logToElectron("ERROR", "POS", "PrintCheck", `Failed to print check: ${detail}`);
       let errorMessage = "Could not print receipt";
       if (error.message) {
         const match = error.message.match(/\{.*"message"\s*:\s*"([^"]+)".*\}/);
@@ -1776,15 +1746,7 @@ export default function PosPage() {
   }
 
   return (
-    <DeviceEnrollmentGuard requiredDeviceType="pos_workstation">
     <div className="flex flex-col bg-background h-screen">
-      {/* CAL Update Overlay - blocks POS during system updates */}
-      <CalUpdateOverlay 
-        updateStatus={calUpdateStatus} 
-        onDismiss={dismissCalUpdate} 
-      />
-      
-      <ConnectionModeBanner />
       <header className="flex-shrink-0 bg-card border-b px-3 py-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -2927,6 +2889,5 @@ export default function PosPage() {
         />
       )}
     </div>
-    </DeviceEnrollmentGuard>
   );
 }

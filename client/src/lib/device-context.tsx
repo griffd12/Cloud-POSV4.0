@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 
 const DEVICE_TYPE_KEY = "pos_device_type";
-const DEVICE_TYPE_EXPLICIT_KEY = "pos_device_type_explicit"; // Tracks if user explicitly chose device type
+const DEVICE_TYPE_EXPLICIT_KEY = "pos_device_type_explicit";
 const DEVICE_ID_KEY = "pos_device_linked_id";
 const DEVICE_NAME_KEY = "pos_device_name";
 const DEVICE_TOKEN_KEY = "pos_device_token";
@@ -33,19 +33,18 @@ interface DeviceContextType {
   isConfigured: boolean;
   isValidating: boolean;
   validationError: string | null;
-  hasExplicitDeviceType: boolean; // True if user explicitly selected device type
-  serverUrl: string | null; // Server URL for native apps
-  enterpriseCode: string | null; // Enterprise code from URL (e.g., BOM)
-  enterpriseId: string | null; // Enterprise ID from server
-  hasServerConfig: boolean; // True if server URL is configured
-  isElectronLoading: boolean; // True while waiting for Electron config to load
+  hasExplicitDeviceType: boolean;
+  serverUrl: string | null;
+  enterpriseCode: string | null;
+  enterpriseId: string | null;
+  hasServerConfig: boolean;
   
-  setDeviceTypeOnly: (type: "pos" | "kds") => void; // Set device type without linking to specific device
+  setDeviceTypeOnly: (type: "pos" | "kds") => void;
   configureAsPos: (workstationId: string, name: string) => void;
   configureAsKds: (kdsDeviceId: string, name: string) => void;
   enrollDevice: (token: string, device: RegisteredDeviceInfo) => void;
   clearDeviceConfig: () => void;
-  clearDeviceTypeOnly: () => void; // Clear device type/link but keep server config
+  clearDeviceTypeOnly: () => void;
   validateDeviceToken: () => Promise<boolean>;
   setServerConfig: (serverUrl: string, enterpriseCode: string, enterpriseId: string) => void;
 }
@@ -118,24 +117,7 @@ function processUrlCredentials(): { stored: boolean; autoEnroll: boolean; target
   const propertyId = params.get("property_id");
   const autoEnroll = params.get("auto_enroll") === "true";
   
-  console.log("[DeviceContext] Checking URL params:", { 
-    hasToken: !!deviceToken, 
-    hasDeviceId: !!deviceId,
-    hasRegisteredDeviceId: !!registeredDeviceId,
-    autoEnroll,
-    path: window.location.pathname,
-    search: window.location.search
-  });
-  
   if (deviceToken && deviceId && deviceName && deviceType && propertyId) {
-    console.log("[DeviceContext] Storing CAL credentials from URL", {
-      deviceId,
-      registeredDeviceId,
-      deviceName,
-      deviceType,
-      autoEnroll
-    });
-    
     localStorage.setItem(DEVICE_TOKEN_KEY, deviceToken);
     localStorage.setItem(DEVICE_ID_KEY, deviceId);
     localStorage.setItem(DEVICE_NAME_KEY, deviceName);
@@ -161,7 +143,6 @@ function processUrlCredentials(): { stored: boolean; autoEnroll: boolean; target
     
     const cleanUrl = window.location.pathname;
     window.history.replaceState({}, document.title, cleanUrl);
-    console.log("[DeviceContext] Credentials stored successfully, auto-enroll redirect:", autoEnroll ? targetPath : "none");
     return { stored: true, autoEnroll, targetPath };
   }
   return { stored: false, autoEnroll: false, targetPath: null };
@@ -179,7 +160,6 @@ export function getAutoEnrollRedirect(): string | null {
 const urlCredsProcessed = processUrlCredentials();
 
 export function DeviceProvider({ children }: { children: ReactNode }) {
-  // Security disabled - default to null if no device type is stored (shows device type selector)
   const [deviceType, setDeviceType] = useState<DeviceType>(getStoredDeviceType());
   const [hasExplicitDeviceType, setHasExplicitDeviceType] = useState<boolean>(getStoredExplicitDeviceType);
   const [linkedDeviceId, setLinkedDeviceId] = useState<string | null>(getStoredDeviceId);
@@ -189,8 +169,6 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
   const [propertyId, setPropertyId] = useState<string | null>(getStoredPropertyId);
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const isElectronEnv = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron;
-  const [isElectronLoading, setIsElectronLoading] = useState(isElectronEnv && !getStoredServerUrl());
   const [serverUrl, setServerUrl] = useState<string | null>(getStoredServerUrl);
   const [enterpriseCode, setEnterpriseCode] = useState<string | null>(getStoredEnterpriseCode);
   const [enterpriseId, setEnterpriseId] = useState<string | null>(getStoredEnterpriseId);
@@ -206,7 +184,6 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
 
   const hasServerConfig = Boolean(serverUrl && enterpriseCode && enterpriseId);
 
-  // Set device type only (without linking to a specific workstation/kds device)
   const setDeviceTypeOnly = useCallback((type: "pos" | "kds") => {
     localStorage.setItem(DEVICE_TYPE_KEY, type);
     localStorage.setItem(DEVICE_TYPE_EXPLICIT_KEY, "true");
@@ -246,7 +223,6 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
     setDeviceName(device.name);
     setPropertyId(device.propertyId);
 
-    // Handle both full names ("pos_workstation") and short names ("pos") from server
     const isPosDevice = device.deviceType === "pos_workstation" || device.deviceType === "pos";
     const isKdsDevice = device.deviceType === "kds_display" || device.deviceType === "kds";
 
@@ -268,7 +244,6 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
     setValidationError(null);
   }, []);
 
-  // Clear only device type and link, preserving server configuration
   const clearDeviceTypeOnly = useCallback(() => {
     localStorage.removeItem(DEVICE_TYPE_KEY);
     localStorage.removeItem(DEVICE_TYPE_EXPLICIT_KEY);
@@ -291,7 +266,6 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(SERVER_URL_KEY);
     localStorage.removeItem(ENTERPRISE_CODE_KEY);
     localStorage.removeItem(ENTERPRISE_ID_KEY);
-    // Also clear POS-related state so workstation selection is fresh
     localStorage.removeItem("pos_workstation_id");
     localStorage.removeItem("pos_selected_rvc");
     setDeviceType(null);
@@ -340,61 +314,6 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
     }
   }, [clearDeviceConfig]);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.isElectron) {
-      (window as any).electronAPI.getAppInfo().then((appInfo: any) => {
-        if (appInfo && appInfo.setupComplete && appInfo.serverUrl) {
-          const storedUrl = localStorage.getItem(SERVER_URL_KEY);
-          const storedEntId = localStorage.getItem(ENTERPRISE_ID_KEY);
-
-          const entId = String(appInfo.enterpriseId || '');
-          const entName = String(appInfo.enterpriseName || '');
-          if (!storedUrl || storedUrl !== appInfo.serverUrl || !storedEntId) {
-            localStorage.setItem(SERVER_URL_KEY, appInfo.serverUrl);
-            localStorage.setItem(ENTERPRISE_CODE_KEY, entName);
-            localStorage.setItem(ENTERPRISE_ID_KEY, entId);
-            setServerUrl(appInfo.serverUrl);
-            setEnterpriseCode(entName);
-            setEnterpriseId(entId);
-          }
-
-          const mode = appInfo.mode === 'kds' ? 'kds' : 'pos';
-          localStorage.setItem(DEVICE_TYPE_KEY, mode);
-          localStorage.setItem(DEVICE_TYPE_EXPLICIT_KEY, 'true');
-          setDeviceType(mode);
-          setHasExplicitDeviceType(true);
-
-          if (appInfo.deviceId) {
-            const deviceIdStr = String(appInfo.deviceId);
-            const deviceNameStr = String(appInfo.deviceName || '');
-            localStorage.setItem(DEVICE_ID_KEY, deviceIdStr);
-            localStorage.setItem(DEVICE_NAME_KEY, deviceNameStr);
-            setLinkedDeviceId(deviceIdStr);
-            setDeviceName(deviceNameStr);
-            if (mode === 'pos') {
-              localStorage.setItem('pos_workstation_id', deviceIdStr);
-            }
-          }
-
-          if (appInfo.propertyId) {
-            localStorage.setItem(DEVICE_PROPERTY_ID_KEY, String(appInfo.propertyId));
-            setPropertyId(String(appInfo.propertyId));
-          }
-
-          if (appInfo.rvcId) {
-            try {
-              const rvcObj = { id: Number(appInfo.rvcId), name: String(appInfo.rvcName || ''), propertyId: Number(appInfo.propertyId || 0) };
-              localStorage.setItem('pos_selected_rvc', JSON.stringify(rvcObj));
-            } catch (e) {}
-          }
-        }
-      }).catch(() => {}).finally(() => {
-        setIsElectronLoading(false);
-      });
-    }
-  }, []);
-
-  // Security disabled - always consider device as configured
   const isConfigured = true;
 
   return (
@@ -414,7 +333,6 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
         enterpriseCode,
         enterpriseId,
         hasServerConfig,
-        isElectronLoading,
         setDeviceTypeOnly,
         configureAsPos,
         configureAsKds,
