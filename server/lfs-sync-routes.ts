@@ -219,6 +219,7 @@ function registerLfsLocalRoutes(app: Express) {
             },
             body: JSON.stringify({
               paymentId: payment.id,
+              offlineTransactionId: payment.offlineTransactionId,
               settlementTransactionId: payment.paymentTransactionId,
               amount: payment.amount,
               checkId: payment.checkId,
@@ -556,13 +557,22 @@ function registerLfsCloudRoutes(app: Express) {
 
   app.post("/api/lfs/sync/settle-payment", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
-      const { paymentId, settlementTransactionId, settlementStatus, amount, checkId, tenderId } = req.body;
-      if (!paymentId) {
-        return res.status(400).json({ error: "paymentId is required" });
+      const { paymentId, offlineTransactionId, settlementTransactionId, settlementStatus, amount, checkId, tenderId } = req.body;
+      if (!paymentId && !offlineTransactionId) {
+        return res.status(400).json({ error: "paymentId or offlineTransactionId is required" });
       }
 
-      const [payment] = await db.select().from(checkPayments)
-        .where(eq(checkPayments.id, paymentId)).limit(1);
+      let payment;
+      if (offlineTransactionId) {
+        const results = await db.select().from(checkPayments)
+          .where(eq(checkPayments.offlineTransactionId, offlineTransactionId)).limit(1);
+        payment = results[0];
+      }
+      if (!payment && paymentId) {
+        const results = await db.select().from(checkPayments)
+          .where(eq(checkPayments.id, paymentId)).limit(1);
+        payment = results[0];
+      }
       if (!payment) {
         return res.status(404).json({ error: "Payment not found" });
       }
