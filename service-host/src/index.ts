@@ -524,9 +524,6 @@ class ServiceHost {
       this.readiness.configReady = true;
       console.log('Configuration synced from cloud');
 
-      this.configSync.startAutoSync();
-      console.log('[CAPS] Auto-sync started (2-min full sync fallback)');
-
       this.configSync.onConfigUpdated((category, action, entityId) => {
         const event = {
           type: 'config_update',
@@ -540,6 +537,9 @@ class ServiceHost {
         console.log(`[ConfigSync] Broadcasting config_update to workstations (category=${category || 'all'}, action=${action || 'update'})`);
         this.broadcastToAll(event);
       });
+
+      this.configSync.startAutoSync();
+      console.log('[CAPS] Auto-sync started (2-min full sync fallback)');
 
       const rvcs = this.db.all<{ id: string; name: string }>('SELECT id, name FROM rvcs WHERE active = 1 LIMIT 1');
       if (rvcs.length > 0) {

@@ -169,11 +169,7 @@ export class ConfigSync {
     
     this.syncInterval = setInterval(() => {
       if (this.cloud.isConnected() && !this.syncInProgress) {
-        this.syncFull().then(result => {
-          if (result.success && result.recordCount > 0) {
-            this.emitConfigUpdated();
-          }
-        }).catch(err => {
+        this.syncFull().catch(err => {
           console.error('Auto full sync failed:', err.message);
         });
       }
