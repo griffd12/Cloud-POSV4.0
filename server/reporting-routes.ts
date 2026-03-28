@@ -188,6 +188,21 @@ export function registerReportingRoutes(app: Express, storage: any) {
       `);
       const allChecks = checksResult.rows as any[];
 
+      const checkIdSet = new Set(allChecks.map(c => c.id));
+      const paidCheckIds = new Set<string>();
+      if (checkIdSet.size > 0) {
+        const paidResult = await db.execute(sql`
+          SELECT DISTINCT check_id AS "checkId"
+          FROM check_payments
+          WHERE payment_status = 'completed'
+        `);
+        for (const row of paidResult.rows as any[]) {
+          if (checkIdSet.has(row.checkId)) {
+            paidCheckIds.add(row.checkId);
+          }
+        }
+      }
+
       const carriedInResult = await db.execute(sql`
         SELECT
           c.id,
@@ -208,13 +223,17 @@ export function registerReportingRoutes(app: Express, storage: any) {
       const checksStarted = allChecks.length;
       const startedSalesTotal = round2(allChecks.reduce((s, c) => s + num(c.total), 0));
 
-      const closedChecks = allChecks.filter(c => c.status === 'closed');
-      const checksClosed = closedChecks.length;
-      const closedSalesTotal = round2(closedChecks.reduce((s, c) => s + num(c.total), 0));
+      const paidChecks = allChecks.filter(c => c.status === 'closed' && paidCheckIds.has(c.id));
+      const checksClosed = paidChecks.length;
+      const closedSalesTotal = round2(paidChecks.reduce((s, c) => s + num(c.total), 0));
 
-      const outstandingChecks = allChecks.filter(c => c.status !== 'closed');
+      const outstandingChecks = allChecks.filter(c => c.status === 'open');
       const checksOutstanding = outstandingChecks.length;
       const outstandingAmount = round2(outstandingChecks.reduce((s, c) => s + num(c.total), 0));
+
+      const cancelledChecks = allChecks.filter(c => c.status === 'voided' || (c.status === 'closed' && !paidCheckIds.has(c.id)));
+      const checksCancelled = cancelledChecks.length;
+      const cancelledAmount = round2(cancelledChecks.reduce((s, c) => s + num(c.total), 0));
 
       const carriedInCount = carriedIn.length;
       const carriedInAmount = round2(carriedIn.reduce((s, c) => s + num(c.total), 0));
@@ -240,6 +259,16 @@ export function registerReportingRoutes(app: Express, storage: any) {
         checksClosed: {
           count: checksClosed,
           amount: closedSalesTotal,
+        },
+        checksCancelled: {
+          count: checksCancelled,
+          amount: cancelledAmount,
+          checks: cancelledChecks.map(c => ({
+            checkNumber: c.checkNumber,
+            status: c.status,
+            amount: round2(num(c.total)),
+            employeeId: c.employeeId,
+          })),
         },
         checksOutstanding: {
           count: checksOutstanding,
@@ -483,7 +512,22 @@ export function registerReportingRoutes(app: Express, storage: any) {
             ) THEN CAST(c.total AS numeric) ELSE 0 END), 0) AS "paidAmt",
             -- Outstanding: checks still open up to and including this business date
             COALESCE(SUM(CASE WHEN c.status = 'open' AND c.business_date <= ${businessDate} THEN 1 ELSE 0 END), 0) AS "outstandingQty",
-            COALESCE(SUM(CASE WHEN c.status = 'open' AND c.business_date <= ${businessDate} THEN CAST(c.total AS numeric) ELSE 0 END), 0) AS "outstandingAmt"
+            COALESCE(SUM(CASE WHEN c.status = 'open' AND c.business_date <= ${businessDate} THEN CAST(c.total AS numeric) ELSE 0 END), 0) AS "outstandingAmt",
+            -- Cancelled/Voided: checks started today that are voided OR closed with no completed payments (e.g. cancelled transactions)
+            COALESCE(SUM(CASE WHEN c.business_date = ${businessDate} AND (
+              c.status = 'voided' OR (
+                c.status = 'closed' AND NOT EXISTS (
+                  SELECT 1 FROM check_payments cp WHERE cp.check_id = c.id AND cp.payment_status = 'completed'
+                )
+              )
+            ) THEN 1 ELSE 0 END), 0) AS "cancelledQty",
+            COALESCE(SUM(CASE WHEN c.business_date = ${businessDate} AND (
+              c.status = 'voided' OR (
+                c.status = 'closed' AND NOT EXISTS (
+                  SELECT 1 FROM check_payments cp WHERE cp.check_id = c.id AND cp.payment_status = 'completed'
+                )
+              )
+            ) THEN CAST(c.total AS numeric) ELSE 0 END), 0) AS "cancelledAmt"
           FROM checks c
           JOIN rvcs r ON r.id = c.rvc_id
           WHERE r.property_id = ${propertyId}
@@ -499,6 +543,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       const begun = { qty: num(opsRow?.begunQty), amt: round2(num(opsRow?.begunAmt)) };
       const checksPaid = { qty: num(opsRow?.paidQty), amt: round2(num(opsRow?.paidAmt)) };
       const outstanding = { qty: num(opsRow?.outstandingQty), amt: round2(num(opsRow?.outstandingAmt)) };
+      const cancelled = { qty: num(opsRow?.cancelledQty), amt: round2(num(opsRow?.cancelledAmt)) };
 
       const grossSales = round2(salesLines.reduce((s, l) => s + num(l.grossLine), 0));
       const itemDiscounts = round2(salesLines.reduce((s, l) => s + num(l.discountAmount), 0));
@@ -662,6 +707,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
           carriedOver,
           begun,
           checksPaid,
+          cancelled,
           outstanding,
         },
       });

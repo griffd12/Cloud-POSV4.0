@@ -8935,11 +8935,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         paymentCount: paymentsInPeriod.length,
         
         // Check Movement (counts)
+        // Use allPayments (not date-filtered paymentsInPeriod) for classification
+        // so checks paid outside the report window aren't misclassified as cancelled
         checksStarted: checksStarted.length,
-        checksClosed: checksClosed.length,
+        checksClosed: checksClosed.filter(c => allPayments.some(p => p.checkId === c.id && p.paymentStatus === "completed")).length,
         checksCarriedOver: checksCarriedOver.length,
         checksOutstanding: checksOutstanding.length,
         openCheckCount: checksOutstanding.length, // backwards compatibility
+        checksCancelled: checksStarted.filter(c => {
+          if (c.status === "voided") return true;
+          if (c.status === "closed") {
+            return !allPayments.some(p => p.checkId === c.id && p.paymentStatus === "completed");
+          }
+          return false;
+        }).length,
         
         // Check Movement (totals)
         carriedOverTotal: Math.round(carriedOverTotal * 100) / 100,
@@ -8957,7 +8966,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         voidAmount: Math.round(voidAmount * 100) / 100,
         
         // Legacy fields for backwards compatibility
-        checkCount: checksClosed.length,
+        checkCount: checksClosed.filter(c => allPayments.some(p => p.checkId === c.id && p.paymentStatus === "completed")).length,
       });
     } catch (error) {
       console.error("Sales summary error:", error);

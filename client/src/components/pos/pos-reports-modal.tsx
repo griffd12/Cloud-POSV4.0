@@ -151,6 +151,7 @@ interface SalesSummary {
   discountTotal: number;
   checksStarted: number;
   checksClosed: number;
+  checksCancelled: number;
   checksOutstanding: number;
   avgCheck: number;
 }
@@ -508,10 +509,18 @@ export function POSReportsModal({
                   </Card>
                   <Card>
                     <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">Cancelled</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className={`text-2xl font-bold ${(salesSummary.checksCancelled || 0) > 0 ? "text-red-600" : ""}`} data-testid="text-checks-cancelled">{salesSummary.checksCancelled || 0}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
                       <CardTitle className="text-sm text-muted-foreground">Outstanding</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold text-amber-600">{salesSummary.checksOutstanding}</div>
+                      <div className="text-2xl font-bold text-amber-600" data-testid="text-checks-outstanding">{salesSummary.checksOutstanding}</div>
                     </CardContent>
                   </Card>
                   <Card>

@@ -955,7 +955,7 @@ export default function DailyOperationsPage() {
                     <p className="text-xs text-muted-foreground">All check statuses - operational flow (does not need to balance)</p>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                       <div className="border rounded-md p-3 space-y-1">
                         <p className="text-xs text-muted-foreground uppercase">Carried In</p>
                         <p className="text-2xl font-bold tabular-nums" data-testid="text-activity-carried-in">{activityReport.carriedIn?.count || 0}</p>
@@ -967,9 +967,14 @@ export default function DailyOperationsPage() {
                         <p className="text-sm text-muted-foreground">{formatCurrency(activityReport.checksStarted?.amount)}</p>
                       </div>
                       <div className="border rounded-md p-3 space-y-1 border-green-500/30">
-                        <p className="text-xs text-muted-foreground uppercase">Closed</p>
+                        <p className="text-xs text-muted-foreground uppercase">Paid</p>
                         <p className="text-2xl font-bold tabular-nums text-green-600" data-testid="text-activity-closed">{activityReport.checksClosed?.count || 0}</p>
                         <p className="text-sm text-muted-foreground">{formatCurrency(activityReport.checksClosed?.amount)}</p>
+                      </div>
+                      <div className={`border rounded-md p-3 space-y-1 ${(activityReport.checksCancelled?.count || 0) > 0 ? "border-red-500/30" : ""}`}>
+                        <p className="text-xs text-muted-foreground uppercase">Cancelled</p>
+                        <p className={`text-2xl font-bold tabular-nums ${(activityReport.checksCancelled?.count || 0) > 0 ? "text-red-600" : ""}`} data-testid="text-activity-cancelled">{activityReport.checksCancelled?.count || 0}</p>
+                        <p className="text-sm text-muted-foreground">{formatCurrency(activityReport.checksCancelled?.amount)}</p>
                       </div>
                       <div className={`border rounded-md p-3 space-y-1 ${(activityReport.checksOutstanding?.count || 0) > 0 ? "border-amber-500/30" : ""}`}>
                         <p className="text-xs text-muted-foreground uppercase">Outstanding</p>
@@ -1226,6 +1231,11 @@ export default function DailyOperationsPage() {
                             label="Checks Paid"
                             value={`${dailySales.operationalMetrics?.checksPaid?.qty || 0} (${formatCurrency(dailySales.operationalMetrics?.checksPaid?.amt || 0)})`}
                             bold
+                          />
+                          <SummaryRow
+                            label="Cancelled/Voided"
+                            value={`${dailySales.operationalMetrics?.cancelled?.qty || 0} (${formatCurrency(dailySales.operationalMetrics?.cancelled?.amt || 0)})`}
+                            highlight={(dailySales.operationalMetrics?.cancelled?.qty || 0) > 0}
                           />
                           <SummaryRow
                             label="Checks O/S"
