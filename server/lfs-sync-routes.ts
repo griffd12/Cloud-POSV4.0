@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import { db } from "./db";
 import { checks, checkItems, checkPayments } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getConfigSyncService } from "./config-sync";
 
 const isLocalMode = process.env.DB_MODE === "local";
@@ -90,7 +90,7 @@ function registerLfsLocalRoutes(app: Express) {
     }
   });
 
-  app.post("/api/lfs/sync/config-down", requireLfsApiKey, async (_req: Request, res: Response) => {
+  app.post("/api/lfs/sync/config-down", async (_req: Request, res: Response) => {
     try {
       const syncService = getConfigSyncService();
       if (syncService) {
@@ -105,7 +105,7 @@ function registerLfsLocalRoutes(app: Express) {
     }
   });
 
-  app.post("/api/lfs/sync/push-to-cloud", requireLfsApiKey, async (req: Request, res: Response) => {
+  app.post("/api/lfs/sync/push-to-cloud", async (req: Request, res: Response) => {
     const cloudUrl = (req.body?.cloudUrl as string) || process.env.CLOUD_SERVER_URL || "";
     if (!cloudUrl) {
       return res.status(400).json({ error: "cloudUrl required (or set CLOUD_SERVER_URL env)" });
@@ -284,18 +284,16 @@ function registerLfsCloudRoutes(app: Express) {
 }
 
 async function storeDurableRemap(localId: string, cloudId: string): Promise<void> {
-  if (!db) return;
+  if (!db || !remapTableReady) return;
   try {
-    await db.execute(
-      `INSERT INTO "lfs_id_remap" (local_id, cloud_id, created_at) VALUES ('${localId}', '${cloudId}', NOW()) ON CONFLICT (local_id) DO UPDATE SET cloud_id = EXCLUDED.cloud_id`
-    );
+    await db.execute(sql`INSERT INTO "lfs_id_remap" (local_id, cloud_id, created_at) VALUES (${localId}, ${cloudId}, NOW()) ON CONFLICT (local_id) DO UPDATE SET cloud_id = EXCLUDED.cloud_id`);
   } catch { /* table may not exist, non-critical */ }
 }
 
 async function loadDurableRemap(localId: string): Promise<string | null> {
-  if (!db) return null;
+  if (!db || !remapTableReady) return null;
   try {
-    const rows = await db.execute(`SELECT cloud_id FROM "lfs_id_remap" WHERE local_id = '${localId}'`);
+    const rows = await db.execute(sql`SELECT cloud_id FROM "lfs_id_remap" WHERE local_id = ${localId}`);
     if (rows.rows && rows.rows.length > 0) {
       return (rows.rows[0] as Record<string, unknown>).cloud_id as string;
     }
