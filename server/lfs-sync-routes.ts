@@ -48,9 +48,9 @@ const ENTITY_SYNC_ORDER: Record<string, number> = {
   check: 0,
   check_item: 1,
   round: 2,
-  check_discount: 3,
-  check_service_charge: 4,
-  check_payment: 5,
+  check_payment: 3,
+  check_discount: 4,
+  check_service_charge: 5,
 };
 
 function sortByDependency(entries: Array<Record<string, unknown>>): Array<Record<string, unknown>> {

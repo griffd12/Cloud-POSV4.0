@@ -144,17 +144,31 @@ class ConnectionManager {
     this.notifyListeners(this.state, this.state);
 
     try {
+      let configDownOk = false;
       try {
         const configRes = await fetch(`${lfsUrl}/api/lfs/sync/config-down`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: AbortSignal.timeout(RECONNECT_SYNC_TIMEOUT),
         });
-        if (!configRes.ok) {
+        if (configRes.ok) {
+          const configData = await configRes.json();
+          configDownOk = configData.ok === true;
+          if (!configDownOk) {
+            console.warn("[ConnectionManager] Config-down returned ok=false:", configData.message);
+          }
+        } else {
           console.warn("[ConnectionManager] Config-down sync returned non-OK:", configRes.status);
         }
       } catch (e: unknown) {
         console.warn("[ConnectionManager] Config-down sync failed:", e instanceof Error ? e.message : e);
+      }
+
+      if (!configDownOk) {
+        this.syncProgress = null;
+        console.warn("[ConnectionManager] Config-down failed — aborting transaction-up, staying degraded");
+        this.setState("cloud-degraded");
+        return;
       }
 
       this.syncProgress = { phase: "Uploading transactions to cloud...", current: 1, total: 2 };

@@ -3,6 +3,21 @@ import crypto from "crypto";
 import { createRequire } from "node:module";
 import { getColumnMap, type TableColumnMap } from "./sqlite-init";
 
+export interface TransactionJournalEntry {
+  id: string;
+  operation_type: string;
+  entity_type: string;
+  entity_id: string;
+  http_method: string;
+  endpoint: string;
+  payload: Record<string, unknown>;
+  offline_transaction_id: string;
+  workstation_id: string | null;
+  created_at: string;
+  synced: number;
+  synced_at: string | null;
+}
+
 const _require = createRequire(import.meta.url);
 const bcrypt = _require("bcryptjs");
 import type { IStorage } from "./storage";
@@ -2275,7 +2290,7 @@ export class SqliteDatabaseStorage implements IStorage {
     entityId: string;
     httpMethod: string;
     endpoint: string;
-    payload: any;
+    payload: Record<string, unknown>;
     offlineTransactionId: string;
     workstationId?: string;
   }): void {
@@ -2295,20 +2310,20 @@ export class SqliteDatabaseStorage implements IStorage {
     );
   }
 
-  getPendingTransactions(): any[] {
+  getPendingTransactions(): TransactionJournalEntry[] {
     const rows = this.db.prepare(
       `SELECT * FROM "lfs_transaction_journal" WHERE synced = 0 ORDER BY created_at ASC`
-    ).all() as any[];
+    ).all() as Array<Record<string, unknown>>;
     return rows.map(r => ({
       ...r,
-      payload: typeof r.payload === "string" ? JSON.parse(r.payload) : r.payload,
-    }));
+      payload: typeof r.payload === "string" ? JSON.parse(r.payload as string) : r.payload,
+    })) as TransactionJournalEntry[];
   }
 
   getPendingTransactionCount(): number {
     const row = this.db.prepare(
       `SELECT COUNT(*) as count FROM "lfs_transaction_journal" WHERE synced = 0`
-    ).get() as any;
+    ).get() as { count: number } | undefined;
     return row?.count || 0;
   }
 
