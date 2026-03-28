@@ -1,9 +1,4 @@
-/**
- * API Client — Pure Cloud Architecture
- * 
- * All API requests go directly to the Express server via fetch.
- * No offline mode, no Electron, no CAPS, no service-host routing.
- */
+import { connectionManager } from "./connection-manager";
 
 function createTimeoutSignal(ms: number): AbortSignal {
   const controller = new AbortController();
@@ -11,9 +6,17 @@ function createTimeoutSignal(ms: number): AbortSignal {
   return controller.signal;
 }
 
+function resolveUrl(endpoint: string): string {
+  const base = connectionManager.getBaseUrl();
+  if (base && endpoint.startsWith("/")) {
+    return `${base}${endpoint}`;
+  }
+  return endpoint;
+}
+
 class ApiClient {
   async request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const response = await fetch(endpoint, {
+    const response = await fetch(resolveUrl(endpoint), {
       ...options,
       headers: {
         'Content-Type': 'application/json',

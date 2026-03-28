@@ -21,6 +21,7 @@ import EmcLoginPage from "@/pages/emc/login";
 import EmcSetupPage from "@/pages/emc/setup";
 import EmcAdminLayout from "@/pages/emc/admin-layout";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { OfflineBanner } from "@/components/offline-banner";
 
 function GlobalWebSocket() {
   usePosWebSocket();
@@ -144,6 +145,7 @@ function App() {
             <DeviceProvider>
               <PosProvider>
                 <GlobalWebSocket />
+                <OfflineBanner />
                 <Router />
                 <Toaster />
               </PosProvider>

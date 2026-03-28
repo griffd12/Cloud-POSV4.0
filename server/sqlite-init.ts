@@ -205,11 +205,15 @@ export function initSqliteSchema(db: Database.Database): void {
 
     db.exec(`CREATE TABLE IF NOT EXISTS "lfs_transaction_journal" (
       "id" TEXT PRIMARY KEY,
-      "timestamp" TEXT NOT NULL,
-      "operation" TEXT NOT NULL,
-      "method" TEXT NOT NULL,
-      "path" TEXT NOT NULL,
-      "body" TEXT,
+      "operation_type" TEXT NOT NULL,
+      "entity_type" TEXT NOT NULL,
+      "entity_id" TEXT NOT NULL,
+      "http_method" TEXT NOT NULL,
+      "endpoint" TEXT NOT NULL,
+      "payload" TEXT,
+      "offline_transaction_id" TEXT,
+      "workstation_id" TEXT,
+      "created_at" TEXT NOT NULL,
       "synced" INTEGER DEFAULT 0,
       "synced_at" TEXT,
       "cloud_response" TEXT

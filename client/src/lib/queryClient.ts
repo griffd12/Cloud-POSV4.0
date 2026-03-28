@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { connectionManager } from "./connection-manager";
 
 const EMC_SESSION_KEY = "emc_session_token";
 const DEVICE_TOKEN_KEY = "pos_device_token";
@@ -10,8 +11,16 @@ function createTimeoutSignal(ms: number): AbortSignal {
   return controller.signal;
 }
 
+function resolveUrl(endpoint: string): string {
+  const base = connectionManager.getBaseUrl();
+  if (base && endpoint.startsWith("/")) {
+    return `${base}${endpoint}`;
+  }
+  return endpoint;
+}
+
 export async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
-  const res = await fetch(url, {
+  const res = await fetch(resolveUrl(url), {
     ...options,
     signal: createTimeoutSignal(FETCH_TIMEOUT_MS),
   });
@@ -57,7 +66,7 @@ export async function apiRequest(
     headers["Content-Type"] = "application/json";
   }
   
-  const res = await fetch(url, {
+  const res = await fetch(resolveUrl(url), {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
@@ -78,7 +87,7 @@ export const getQueryFn: <T>(options: {
     const url = queryKey.join("/") as string;
     const authHeaders = getAuthHeaders();
     
-    const res = await fetch(url, {
+    const res = await fetch(resolveUrl(url), {
       credentials: "include",
       headers: authHeaders,
       signal: createTimeoutSignal(FETCH_TIMEOUT_MS),

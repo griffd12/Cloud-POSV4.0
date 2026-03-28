@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { queryClient } from "@/lib/queryClient";
 import { getDeviceToken } from "@/hooks/use-device-enrollment";
+import { connectionManager } from "@/lib/connection-manager";
 
 interface PosEvent {
   type: string;
@@ -55,8 +56,8 @@ export function usePosWebSocket() {
     const connect = () => {
       if (isUnmountedRef.current) return;
       
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      const wsBase = connectionManager.getWsUrl();
+      const wsUrl = `${wsBase}/ws`;
       
       if (wsRef.current) {
         try { wsRef.current.close(); } catch {}

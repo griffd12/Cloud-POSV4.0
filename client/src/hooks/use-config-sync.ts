@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { queryClient } from "@/lib/queryClient";
 import { useDeviceContext } from "@/lib/device-context";
+import { connectionManager } from "@/lib/connection-manager";
 
 interface ConfigUpdateEvent {
   type: "config_update";
@@ -96,8 +97,8 @@ export function useConfigSync() {
     if (isUnmountedRef.current) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/kds`;
+    const wsBase = connectionManager.getWsUrl();
+    const wsUrl = `${wsBase}/ws/kds`;
     const connId = ++connectionIdCounter;
     activeConnectionIdRef.current = connId;
 

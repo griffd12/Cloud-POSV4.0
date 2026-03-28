@@ -992,6 +992,7 @@ export const checks = pgTable("checks", {
   platformSource: text("platform_source"),
   originDeviceId: varchar("origin_device_id"),
   originCreatedAt: timestamp("origin_created_at"),
+  offlineTransactionId: varchar("offline_transaction_id"),
 }, (table) => [
   uniqueIndex("idx_checks_rvc_check_number").on(table.rvcId, table.checkNumber),
 ]);
@@ -1053,7 +1054,8 @@ export const checkItems = pgTable("check_items", {
   // Non-revenue flag for items that should not count toward sales (e.g., gift card sales/reloads)
   // Gift card sales are liabilities, not revenue - revenue is recognized when redeemed
   isNonRevenue: boolean("is_non_revenue").default(false),
-  nonRevenueType: text("non_revenue_type"), // 'gift_card_sale', 'gift_card_reload', etc.
+  nonRevenueType: text("non_revenue_type"),
+  offlineTransactionId: varchar("offline_transaction_id"),
 });
 
 // Check Payments
@@ -1071,6 +1073,7 @@ export const checkPayments = pgTable("check_payments", {
   tipAmount: decimal("tip_amount", { precision: 10, scale: 2 }),
   originDeviceId: varchar("origin_device_id"),
   paymentAttemptId: varchar("payment_attempt_id"),
+  offlineTransactionId: varchar("offline_transaction_id"),
 }, (table) => [
   uniqueIndex("idx_check_payments_attempt_id").on(table.paymentAttemptId),
 ]);

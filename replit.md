@@ -54,9 +54,14 @@ The same Express codebase runs against either PostgreSQL (cloud) or SQLite (loca
   - `server/config-sync.ts` — Background service that pulls config from cloud API to local SQLite
 - **Schema-Driven Column Filtering**: `insertOne()` and `updateOne()` automatically filter out keys that don't exist as columns on the target SQLite table, so passing extra fields (e.g. `propertyId` on a table without that column) is safely ignored.
 - **Offline Check Numbering**: Each workstation has configurable offline check number ranges (`lfs_offline_sequence` table) to prevent collisions between workstations.
-- **Transaction Journal**: `lfs_transaction_journal` table tracks all write operations for later sync-up to cloud.
+- **Transaction Journal**: `lfs_transaction_journal` table tracks all write operations for later sync-up to cloud. Columns: `operation_type`, `entity_type`, `entity_id`, `http_method`, `endpoint`, `payload`, `offline_transaction_id`, `workstation_id`, `created_at`, `synced`, `synced_at`.
 - **Config Sync**: Runs on configurable interval (default 60s). Syncs config DOWN first (menu, employees, tax, tenders, discounts), then transactions UP.
 - **Health Endpoint**: `GET /api/health` returns mode, database type, and sync status.
+- **Auto-Failover Detection**: Browser-side `ConnectionManager` singleton (`client/src/lib/connection-manager.ts`) pings cloud `/health` every 5s. After 3 consecutive failures, routes API/WS traffic to LFS URL (stored in localStorage `lfs_local_server_url`). States: `cloud-online`, `cloud-degraded`, `cloud-offline`, `reconnecting`. When cloud comes back online, runs reconnection sync: config-down first, then transactions-up from LFS journal.
+- **Dual-URL API Routing**: `queryClient.ts` and `api-client.ts` route through `connectionManager.getBaseUrl()`. WebSocket hooks (`use-pos-websocket.ts`, `use-config-sync.ts`) use `connectionManager.getWsUrl()`. All routing is transparent to callers.
+- **Offline UI Banner**: `OfflineBanner` component shows amber bar "RUNNING LOCALLY" when offline, with pending sync count and reconnection progress bar.
+- **Sync-Back Routes**: `server/lfs-sync-routes.ts` — LFS mode exposes `/api/lfs/journal/pending`, `/api/lfs/journal/:id/synced`; Cloud mode exposes `/api/lfs/sync/transaction-up` and `/api/lfs/sync/batch-up` with idempotent deduplication via `offlineTransactionId`.
+- **Deduplication**: `checks`, `check_items`, `check_payments` have `offlineTransactionId` column. Sync-up checks for duplicates before inserting.
 - **Env Vars for LFS**: `DB_MODE=local`, `SQLITE_PATH`, `LFS_CLOUD_URL`, `LFS_API_KEY`, `LFS_PROPERTY_ID`, `LFS_SYNC_INTERVAL_MS`.
 
 ### Key Features

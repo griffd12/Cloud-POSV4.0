@@ -2096,4 +2096,62 @@ export class SqliteDatabaseStorage implements IStorage {
   async createPrepItem(data: InsertPrepItem): Promise<PrepItem> { return this.insertOne("prep_items", { ...data }); }
   async updatePrepItem(id: string, data: Partial<InsertPrepItem>): Promise<PrepItem | undefined> { return this.updateOne("prep_items", id, data); }
   async deletePrepItem(id: string): Promise<boolean> { return this.deleteOne("prep_items", id); }
+
+  // ========================================================================
+  // TRANSACTION JOURNAL (LFS-specific)
+  // ========================================================================
+  recordTransaction(entry: {
+    operationType: string;
+    entityType: string;
+    entityId: string;
+    httpMethod: string;
+    endpoint: string;
+    payload: any;
+    offlineTransactionId: string;
+    workstationId?: string;
+  }): void {
+    this.db.prepare(
+      `INSERT INTO "lfs_transaction_journal" (id, operation_type, entity_type, entity_id, http_method, endpoint, payload, offline_transaction_id, workstation_id, created_at, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+    ).run(
+      crypto.randomUUID(),
+      entry.operationType,
+      entry.entityType,
+      entry.entityId,
+      entry.httpMethod,
+      entry.endpoint,
+      JSON.stringify(entry.payload),
+      entry.offlineTransactionId,
+      entry.workstationId || null,
+      new Date().toISOString(),
+    );
+  }
+
+  getPendingTransactions(): any[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM "lfs_transaction_journal" WHERE synced = 0 ORDER BY created_at ASC`
+    ).all() as any[];
+    return rows.map(r => ({
+      ...r,
+      payload: typeof r.payload === "string" ? JSON.parse(r.payload) : r.payload,
+    }));
+  }
+
+  getPendingTransactionCount(): number {
+    const row = this.db.prepare(
+      `SELECT COUNT(*) as count FROM "lfs_transaction_journal" WHERE synced = 0`
+    ).get() as any;
+    return row?.count || 0;
+  }
+
+  markTransactionSynced(id: string): void {
+    this.db.prepare(
+      `UPDATE "lfs_transaction_journal" SET synced = 1, synced_at = ? WHERE id = ?`
+    ).run(new Date().toISOString(), id);
+  }
+
+  markTransactionSyncedByOfflineId(offlineTransactionId: string): void {
+    this.db.prepare(
+      `UPDATE "lfs_transaction_journal" SET synced = 1, synced_at = ? WHERE offline_transaction_id = ?`
+    ).run(new Date().toISOString(), offlineTransactionId);
+  }
 }

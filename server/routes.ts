@@ -22785,6 +22785,9 @@ connect();
   registerOnboardingRoutes(app);
   registerDeliveryPlatformRoutes(app, storage, broadcastPosEvent, calculateTaxSnapshot, recalculateCheckTotals);
 
+  const { registerLfsSyncRoutes } = await import("./lfs-sync-routes");
+  registerLfsSyncRoutes(app);
+
   // Idempotency key TTL cleanup - every hour
   setInterval(async () => {
     try {
