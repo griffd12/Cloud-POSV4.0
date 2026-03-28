@@ -919,13 +919,14 @@ export default function PosPage() {
   };
 
   const paymentMutation = useMutation({
-    mutationFn: async (data: { tenderId: string; amount: number; isCashOverTender?: boolean; paymentTransactionId?: string; tipAmount?: number }) => {
+    mutationFn: async (data: { tenderId: string; amount: number; isCashOverTender?: boolean; paymentTransactionId?: string; tipAmount?: number; storeAndForward?: boolean }) => {
       const response = await apiRequest("POST", "/api/checks/" + currentCheck?.id + "/payments", {
         tenderId: data.tenderId,
         amount: data.amount.toString(),
         tipAmount: data.tipAmount?.toString(),
         employeeId: currentEmployee?.id,
         paymentTransactionId: data.paymentTransactionId,
+        ...(data.storeAndForward ? { storeAndForward: true } : {}),
       }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
       const result = await response.json();
       return { ...result, isCashOverTender: data.isCashOverTender, tenderedAmount: data.amount, appliedTenderId: data.tenderId };
@@ -2391,9 +2392,9 @@ export default function PosPage() {
             setShowPaymentModal(false);
           }
         }}
-        onPayment={(tenderId, amount, isCashOverTender, paymentTransactionId, tipAmount) => {
+        onPayment={(tenderId, amount, isCashOverTender, paymentTransactionId, tipAmount, storeAndForward) => {
           if (currentCheck?.id && !paymentMutation.isPending) {
-            paymentMutation.mutate({ tenderId, amount, isCashOverTender, paymentTransactionId, tipAmount });
+            paymentMutation.mutate({ tenderId, amount, isCashOverTender, paymentTransactionId, tipAmount, storeAndForward });
           }
         }}
         tenders={tenders}

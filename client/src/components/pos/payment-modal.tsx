@@ -20,7 +20,7 @@ import { StripeCardForm } from "./stripe-card-form";
 interface PaymentModalProps {
   open: boolean;
   onClose: () => void;
-  onPayment: (tenderId: string, amount: number, isCashOverTender?: boolean, paymentTransactionId?: string, tipAmount?: number) => void;
+  onPayment: (tenderId: string, amount: number, isCashOverTender?: boolean, paymentTransactionId?: string, tipAmount?: number, storeAndForward?: boolean) => void;
   tenders: Tender[];
   check: Check | null;
   remainingBalance: number;
@@ -781,6 +781,7 @@ export function PaymentModal({
         if (!res.ok) return;
         const session = await res.json() as TerminalSession;
         
+        const isSafPayment = session.status === "completed_offline";
         const normalizedStatus = session.status === "completed" || session.status === "completed_offline"
           ? "approved"
           : session.status === "failed"
@@ -791,7 +792,7 @@ export function PaymentModal({
           if (cardTender && !session.paymentRecorded) {
             const emvTipDollars = session.tipAmount ? session.tipAmount / 100 : 0;
             const effectiveTip = emvTipDollars > 0 ? emvTipDollars : confirmedTipAmount;
-            onPayment(cardTender.id, cardAmount, false, session.paymentTransactionId || undefined, effectiveTip);
+            onPayment(cardTender.id, cardAmount, false, session.paymentTransactionId || undefined, effectiveTip, isSafPayment);
           }
           const emvTipDollars = session.tipAmount ? session.tipAmount / 100 : 0;
           const effectiveTipDisplay = emvTipDollars > 0 ? emvTipDollars : confirmedTipAmount;

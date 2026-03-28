@@ -150,21 +150,20 @@ function registerLfsLocalRoutes(app: Express) {
 
   app.post("/api/lfs/record-saf-payment", async (req: Request, res: Response) => {
     try {
-      const { checkId, tenderId, amount, terminalDeviceId, transactionId, approvalCode, cardLast4, cardBrand, employeeId } = req.body;
-      if (!checkId || !tenderId || !amount) {
-        return res.status(400).json({ error: "checkId, tenderId, and amount are required" });
+      const { checkId, tenderId, tenderName, amount, employeeId, businessDate, paymentTransactionId } = req.body;
+      if (!checkId || !tenderId || !tenderName || !amount) {
+        return res.status(400).json({ error: "checkId, tenderId, tenderName, and amount are required" });
       }
 
       const payment = await storage.createPayment({
         checkId,
         tenderId,
+        tenderName,
         amount: amount.toString(),
         paymentStatus: "pending_settlement",
-        transactionId: transactionId || `SAF-${Date.now()}`,
-        approvalCode: approvalCode || "SAF-PENDING",
-        cardLast4: cardLast4 || undefined,
-        cardBrand: cardBrand || undefined,
+        paymentTransactionId: paymentTransactionId || undefined,
         employeeId: employeeId || undefined,
+        businessDate: businessDate || undefined,
       } as Parameters<typeof storage.createPayment>[0]);
 
       if (typeof (storage as Record<string, unknown>).recordTransaction === "function") {
@@ -233,23 +232,24 @@ function registerLfsLocalRoutes(app: Express) {
           if (settleRes.ok) {
             const settleData = await settleRes.json();
             const newStatus = settleData.newStatus || "completed";
-            await storage.updateCheckPayment(payment.id, {
-              paymentStatus: newStatus,
-            } as Parameters<typeof storage.updateCheckPayment>[1]);
-            results.push({ paymentId: payment.id, status: newStatus });
+            if (newStatus === "settlement_failed") {
+              await storage.updateCheckPayment(payment.id, {
+                paymentStatus: "settlement_failed",
+              } as Parameters<typeof storage.updateCheckPayment>[1]);
+              results.push({ paymentId: payment.id, status: "settlement_failed", error: settleData.reason || "cloud rejected" });
+            } else {
+              await storage.updateCheckPayment(payment.id, {
+                paymentStatus: newStatus,
+              } as Parameters<typeof storage.updateCheckPayment>[1]);
+              results.push({ paymentId: payment.id, status: newStatus });
+            }
           } else {
             const errText = await settleRes.text().catch(() => "Unknown");
-            await storage.updateCheckPayment(payment.id, {
-              paymentStatus: "settlement_failed",
-            } as Parameters<typeof storage.updateCheckPayment>[1]);
-            results.push({ paymentId: payment.id, status: "settlement_failed", error: `Cloud returned ${settleRes.status}: ${errText}` });
+            results.push({ paymentId: payment.id, status: "pending_settlement", error: `Cloud returned ${settleRes.status}: ${errText} — will retry` });
           }
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : "Unknown error";
-          await storage.updateCheckPayment(payment.id, {
-            paymentStatus: "settlement_failed",
-          } as Parameters<typeof storage.updateCheckPayment>[1]);
-          results.push({ paymentId: payment.id, status: "settlement_failed", error: msg });
+          results.push({ paymentId: payment.id, status: "pending_settlement", error: `${msg} — will retry` });
         }
       }
 
@@ -629,40 +629,57 @@ function registerLfsCloudRoutes(app: Express) {
 
   app.post("/api/lfs/sync/reconcile-saf-batch", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
-      const { propertyId } = req.body;
-      let pendingPayments;
-      if (propertyId) {
-        const joined = await db.select()
-          .from(checkPayments)
-          .innerJoin(checks, eq(checks.id, checkPayments.checkId))
-          .where(and(
-            eq(checkPayments.paymentStatus, "pending_settlement"),
-            sql`EXISTS (SELECT 1 FROM rvcs WHERE rvcs.id = ${checks.rvcId} AND rvcs.property_id = ${propertyId})`
-          ));
-        pendingPayments = joined.map(r => r.check_payments);
-      } else {
-        pendingPayments = await db.select()
-          .from(checkPayments)
-          .where(eq(checkPayments.paymentStatus, "pending_settlement"));
+      const { propertyId, settlements } = req.body;
+
+      if (!settlements || !Array.isArray(settlements)) {
+        return res.status(400).json({ error: "settlements array is required with paymentId, amount, and settlementTransactionId per entry" });
       }
 
       const results: Array<{ paymentId: string; status: string; error?: string }> = [];
 
-      for (const payment of pendingPayments) {
+      for (const entry of settlements) {
+        const { paymentId, amount, settlementTransactionId } = entry;
+        if (!paymentId) {
+          results.push({ paymentId: "unknown", status: "skipped", error: "Missing paymentId" });
+          continue;
+        }
+
         try {
-          await storage.updateCheckPayment(payment.id, {
+          const [payment] = await db.select().from(checkPayments)
+            .where(eq(checkPayments.id, paymentId)).limit(1);
+
+          if (!payment) {
+            results.push({ paymentId, status: "skipped", error: "Payment not found" });
+            continue;
+          }
+
+          if (payment.paymentStatus !== "pending_settlement") {
+            results.push({ paymentId, status: payment.paymentStatus || "unknown", error: "Already processed" });
+            continue;
+          }
+
+          if (amount && payment.amount && Math.abs(parseFloat(amount) - parseFloat(payment.amount)) > 0.01) {
+            await storage.updateCheckPayment(paymentId, {
+              paymentStatus: "settlement_failed",
+            } as Parameters<typeof storage.updateCheckPayment>[1]);
+            results.push({ paymentId, status: "settlement_failed", error: "Amount mismatch — requires manager review" });
+            continue;
+          }
+
+          await storage.updateCheckPayment(paymentId, {
             paymentStatus: "completed",
+            paymentTransactionId: settlementTransactionId || payment.paymentTransactionId,
           } as Parameters<typeof storage.updateCheckPayment>[1]);
-          results.push({ paymentId: payment.id, status: "completed" });
+          results.push({ paymentId, status: "completed" });
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : "Unknown error";
-          results.push({ paymentId: payment.id, status: "failed", error: msg });
+          results.push({ paymentId, status: "error", error: msg });
         }
       }
 
       const settled = results.filter(r => r.status === "completed").length;
-      const failed = results.filter(r => r.status === "failed").length;
-      res.json({ ok: true, total: pendingPayments.length, settled, failed, results });
+      const failed = results.filter(r => r.status === "settlement_failed").length;
+      res.json({ ok: true, total: settlements.length, settled, failed, results });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });
