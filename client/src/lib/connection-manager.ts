@@ -7,12 +7,13 @@ const RECONNECT_SYNC_TIMEOUT = 30000;
 
 const LFS_URL_KEY = "lfs_local_server_url";
 
+const CLOUD_URL_KEY = "cloud_server_url";
+
 class ConnectionManager {
   private state: ConnectionState = "cloud-online";
   private consecutiveFailures = 0;
   private listeners = new Set<StateListener>();
   private healthInterval: ReturnType<typeof setInterval> | null = null;
-  private cloudBaseUrl = "";
   private pendingSyncCount = 0;
   private syncProgress: { phase: string; current: number; total: number } | null = null;
 
@@ -26,6 +27,14 @@ class ConnectionManager {
     if (this.state === "cloud-offline" || this.state === "reconnecting") return true;
     if (this.state === "cloud-degraded" && this.syncRequired && this.localServerUrl) return true;
     return false;
+  }
+
+  get cloudServerUrl(): string {
+    return localStorage.getItem(CLOUD_URL_KEY) || window.location.origin;
+  }
+
+  set cloudServerUrl(url: string) {
+    localStorage.setItem(CLOUD_URL_KEY, url);
   }
 
   get localServerUrl(): string | null {
@@ -57,7 +66,7 @@ class ConnectionManager {
     if (this.isOffline && this.localServerUrl) {
       return this.localServerUrl;
     }
-    return this.cloudBaseUrl;
+    return this.cloudServerUrl;
   }
 
   getWsUrl(): string {
@@ -84,7 +93,6 @@ class ConnectionManager {
 
   start(): void {
     if (this.healthInterval) return;
-    this.cloudBaseUrl = "";
     this.checkHealth();
     this.healthInterval = setInterval(() => this.checkHealth(), HEALTH_CHECK_INTERVAL);
   }
@@ -98,7 +106,8 @@ class ConnectionManager {
 
   private async checkHealth(): Promise<void> {
     try {
-      const res = await fetch("/api/health", {
+      const cloudUrl = this.cloudServerUrl;
+      const res = await fetch(`${cloudUrl}/api/health`, {
         signal: AbortSignal.timeout(4000),
       });
       if (res.ok) {
