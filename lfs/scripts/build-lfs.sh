@@ -35,7 +35,7 @@ npx esbuild server/index.ts \
   --minify
 
 echo "[2/8] Building frontend assets..."
-npx vite build --outDir "$BUILD_DIR/$PACKAGE_NAME/client"
+npx vite build --outDir "$BUILD_DIR/$PACKAGE_NAME/public"
 
 echo "[3/8] Copying LFS admin dashboard..."
 cp -r "$PROJECT_ROOT/lfs/admin" "$BUILD_DIR/$PACKAGE_NAME/lfs-admin"
