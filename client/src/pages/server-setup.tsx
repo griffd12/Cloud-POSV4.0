@@ -57,7 +57,7 @@ export default function ServerSetupPage() {
     }
   };
 
-  const tryFetchEnterprise = async (baseUrl: string, code: string): Promise<{ ok: boolean; enterprise?: any; status?: number }> => {
+  const tryFetchEnterprise = async (baseUrl: string, code: string): Promise<{ ok: boolean; enterprise?: { id: string; name: string; code: string }; status?: number; isNetworkError?: boolean }> => {
     try {
       const response = await fetch(`${baseUrl}/api/enterprises/by-code/${code}`, {
         signal: AbortSignal.timeout(5000),
@@ -65,10 +65,10 @@ export default function ServerSetupPage() {
       if (!response.ok) {
         return { ok: false, status: response.status };
       }
-      const enterprise = await response.json();
-      return { ok: true, enterprise };
+      const data = await response.json() as { id: string; name: string; code: string };
+      return { ok: true, enterprise: data };
     } catch {
-      return { ok: false };
+      return { ok: false, isNetworkError: true };
     }
   };
 
@@ -87,7 +87,7 @@ export default function ServerSetupPage() {
     try {
       let result = await tryFetchEnterprise(parsed.baseUrl, parsed.enterpriseCode);
 
-      if (!result.ok && parsed.needsProtocolProbe) {
+      if (!result.ok && result.isNetworkError && parsed.needsProtocolProbe) {
         const fallbackUrl = parsed.baseUrl.replace("https://", "http://");
         result = await tryFetchEnterprise(fallbackUrl, parsed.enterpriseCode);
         if (result.ok) {
