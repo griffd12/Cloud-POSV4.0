@@ -569,7 +569,7 @@ const ALLOWED_CONFIG_TABLES = new Set([
   "payment_processors", "payment_gateway_config", "overtime_rules", "break_rules",
   "minor_labor_rules", "tip_pool_policies", "tip_rules", "tip_rule_job_percentages",
   "loyalty_programs", "loyalty_rewards", "emc_option_flags",
-  "terminal_devices", "print_agents", "cash_drawers",
+  "terminal_devices", "print_agents", "cash_drawers", "rvc_counters",
 ]);
 
 async function recordLfsSyncActivity(req: Request, syncType: string, direction: string, recordCount: number, status: string, errorMessage?: string) {

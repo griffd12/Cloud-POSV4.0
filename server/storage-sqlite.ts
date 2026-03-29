@@ -366,7 +366,7 @@ export class SqliteDatabaseStorage implements IStorage {
   }
 
   async getEmployeeByPinAndEnterprise(pin: string, enterpriseId: string): Promise<Employee | undefined> {
-    const rows = this.getAll<Employee>("employees", "enterprise_id = ? AND pin_hash = ? AND active = 1", [enterpriseId, pin]);
+    const rows = this.getAll<Employee>("employees", "enterprise_id = ? AND pin_hash = ? AND (active = 1 OR active IS NULL)", [enterpriseId, pin]);
     return rows[0];
   }
 
