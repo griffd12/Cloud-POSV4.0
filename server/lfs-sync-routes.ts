@@ -37,6 +37,13 @@ async function requireLfsApiKey(req: Request, res: Response, next: NextFunction)
       (req as LfsAuthenticatedRequest).lfsConfigId = configByProperty.id;
       return next();
     }
+
+    const envKey = process.env.LFS_API_KEY;
+    if (envKey && provided === envKey) {
+      (req as LfsAuthenticatedRequest).lfsPropertyId = propertyIdHeader;
+      return next();
+    }
+
     return res.status(403).json({ error: "API key does not match the specified property" });
   }
 
