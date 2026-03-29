@@ -574,7 +574,12 @@ function registerLfsCloudRoutes(app: Express) {
       if (!ALLOWED_CONFIG_TABLES.has(tableName)) {
         return res.status(400).json({ error: `Table '${tableName}' is not allowed for config sync` });
       }
-      const propertyId = req.query.propertyId as string | undefined;
+      const lfsPropertyId = (req as any).lfsPropertyId as string | undefined;
+      const queryPropertyId = req.query.propertyId as string | undefined;
+      if (lfsPropertyId && queryPropertyId && queryPropertyId !== lfsPropertyId) {
+        return res.status(403).json({ error: "API key is not authorized for this property" });
+      }
+      const propertyId = lfsPropertyId || queryPropertyId;
       const since = req.query.since as string | undefined;
 
       const colsResult = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name = ${tableName}`);

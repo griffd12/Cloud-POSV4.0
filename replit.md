@@ -48,6 +48,7 @@ The same Express codebase runs against either PostgreSQL (cloud) or SQLite (loca
 - **Auto-Failover**: Browser-side `ConnectionManager` detects cloud connectivity and transparently routes API/WebSocket traffic to LFS URL on failure, and back to cloud upon recovery.
 - **Offline Payments (Store-and-Forward)**: LFS processes payments locally for SAF-capable terminals, recording them as `pending_settlement`. Payments are later reconciled with the cloud via server-to-server calls.
 - **LFS Packaging & Admin**: Includes build scripts for self-contained distributions, Windows installer as a service, system tray indicator, admin dashboard for status/config/logs, and auto-update mechanism.
+- **LFS Management in EMC**: Per-property API key generation/rotation/revocation for LFS authentication, connection status monitoring, sync history logging, and first-run setup instructions. EMC route: `/emc/lfs-management` (property-only, Hierarchy nav group). DB tables: `lfs_configurations`, `lfs_sync_logs`. API routes protected by EMC session auth with enterprise/property scope enforcement.
 
 ### Key Features
 - **Device Configuration**: Hierarchical setup for Workstations, Printers, KDS.

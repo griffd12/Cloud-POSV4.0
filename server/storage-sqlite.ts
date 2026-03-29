@@ -2352,4 +2352,13 @@ export class SqliteDatabaseStorage implements IStorage {
       `UPDATE "lfs_transaction_journal" SET synced = 1, synced_at = ? WHERE offline_transaction_id = ?`
     ).run(new Date().toISOString(), offlineTransactionId);
   }
+
+  async getLfsConfiguration(_propertyId: string): Promise<any> { return undefined; }
+  async getLfsConfigurations(): Promise<any[]> { return []; }
+  async createLfsConfiguration(_data: any): Promise<any> { throw new Error("LFS config management not available in local mode"); }
+  async updateLfsConfiguration(_propertyId: string, _data: any): Promise<any> { return undefined; }
+  async deleteLfsConfiguration(_propertyId: string): Promise<boolean> { return false; }
+  async getLfsConfigurationByApiKey(_apiKey: string): Promise<any> { return undefined; }
+  async getLfsSyncLogs(_propertyId: string, _limit?: number): Promise<any[]> { return []; }
+  async createLfsSyncLog(_data: any): Promise<any> { throw new Error("LFS sync logs not available in local mode"); }
 }
