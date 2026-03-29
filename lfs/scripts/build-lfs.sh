@@ -167,7 +167,25 @@ echo   Logs: %LOG_DIR%
 "%NODE_CMD%" "%SCRIPT_DIR%server.cjs"
 STARTUP_BAT
 
-echo "[7/8] Creating environment template..."
+echo "[7/9] Copying installer and utility scripts..."
+SCRIPTS_DIR="$BUILD_DIR/$PACKAGE_NAME/scripts"
+mkdir -p "$SCRIPTS_DIR"
+
+for script in install-windows-service.ps1 uninstall-windows-service.ps1 lfs-tray.ps1; do
+  if [ -f "$PROJECT_ROOT/lfs/scripts/$script" ]; then
+    cp "$PROJECT_ROOT/lfs/scripts/$script" "$SCRIPTS_DIR/"
+    echo "  Copied $script"
+  fi
+done
+
+if [ -d "$PROJECT_ROOT/lfs/docs" ]; then
+  cp -r "$PROJECT_ROOT/lfs/docs" "$BUILD_DIR/$PACKAGE_NAME/docs"
+  echo "  Copied documentation"
+fi
+
+cp "$PROJECT_ROOT/package.json" "$BUILD_DIR/$PACKAGE_NAME/package.json"
+
+echo "[8/9] Creating environment template..."
 cat > "$BUILD_DIR/$PACKAGE_NAME/.env.example" << 'ENV_TEMPLATE'
 # Cloud POS - Local Failover Server Configuration
 # Copy this file to .env and fill in values
@@ -195,7 +213,7 @@ LFS_UPDATE_CHECK_INTERVAL_MS=3600000
 LFS_LOG_LEVEL=info
 ENV_TEMPLATE
 
-echo "[8/8] Creating distribution archive..."
+echo "[9/9] Creating distribution archive..."
 cd "$BUILD_DIR"
 
 if [ "$TARGET_PLATFORM" = "windows" ] || [ "$TARGET_PLATFORM" = "win" ] || [ "$TARGET_PLATFORM" = "win64" ]; then

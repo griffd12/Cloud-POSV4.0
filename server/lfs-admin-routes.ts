@@ -35,8 +35,37 @@ export function captureLog(message: string) {
   }
 }
 
+function lfsAdminAuth(req: Request, res: Response, next: Function) {
+  const apiKey = process.env.LFS_API_KEY;
+  if (!apiKey) return next();
+
+  const provided = req.headers["x-lfs-admin-key"] || req.query["admin_key"];
+  if (provided === apiKey) return next();
+
+  const cookie = req.headers.cookie;
+  if (cookie) {
+    const match = cookie.match(/lfs_admin_session=([^;]+)/);
+    if (match && match[1] === apiKey) return next();
+  }
+
+  res.status(401).json({ error: "Unauthorized — provide x-lfs-admin-key header or admin_key query param" });
+}
+
 export function registerLfsAdminRoutes(app: Express) {
   if (!isLocalMode) return;
+
+  app.post("/api/lfs/admin/login", (req: Request, res: Response) => {
+    const { apiKey } = req.body;
+    const expected = process.env.LFS_API_KEY;
+    if (!expected || apiKey === expected) {
+      res.setHeader("Set-Cookie", `lfs_admin_session=${expected || "open"}; Path=/; HttpOnly; SameSite=Strict`);
+      res.json({ ok: true });
+    } else {
+      res.status(401).json({ error: "Invalid API key" });
+    }
+  });
+
+  app.use("/api/lfs/admin", lfsAdminAuth);
 
   app.get("/api/lfs/admin/config", (_req: Request, res: Response) => {
     res.json({
@@ -190,6 +219,36 @@ export function registerLfsAdminRoutes(app: Express) {
       downloadUrl: null,
       releaseNotes: null,
     });
+  });
+
+  app.get("/api/lfs/admin/devices", async (_req: Request, res: Response) => {
+    try {
+      const { storage } = await import("./storage");
+      const devices = await storage.getRegisteredDevices?.() ?? [];
+      res.json({ devices });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.json({ devices: [], error: msg });
+    }
+  });
+
+  app.get("/api/lfs/admin/journal/pending", async (_req: Request, res: Response) => {
+    try {
+      const { storage } = await import("./storage");
+      const storageAny = storage as Record<string, unknown>;
+      if (typeof storageAny.getPendingTransactions === "function") {
+        const entries = (storageAny.getPendingTransactions as () => unknown[])();
+        res.json({ entries, count: entries.length });
+      } else if (typeof storageAny.getPendingTransactionCount === "function") {
+        const count = (storageAny.getPendingTransactionCount as () => number)();
+        res.json({ entries: [], count });
+      } else {
+        res.json({ entries: [], count: 0 });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.json({ entries: [], count: 0, error: msg });
+    }
   });
 }
 

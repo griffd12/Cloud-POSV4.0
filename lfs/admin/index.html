@@ -329,8 +329,8 @@
           : badge('Store & Forward', 'warning');
       }
 
-      const journalCount = await apiFetch('/api/lfs/journal/count');
-      document.getElementById('pending-journal').textContent = journalCount?.count ?? '—';
+      const journalData = await apiFetch('/api/lfs/admin/journal/pending');
+      document.getElementById('pending-journal').textContent = journalData?.count ?? '—';
 
       const pendingSettlements = await apiFetch('/api/lfs/sync/pending-settlements');
       if (pendingSettlements) {
@@ -341,48 +341,46 @@
     async function refreshDevices() {
       const tbody = document.getElementById('devices-table-body');
       try {
-        const data = await apiFetch('/api/workstations');
-        if (data && Array.isArray(data)) {
-          if (data.length === 0) {
+        const resp = await apiFetch('/api/lfs/admin/devices');
+        const data = resp?.devices ?? [];
+        if (Array.isArray(data)) {
+          const posDevices = data.filter(d => d.deviceType !== 'kds_display');
+          const kdsDevices = data.filter(d => d.deviceType === 'kds_display');
+          if (posDevices.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" style="color: var(--text-muted)">No workstations found</td></tr>';
           } else {
-            tbody.innerHTML = data.map(ws => `
+            tbody.innerHTML = posDevices.map(ws => `
               <tr>
-                <td>${ws.name || '—'}</td>
-                <td>${ws.type || 'POS'}</td>
+                <td>${ws.name || ws.deviceName || '—'}</td>
+                <td>${ws.deviceType || 'POS'}</td>
                 <td>${badge(ws.status || 'unknown', ws.status === 'active' ? 'success' : 'warning')}</td>
                 <td>${ws.ipAddress || '—'}</td>
-                <td>${formatTime(ws.lastSeenAt)}</td>
+                <td>${formatTime(ws.lastSeenAt || ws.lastHeartbeatAt)}</td>
               </tr>
             `).join('');
           }
-        }
-      } catch { tbody.innerHTML = '<tr><td colspan="5" style="color: var(--danger)">Error loading devices</td></tr>'; }
-
-      const kdsTbody = document.getElementById('kds-table-body');
-      try {
-        const kdsData = await apiFetch('/api/kds-displays');
-        if (kdsData && Array.isArray(kdsData)) {
-          if (kdsData.length === 0) {
+          const kdsTbody = document.getElementById('kds-table-body');
+          if (kdsDevices.length === 0) {
             kdsTbody.innerHTML = '<tr><td colspan="3" style="color: var(--text-muted)">No KDS displays found</td></tr>';
           } else {
-            kdsTbody.innerHTML = kdsData.map(kds => `
+            kdsTbody.innerHTML = kdsDevices.map(kds => `
               <tr>
-                <td>${kds.name || '—'}</td>
+                <td>${kds.name || kds.deviceName || '—'}</td>
                 <td>${kds.stationName || '—'}</td>
                 <td>${badge(kds.status || 'unknown', kds.status === 'active' ? 'success' : 'warning')}</td>
               </tr>
             `).join('');
           }
         }
-      } catch { kdsTbody.innerHTML = '<tr><td colspan="3" style="color: var(--danger)">Error loading KDS displays</td></tr>'; }
+      } catch { tbody.innerHTML = '<tr><td colspan="5" style="color: var(--danger)">Error loading devices</td></tr>'; }
     }
 
     async function refreshTransactions() {
       const journalTbody = document.getElementById('journal-table-body');
       try {
-        const journal = await apiFetch('/api/lfs/journal/pending');
-        if (journal && Array.isArray(journal)) {
+        const journalResp = await apiFetch('/api/lfs/admin/journal/pending');
+        const journal = journalResp?.entries ?? [];
+        if (Array.isArray(journal)) {
           if (journal.length === 0) {
             journalTbody.innerHTML = '<tr><td colspan="6" style="color: var(--text-muted)">No pending entries</td></tr>';
           } else {
