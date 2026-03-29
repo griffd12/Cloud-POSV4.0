@@ -152,39 +152,54 @@ export default function LoginPage() {
       const payload = JSON.stringify({ pin: pinCode, rvcId: selectedRvcId });
       const baseUrl = connectionManager.getBaseUrl();
       const url = `${baseUrl}/api/auth/login`;
+      const LOGIN_TIMEOUT_MS = 8000;
 
-      try {
-        const res = await fetch(url, {
+      const timedFetch = (targetUrl: string) => {
+        const timeoutId = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS);
+        return fetch(targetUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...getAuthHeaders() },
           body: payload,
           credentials: "include",
           signal: controller.signal,
-        });
+        }).finally(() => clearTimeout(timeoutId));
+      };
+
+      try {
+        const res = await timedFetch(url);
         if (!res.ok) {
           const text = (await res.text()) || res.statusText;
           throw new Error(`${res.status}: ${text}`);
         }
         return res.json() as Promise<LoginResponse>;
-      } catch (firstErr: any) {
+      } catch (firstErr: unknown) {
         if (controller.signal.aborted) throw firstErr;
 
         const lfsUrl = connectionManager.localServerUrl;
         if (!lfsUrl || url.startsWith(lfsUrl)) throw firstErr;
 
+        const retryController = new AbortController();
+        loginAbortRef.current = retryController;
         const retryUrl = `${lfsUrl}/api/auth/login`;
-        const res = await fetch(retryUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-          body: payload,
-          credentials: "include",
-          signal: controller.signal,
-        });
-        if (!res.ok) {
-          const text = (await res.text()) || res.statusText;
-          throw new Error(`${res.status}: ${text}`);
+        const retryTimeoutId = setTimeout(() => retryController.abort(), LOGIN_TIMEOUT_MS);
+        try {
+          const res = await fetch(retryUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+            body: payload,
+            credentials: "include",
+            signal: retryController.signal,
+          });
+          clearTimeout(retryTimeoutId);
+          if (!res.ok) {
+            const text = (await res.text()) || res.statusText;
+            throw new Error(`${res.status}: ${text}`);
+          }
+          return res.json() as Promise<LoginResponse>;
+        } catch (retryErr) {
+          clearTimeout(retryTimeoutId);
+          throw retryErr;
         }
-        return res.json() as Promise<LoginResponse>;
       }
     },
     onSuccess: async (data) => {

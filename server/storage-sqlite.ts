@@ -1568,14 +1568,14 @@ export class SqliteDatabaseStorage implements IStorage {
   }
   async createRefund(data: InsertRefund, items: Omit<InsertRefundItem, 'refundId'>[], payments: Omit<InsertRefundPayment, 'refundId'>[]): Promise<Refund> {
     const refund = this.insertOne<Refund>("refunds", { ...data });
-    const createdItems: any[] = [];
-    const createdPayments: any[] = [];
+    const createdItems: RefundItem[] = [];
+    const createdPayments: RefundPayment[] = [];
     for (const item of items) {
-      const ri = this.insertOne("refund_items", { ...item, refundId: refund.id });
+      const ri = this.insertOne<RefundItem>("refund_items", { ...item, refundId: refund.id });
       createdItems.push(ri);
     }
     for (const payment of payments) {
-      const rp = this.insertOne("refund_payments", { ...payment, refundId: refund.id });
+      const rp = this.insertOne<RefundPayment>("refund_payments", { ...payment, refundId: refund.id });
       createdPayments.push(rp);
     }
     this.recordTransaction({
@@ -1584,7 +1584,7 @@ export class SqliteDatabaseStorage implements IStorage {
       entityId: refund.id,
       httpMethod: "POST",
       endpoint: "/api/refunds",
-      payload: { refund, items: createdItems, payments: createdPayments },
+      payload: { refund, items: createdItems, payments: createdPayments } as unknown as Record<string, unknown>,
       offlineTransactionId: crypto.randomUUID(),
     });
     return refund;
