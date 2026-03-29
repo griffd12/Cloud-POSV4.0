@@ -269,8 +269,16 @@ export default function LoginPage() {
       }
       navigate("/pos");
     },
-    onError: async () => {
-      setLoginError("Invalid PIN or employee not found");
+    onError: async (error: Error) => {
+      if (error.name === "AbortError" || error.message?.includes("abort")) {
+        return;
+      }
+      const msg = error.message || "";
+      if (msg.startsWith("4")) {
+        setLoginError("Invalid PIN or employee not found");
+      } else {
+        setLoginError("Unable to connect. Please check network and try again.");
+      }
       setPin("");
     },
   });
@@ -846,7 +854,6 @@ export default function LoginPage() {
                         variant="ghost"
                         className="h-16 text-sm"
                         onClick={handleClear}
-                        disabled={loginMutation.isPending}
                         data-testid="button-pin-clear"
                       >
                         Clear
