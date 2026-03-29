@@ -369,9 +369,12 @@
         if (health.sync) {
           document.getElementById('last-sync').textContent = formatTime(health.sync.lastSyncAt);
           document.getElementById('sync-age').textContent = health.syncAgeSeconds != null ? formatDuration(health.syncAgeSeconds) : '—';
-          document.getElementById('tables-synced').textContent = health.sync.tablesSynced || '—';
-          const errCount = health.sync.errors || 0;
-          document.getElementById('sync-errors').innerHTML = errCount > 0 ? badge(errCount, 'error') : badge('0', 'success');
+          document.getElementById('tables-synced').textContent = health.sync.syncCount != null ? health.sync.syncCount + ' cycles' : '—';
+          const hasError = health.sync.lastSyncError;
+          document.getElementById('sync-errors').innerHTML = hasError ? badge('1', 'error') : badge('0', 'success');
+          if (hasError) {
+            document.getElementById('sync-errors').title = health.sync.lastSyncError;
+          }
         }
       }
 
@@ -397,6 +400,22 @@
       const pendingSettlements = await apiFetch('/api/lfs/sync/pending-settlements');
       if (pendingSettlements) {
         document.getElementById('pending-saf').textContent = pendingSettlements.count ?? '0';
+      }
+
+      const updateStatus = await apiFetch('/api/lfs/admin/check-update');
+      if (updateStatus) {
+        document.getElementById('update-current-version').textContent = updateStatus.currentVersion || '—';
+        document.getElementById('update-latest-version').textContent = updateStatus.latestVersion || '—';
+        document.getElementById('update-auto-enabled').innerHTML = updateStatus.autoUpdateEnabled
+          ? badge('Yes', 'success') : badge('No', 'warning');
+        document.getElementById('update-last-check').textContent = formatTime(updateStatus.lastCheckAt);
+        if (updateStatus.updateAvailable) {
+          document.getElementById('update-latest-version').innerHTML =
+            updateStatus.latestVersion + ' ' + badge('Update Available', 'warning');
+        }
+        if (updateStatus.lastError) {
+          document.getElementById('update-last-check').title = updateStatus.lastError;
+        }
       }
     }
 

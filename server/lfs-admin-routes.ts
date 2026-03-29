@@ -220,9 +220,16 @@ export function registerLfsAdminRoutes(app: Express) {
 
   app.post("/api/lfs/admin/check-update", async (_req: Request, res: Response) => {
     try {
+      const { getUpdateState } = await import("./lfs-auto-update");
+      const state = getUpdateState();
+
       const cloudUrl = process.env.LFS_CLOUD_URL;
       if (!cloudUrl) {
-        return res.json({ updateAvailable: false, currentVersion: LFS_VERSION, error: "No cloud URL configured" });
+        return res.json({
+          ...state,
+          updateAvailable: false,
+          error: "No cloud URL configured",
+        });
       }
 
       try {
@@ -238,16 +245,17 @@ export function registerLfsAdminRoutes(app: Express) {
           const updateAvailable = data.version && data.version !== LFS_VERSION;
           captureLog(`[admin] Update check: current=${LFS_VERSION}, latest=${data.version}, available=${updateAvailable}`);
           return res.json({
+            ...state,
             updateAvailable,
-            currentVersion: LFS_VERSION,
             latestVersion: data.version,
             downloadUrl: data.downloadUrl,
             releaseNotes: data.releaseNotes,
+            lastCheckAt: new Date().toISOString(),
           });
         }
       } catch {}
 
-      res.json({ updateAvailable: false, currentVersion: LFS_VERSION, latestVersion: LFS_VERSION });
+      res.json({ ...state, latestVersion: LFS_VERSION });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });
