@@ -189,7 +189,7 @@ export default function LfsManagementPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-muted-foreground">Property ID</p>
-              <p className="font-mono text-sm font-medium" data-testid="text-config-property-id">{selectedProperty?.code || selectedPropertyId}</p>
+              <p className="font-mono text-sm font-medium" data-testid="text-config-property-id">{selectedPropertyId}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Property Name</p>
@@ -234,7 +234,7 @@ export default function LfsManagementPage() {
             API Key Management
           </CardTitle>
           <CardDescription>
-            Generate an API key for this property's LFS to authenticate with the cloud. The Property ID for LFS setup is: <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono" data-testid="text-property-code">{selectedProperty?.code || selectedPropertyId}</code>
+            Generate an API key for this property's LFS to authenticate with the cloud. The Property ID for LFS setup is: <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono" data-testid="text-property-code">{selectedPropertyId}</code>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -325,7 +325,7 @@ export default function LfsManagementPage() {
               <li>Generate an API key above (or rotate an existing one)</li>
               <li>On the LFS machine, set <code className="bg-muted px-1 rounded">CLOUD_API_URL</code> to <code className="bg-muted px-1 rounded font-mono">{window.location.origin}</code></li>
               <li>Set <code className="bg-muted px-1 rounded">LFS_API_KEY</code> to the generated key</li>
-              <li>Set <code className="bg-muted px-1 rounded">PROPERTY_ID</code> to <code className="bg-muted px-1 rounded font-mono">{selectedProperty?.code || selectedPropertyId}</code></li>
+              <li>Set <code className="bg-muted px-1 rounded">PROPERTY_ID</code> to <code className="bg-muted px-1 rounded font-mono">{selectedPropertyId}</code></li>
               <li>Start the LFS — it will auto-sync configuration from the cloud</li>
             </ol>
           </div>
