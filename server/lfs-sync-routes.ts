@@ -628,9 +628,18 @@ function registerLfsCloudRoutes(app: Express) {
           const tenderRows = await db.select().from(tenders).where(eq(tenders.id, tenderId)).limit(1);
           const tender = tenderRows[0];
           if (tender?.gatewayType) {
+            const configConditions = [eq(paymentGatewayConfig.gatewayType, tender.gatewayType)];
+            if (tender.propertyId) {
+              configConditions.push(eq(paymentGatewayConfig.propertyId, tender.propertyId));
+            }
             const configRows = await db.select().from(paymentGatewayConfig)
-              .where(eq(paymentGatewayConfig.gatewayType, tender.gatewayType)).limit(1);
-            const config = configRows[0];
+              .where(and(...configConditions)).limit(1);
+            let config = configRows[0];
+            if (!config && tender.propertyId) {
+              const fallbackRows = await db.select().from(paymentGatewayConfig)
+                .where(eq(paymentGatewayConfig.gatewayType, tender.gatewayType)).limit(1);
+              config = fallbackRows[0];
+            }
 
             const requiredKeys = getRequiredCredentialKeys(tender.gatewayType);
             const prefix = config?.envKeyPrefix || tender.gatewayType.toUpperCase();

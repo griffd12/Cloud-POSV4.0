@@ -135,8 +135,15 @@ export function PaymentModal({
   const [showLoyaltySection, setShowLoyaltySection] = useState(false);
   const [loyaltyPointsEarned, setLoyaltyPointsEarned] = useState(false); // Prevent duplicate earning
   
-  const isRunningLocally = connectionManager.isOffline;
+  const [isRunningLocally, setIsRunningLocally] = useState(connectionManager.isOffline);
   const [isInternetDown, setIsInternetDown] = useState(false);
+
+  useEffect(() => {
+    const unsub = connectionManager.subscribe(() => {
+      setIsRunningLocally(connectionManager.isOffline);
+    });
+    return unsub;
+  }, []);
   
   useEffect(() => {
     if (!isRunningLocally || !open) {
