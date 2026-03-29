@@ -88,11 +88,62 @@ function lfsAdminAuth(req: Request, res: Response, next: Function) {
 export function registerLfsAdminRoutes(app: Express) {
   if (!isLocalMode) return;
 
+  app.get("/api/lfs/admin/setup-status", (_req: Request, res: Response) => {
+    const hasApiKey = !!process.env.LFS_API_KEY;
+    const hasCloudUrl = !!process.env.LFS_CLOUD_URL;
+    res.json({ configured: hasApiKey, hasCloudUrl, needsSetup: !hasApiKey });
+  });
+
+  app.post("/api/lfs/admin/setup", (req: Request, res: Response) => {
+    if (process.env.LFS_API_KEY) {
+      res.status(403).json({ error: "Already configured. Use login instead." });
+      return;
+    }
+
+    const { apiKey, cloudUrl, propertyId } = req.body;
+    if (!apiKey || apiKey.length < 16) {
+      res.status(400).json({ error: "API key must be at least 16 characters" });
+      return;
+    }
+
+    try {
+      const envPath = path.join(process.cwd(), ".env");
+      let envContent = "";
+      if (fs.existsSync(envPath)) {
+        envContent = fs.readFileSync(envPath, "utf8");
+      }
+
+      const updates: Record<string, string> = { LFS_API_KEY: apiKey };
+      if (cloudUrl) updates.LFS_CLOUD_URL = cloudUrl;
+      if (propertyId) updates.LFS_PROPERTY_ID = propertyId;
+
+      for (const [key, value] of Object.entries(updates)) {
+        const regex = new RegExp(`^${key}=.*$`, "m");
+        if (regex.test(envContent)) {
+          envContent = envContent.replace(regex, `${key}=${value}`);
+        } else {
+          envContent += `\n${key}=${value}`;
+        }
+        process.env[key] = value;
+      }
+
+      fs.writeFileSync(envPath, envContent.trim() + "\n", "utf8");
+      captureLog(`[admin] Initial setup completed`);
+
+      const token = createSessionToken();
+      res.setHeader("Set-Cookie", buildCookieHeader(token));
+      res.json({ ok: true });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
   app.post("/api/lfs/admin/login", (req: Request, res: Response) => {
     const { apiKey } = req.body;
     const expected = process.env.LFS_API_KEY;
     if (!expected) {
-      res.status(401).json({ error: "LFS_API_KEY not configured on server" });
+      res.status(401).json({ error: "LFS_API_KEY not configured. Use /api/lfs/admin/setup first.", needsSetup: true });
       return;
     }
     if (apiKey === expected) {
@@ -390,6 +441,8 @@ export function startLfsAdminServer(_mainApp: Express) {
   const proxyGet = proxyToApi("get");
   const proxyPost = proxyToApi("post");
 
+  proxyGet("/api/lfs/admin/setup-status");
+  proxyPost("/api/lfs/admin/setup");
   proxyPost("/api/lfs/admin/login");
   proxyGet("/api/lfs/admin/config");
   proxyPost("/api/lfs/admin/config");
