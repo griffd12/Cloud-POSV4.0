@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { RotateCcw, Search, Loader2 } from "lucide-react";
 import type { Check } from "@shared/schema";
 import { formatInTimeZone } from "date-fns-tz";
+import { formatShortTimeInTimezone } from "@/lib/timezone";
 
 interface ReopenCheckModalProps {
   open: boolean;
@@ -60,7 +61,7 @@ export function ReopenCheckModal({
     try {
       return formatInTimeZone(new Date(dateVal), timezone, "h:mm a");
     } catch {
-      return new Date(dateVal).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      return formatShortTimeInTimezone(dateVal, timezone);
     }
   };
 

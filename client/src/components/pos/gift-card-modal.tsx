@@ -28,6 +28,7 @@ import {
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatShortDateInTimezone } from "@/lib/timezone";
 
 interface GiftCardModalProps {
   open: boolean;
@@ -38,6 +39,7 @@ interface GiftCardModalProps {
   rvcId: string | undefined;
   onGiftCardRedeemed?: (amount: string) => void;
   onGiftCardSold?: (checkItem: any, createdCheck?: any) => void;
+  timezone?: string;
 }
 
 interface GiftCardBalance {
@@ -58,6 +60,7 @@ export function GiftCardModal({
   rvcId,
   onGiftCardRedeemed,
   onGiftCardSold,
+  timezone,
 }: GiftCardModalProps) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("balance");
@@ -305,7 +308,7 @@ export function GiftCardModal({
                 {balanceResult.expiresAt && (
                   <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                     <Clock className="w-4 h-4" />
-                    Expires: {new Date(balanceResult.expiresAt).toLocaleDateString()}
+                    Expires: {formatShortDateInTimezone(balanceResult.expiresAt, timezone)}
                   </div>
                 )}
 

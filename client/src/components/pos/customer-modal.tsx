@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatShortDateInTimezone } from "@/lib/timezone";
 import { Separator } from "@/components/ui/separator";
 import {
   Search,
@@ -58,6 +59,7 @@ interface CustomerModalProps {
   propertyId?: string;
   onCustomerAttached?: (customer: LoyaltyMember) => void;
   onReorderRequested?: (items: CheckItem[], customer: LoyaltyMember | null) => void;
+  timezone?: string;
 }
 
 export function CustomerModal({
@@ -70,6 +72,7 @@ export function CustomerModal({
   propertyId,
   onCustomerAttached,
   onReorderRequested,
+  timezone,
 }: CustomerModalProps) {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
@@ -902,7 +905,7 @@ export function CustomerModal({
                               <span className="font-medium">Check #{check.checkNumber}</span>
                               <div className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
                                 <Clock className="w-3 h-3" />
-                                {check.openedAt ? new Date(check.openedAt).toLocaleDateString() : "N/A"}
+                                {check.openedAt ? formatShortDateInTimezone(check.openedAt, timezone) : "N/A"}
                               </div>
                             </div>
                             <div className="text-right">

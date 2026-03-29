@@ -2649,6 +2649,7 @@ export default function PosPage() {
         employeeId={currentEmployee?.id}
         enterpriseId={wsContext?.property?.enterpriseId || ""}
         propertyId={wsContext?.property?.id || ""}
+        timezone={wsContext?.property?.timezone || "America/New_York"}
         onCustomerAttached={(customer) => {
           toast({
             title: "Customer Attached",
@@ -2727,6 +2728,7 @@ export default function PosPage() {
         propertyId={currentRvc?.propertyId}
         employeeId={currentEmployee?.id}
         rvcId={currentRvc?.id}
+        timezone={wsContext?.property?.timezone || "America/New_York"}
         onGiftCardRedeemed={(amount) => {
           toast({
             title: "Gift Card Applied",
