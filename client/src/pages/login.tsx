@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { usePosContext } from "@/lib/pos-context";
 import { useDeviceContext } from "@/lib/device-context";
-import { apiRequest, getAuthHeaders, failoverFetch, fetchWithTimeout } from "@/lib/queryClient";
+import { apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { connectionManager } from "@/lib/connection-manager";
 import BreakAttestationDialog from "@/components/pos/break-attestation-dialog";
 import type { Employee, Rvc, Property, Timecard, JobCode, Workstation, BreakRule } from "@shared/schema";
