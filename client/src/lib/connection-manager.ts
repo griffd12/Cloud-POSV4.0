@@ -250,6 +250,7 @@ class ConnectionManager {
       }
 
       let safPending = 0;
+      let reconFailed = false;
       try {
         const reconRes = await fetch(`${lfsUrl}/api/lfs/reconcile-saf`, {
           method: "POST",
@@ -258,20 +259,30 @@ class ConnectionManager {
         });
         if (reconRes.ok) {
           const reconData = await reconRes.json();
-          if (reconData.settled > 0 || reconData.failed > 0) {
-            console.log(`[ConnectionManager] SAF reconciliation: ${reconData.settled} settled, ${reconData.failed} failed of ${reconData.total}`);
+          if (reconData.ok === false) {
+            console.warn("[ConnectionManager] SAF reconciliation returned ok=false:", reconData.error);
+            reconFailed = true;
+          } else {
+            if (reconData.settled > 0 || reconData.failed > 0) {
+              console.log(`[ConnectionManager] SAF reconciliation: ${reconData.settled} settled, ${reconData.failed} failed of ${reconData.total}`);
+            }
+            const stillPending = (reconData.results || []).filter((r: { status: string }) => r.status === "pending_settlement").length;
+            const failed = (reconData.results || []).filter((r: { status: string }) => r.status === "settlement_failed").length;
+            safPending = stillPending + failed;
           }
-          const stillPending = (reconData.results || []).filter((r: { status: string }) => r.status === "pending_settlement").length;
-          const failed = (reconData.results || []).filter((r: { status: string }) => r.status === "settlement_failed").length;
-          safPending = stillPending + failed;
+        } else {
+          console.warn("[ConnectionManager] SAF reconciliation returned non-OK:", reconRes.status);
+          reconFailed = true;
         }
       } catch (e: unknown) {
-        console.warn("[ConnectionManager] SAF reconciliation failed (non-critical):", e instanceof Error ? e.message : e);
+        console.warn("[ConnectionManager] SAF reconciliation failed:", e instanceof Error ? e.message : e);
+        reconFailed = true;
       }
 
       this.syncRequired = false;
-      if (safPending > 0) {
-        console.warn(`[ConnectionManager] ${safPending} SAF payments unresolved — staying degraded`);
+      if (reconFailed || safPending > 0) {
+        const reason = reconFailed ? "reconciliation failed" : `${safPending} SAF payments unresolved`;
+        console.warn(`[ConnectionManager] ${reason} — staying degraded`);
         this.setState("cloud-degraded");
       } else {
         this.setState("cloud-online");

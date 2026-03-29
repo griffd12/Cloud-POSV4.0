@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import { db } from "./db";
-import { checks, checkItems, checkPayments } from "@shared/schema";
+import { checks, checkItems, checkPayments, tenders, paymentGatewayConfig } from "@shared/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { getConfigSyncService } from "./config-sync";
 
@@ -622,20 +622,36 @@ function registerLfsCloudRoutes(app: Express) {
       }
 
       try {
-        const { getPaymentAdapter } = await import("./payments/registry");
-        const adapter = await getPaymentAdapter(tenderId);
+        const { createPaymentAdapter, resolveCredentials, getRequiredCredentialKeys } = await import("./payments/registry");
 
-        if (adapter && typeof adapter.verifyTransaction === "function") {
-          const verification = await adapter.verifyTransaction(transactionId, amount);
-          return res.json({
-            verified: verification.settled === true,
-            declined: verification.declined === true,
-            transactionId: verification.transactionId || transactionId,
-            processorResponse: verification.message,
-          });
+        if (tenderId && db) {
+          const tenderRows = await db.select().from(tenders).where(eq(tenders.id, tenderId)).limit(1);
+          const tender = tenderRows[0];
+          if (tender?.gatewayType) {
+            const configRows = await db.select().from(paymentGatewayConfig)
+              .where(eq(paymentGatewayConfig.gatewayType, tender.gatewayType)).limit(1);
+            const config = configRows[0];
+
+            const requiredKeys = getRequiredCredentialKeys(tender.gatewayType);
+            const prefix = config?.envKeyPrefix || tender.gatewayType.toUpperCase();
+            const dbCreds = config?.encryptedCredentials ? JSON.parse(config.encryptedCredentials) : {};
+            const credentials = resolveCredentials(prefix, requiredKeys, dbCreds);
+            const environment = config?.environment === "production" ? "production" : "sandbox";
+
+            const adapter = createPaymentAdapter(tender.gatewayType, credentials, {}, environment);
+            if (adapter && typeof (adapter as Record<string, unknown>).verifyTransaction === "function") {
+              const verification = await (adapter as unknown as { verifyTransaction: (id: string, amt: string) => Promise<{ settled?: boolean; declined?: boolean; transactionId?: string; message?: string }> }).verifyTransaction(transactionId, amount);
+              return res.json({
+                verified: verification.settled === true,
+                declined: verification.declined === true,
+                transactionId: verification.transactionId || transactionId,
+                processorResponse: verification.message,
+              });
+            }
+          }
         }
       } catch (adapterErr) {
-        console.warn(`[SAF Verify] Adapter lookup failed for tender ${tenderId}: ${adapterErr}`);
+        console.warn(`[SAF Verify] Adapter lookup/verification failed for tender ${tenderId}: ${adapterErr}`);
       }
 
       return res.json({
