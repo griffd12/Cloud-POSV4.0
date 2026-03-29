@@ -130,10 +130,7 @@ app.get("/health", async (_req, res) => {
   });
 
   if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
-    if (isLocalMode) {
-      log("Frontend serving enabled — browser refresh will load POS from LFS", "lfs");
-    }
+    serveStatic(app, isLocalMode);
   } else {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
