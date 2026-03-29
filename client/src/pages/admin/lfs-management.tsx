@@ -316,11 +316,14 @@ export default function LfsManagementPage() {
             </div>
           )}
 
-          <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+          <div className="mt-4 p-3 bg-muted/50 rounded-lg" data-testid="card-first-run-setup">
             <h4 className="text-sm font-medium mb-2">LFS First-Run Setup</h4>
+            <p className="text-xs text-muted-foreground mb-2">
+              Generate your API key in EMC under your Property &gt; Local Failover Server, then configure the LFS machine:
+            </p>
             <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-              <li>Generate an API key above</li>
-              <li>On the LFS machine, set <code className="bg-muted px-1 rounded">CLOUD_API_URL</code> to your cloud server URL</li>
+              <li>Generate an API key above (or rotate an existing one)</li>
+              <li>On the LFS machine, set <code className="bg-muted px-1 rounded">CLOUD_API_URL</code> to <code className="bg-muted px-1 rounded font-mono">{window.location.origin}</code></li>
               <li>Set <code className="bg-muted px-1 rounded">LFS_API_KEY</code> to the generated key</li>
               <li>Set <code className="bg-muted px-1 rounded">PROPERTY_ID</code> to <code className="bg-muted px-1 rounded font-mono">{selectedProperty?.code || selectedPropertyId}</code></li>
               <li>Start the LFS — it will auto-sync configuration from the cloud</li>
@@ -362,7 +365,7 @@ export default function LfsManagementPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {syncLogs.map((log: any) => (
+                  {syncLogs.map((log: { id: string; syncType: string; direction: string; status: string; recordCount?: number; lfsIp?: string; lfsVersion?: string; createdAt?: string }) => (
                     <TableRow key={log.id} data-testid={`row-sync-log-${log.id}`}>
                       <TableCell>{logStatusIcon(log.status)}</TableCell>
                       <TableCell className="font-mono text-xs">{log.syncType}</TableCell>

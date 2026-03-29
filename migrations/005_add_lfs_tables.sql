@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS "lfs_configurations" (
   "sync_status" varchar DEFAULT 'never_connected',
   "last_sync_at" timestamp,
   "lfs_version" varchar,
-  "lfs_ip_address" varchar,
+  "last_sync_ip" varchar,
   "created_at" timestamp DEFAULT now(),
   "updated_at" timestamp DEFAULT now()
 );
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS "lfs_sync_logs" (
   "status" varchar NOT NULL,
   "record_count" integer DEFAULT 0,
   "error_message" text,
-  "lfs_ip_address" varchar,
+  "lfs_ip" varchar,
   "lfs_version" varchar,
   "created_at" timestamp DEFAULT now()
 );
