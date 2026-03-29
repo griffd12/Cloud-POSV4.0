@@ -165,6 +165,50 @@ export default function LfsManagementPage() {
         </Card>
       </div>
 
+      <Card data-testid="card-config-summary">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wifi className="h-5 w-5" />
+            Configuration Summary
+          </CardTitle>
+          <CardDescription>LFS connection details for this property</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm text-muted-foreground">Property ID</p>
+              <p className="font-mono text-sm font-medium" data-testid="text-config-property-id">{selectedProperty?.code || selectedPropertyId}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Property Name</p>
+              <p className="text-sm font-medium" data-testid="text-config-property-name">{selectedProperty?.name || "—"}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Cloud API URL</p>
+              <p className="font-mono text-sm font-medium" data-testid="text-config-cloud-url">{window.location.origin}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">API Key Status</p>
+              <p className="text-sm font-medium" data-testid="text-config-key-status">
+                {lfsConfig?.apiKey ? (
+                  <Badge variant="default" className="bg-green-600">Active</Badge>
+                ) : (
+                  <Badge variant="secondary">Not Configured</Badge>
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Created</p>
+              <p className="text-sm font-medium" data-testid="text-config-created">{formatTimestamp(lfsConfig?.createdAt)}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Last Updated</p>
+              <p className="text-sm font-medium" data-testid="text-config-updated">{formatTimestamp(lfsConfig?.updatedAt)}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card data-testid="card-api-key">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

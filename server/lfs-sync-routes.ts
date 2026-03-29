@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { storage } from "./storage";
 import { db } from "./db";
 import { checks, checkItems, checkPayments, tenders, paymentGatewayConfig } from "@shared/schema";
@@ -26,7 +27,8 @@ async function requireLfsApiKey(req: Request, res: Response, next: NextFunction)
     return next();
   }
 
-  const dbConfig = await storage.getLfsConfigurationByApiKey(provided);
+  const hashedProvided = crypto.createHash("sha256").update(provided).digest("hex");
+  const dbConfig = await storage.getLfsConfigurationByApiKey(hashedProvided);
   if (dbConfig) {
     (req as any).lfsPropertyId = dbConfig.propertyId;
     (req as any).lfsConfigId = dbConfig.id;
@@ -34,6 +36,16 @@ async function requireLfsApiKey(req: Request, res: Response, next: NextFunction)
   }
 
   return res.status(403).json({ error: "Invalid or missing LFS API key" });
+}
+
+function enforceLfsPropertyScope(req: Request, res: Response): string | null {
+  const lfsPropertyId = (req as any).lfsPropertyId as string | undefined;
+  const queryPropertyId = req.query.propertyId as string || req.body?.propertyId as string;
+  if (lfsPropertyId && queryPropertyId && queryPropertyId !== lfsPropertyId) {
+    res.status(403).json({ error: "API key is not authorized for this property" });
+    return null;
+  }
+  return lfsPropertyId || queryPropertyId || null;
 }
 
 export function registerLfsSyncRoutes(app: Express) {
@@ -574,12 +586,8 @@ function registerLfsCloudRoutes(app: Express) {
       if (!ALLOWED_CONFIG_TABLES.has(tableName)) {
         return res.status(400).json({ error: `Table '${tableName}' is not allowed for config sync` });
       }
-      const lfsPropertyId = (req as any).lfsPropertyId as string | undefined;
-      const queryPropertyId = req.query.propertyId as string | undefined;
-      if (lfsPropertyId && queryPropertyId && queryPropertyId !== lfsPropertyId) {
-        return res.status(403).json({ error: "API key is not authorized for this property" });
-      }
-      const propertyId = lfsPropertyId || queryPropertyId;
+      const propertyId = enforceLfsPropertyScope(req, res);
+      if (propertyId === null && (req as any).lfsPropertyId) return;
       const since = req.query.since as string | undefined;
 
       const colsResult = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name = ${tableName}`);
@@ -688,9 +696,13 @@ function registerLfsCloudRoutes(app: Express) {
         }
       }
 
+      const successes = results.filter(r => r.ok).length;
+      const failures = results.filter(r => !r.ok).length;
       res.json({ ok: true, results });
+      recordLfsSyncActivity(req, "batch-up", "up", successes, failures > 0 ? "error" : "success", failures > 0 ? `${failures} of ${results.length} entries failed` : undefined);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
+      recordLfsSyncActivity(req, "batch-up", "up", 0, "error", msg);
       res.status(500).json({ error: msg });
     }
   });
@@ -722,7 +734,9 @@ function registerLfsCloudRoutes(app: Express) {
 
   app.get("/api/lfs/sync/pending-settlements", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
-      const propertyId = req.query.propertyId as string | undefined;
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as any).lfsPropertyId) return;
+      const propertyId = scopedPropertyId;
       let pendingPayments;
       if (propertyId) {
         pendingPayments = await db.select()
@@ -884,7 +898,9 @@ function registerLfsCloudRoutes(app: Express) {
 
   app.get("/api/lfs/sync/failed-settlements", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
-      const propertyId = req.query.propertyId as string | undefined;
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as any).lfsPropertyId) return;
+      const propertyId = scopedPropertyId;
       let failedPayments;
       if (propertyId) {
         const joined = await db.select()
@@ -913,7 +929,10 @@ function registerLfsCloudRoutes(app: Express) {
 
   app.post("/api/lfs/sync/reconcile-saf-batch", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
-      const { propertyId, settlements } = req.body;
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as any).lfsPropertyId) return;
+      const { settlements } = req.body;
+      const propertyId = scopedPropertyId || req.body.propertyId;
 
       if (!settlements || !Array.isArray(settlements)) {
         return res.status(400).json({ error: "settlements array is required with paymentId, amount, and settlementTransactionId per entry" });

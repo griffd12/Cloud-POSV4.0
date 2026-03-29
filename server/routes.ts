@@ -22883,18 +22883,19 @@ connect();
 
       const rawKey = `lfs_${crypto.randomBytes(32).toString("hex")}`;
       const masked = rawKey.substring(0, 8) + "..." + rawKey.substring(rawKey.length - 4);
+      const hashedKey = crypto.createHash("sha256").update(rawKey).digest("hex");
 
       const existing = await storage.getLfsConfiguration(propertyId);
       let config;
       if (existing) {
         config = await storage.updateLfsConfiguration(propertyId, {
-          apiKey: rawKey,
+          apiKey: hashedKey,
           apiKeyMasked: masked,
         });
       } else {
         config = await storage.createLfsConfiguration({
           propertyId,
-          apiKey: rawKey,
+          apiKey: hashedKey,
           apiKeyMasked: masked,
         });
       }
