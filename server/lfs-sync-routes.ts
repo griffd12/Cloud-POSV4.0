@@ -37,13 +37,21 @@ async function requireLfsApiKey(req: Request, res: Response, next: NextFunction)
   }
 
   const hashedProvided = crypto.createHash("sha256").update(provided).digest("hex");
+
+  if (propertyIdHeader) {
+    const configByProperty = await storage.getLfsConfiguration(propertyIdHeader);
+    if (configByProperty && configByProperty.apiKey === hashedProvided) {
+      (req as LfsAuthenticatedRequest).lfsPropertyId = configByProperty.propertyId;
+      (req as LfsAuthenticatedRequest).lfsConfigId = configByProperty.id;
+      return next();
+    }
+    return res.status(403).json({ error: "API key does not match the specified property" });
+  }
+
   const dbConfig = await storage.getLfsConfigurationByApiKey(hashedProvided);
   if (dbConfig) {
     (req as LfsAuthenticatedRequest).lfsPropertyId = dbConfig.propertyId;
     (req as LfsAuthenticatedRequest).lfsConfigId = dbConfig.id;
-    if (propertyIdHeader && propertyIdHeader !== dbConfig.propertyId) {
-      return res.status(403).json({ error: "API key does not match the specified property" });
-    }
     return next();
   }
 
@@ -781,6 +789,9 @@ function registerLfsCloudRoutes(app: Express) {
 
   app.post("/api/lfs/sync/verify-processor-settlement", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
+
       const { transactionId, amount, tenderId } = req.body;
       if (!transactionId) {
         return res.status(400).json({ error: "transactionId is required" });
@@ -842,6 +853,9 @@ function registerLfsCloudRoutes(app: Express) {
 
   app.post("/api/lfs/sync/settle-payment", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
+
       const { paymentId, offlineTransactionId, settlementTransactionId, settlementStatus, amount, checkId, tenderId } = req.body;
       if (!paymentId && !offlineTransactionId) {
         return res.status(400).json({ error: "paymentId or offlineTransactionId is required" });

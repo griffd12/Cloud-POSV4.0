@@ -22874,13 +22874,14 @@ connect();
         return res.json(null);
       }
       res.json({ ...config, apiKey: config.apiKeyMasked });
-    } catch (error: any) {
-      console.error("Error fetching LFS config:", error);
-      res.status(500).json({ message: error.message || "Failed to fetch LFS config" });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to fetch LFS config";
+      console.error("Error fetching LFS config:", msg);
+      res.status(500).json({ message: msg });
     }
   });
 
-  app.post("/api/emc/lfs-config/:propertyId/generate-key", requireEmcLfsSession, async (req: Request, res: Response) => {
+  async function handleGenerateKey(req: Request, res: Response) {
     try {
       const { propertyId } = req.params;
 
@@ -22904,11 +22905,15 @@ connect();
       }
 
       res.json({ config: { ...config, apiKey: masked }, rawKey });
-    } catch (error: any) {
-      console.error("Error generating LFS API key:", error);
-      res.status(500).json({ message: error.message || "Failed to generate API key" });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to generate API key";
+      console.error("Error generating LFS API key:", msg);
+      res.status(500).json({ message: msg });
     }
-  });
+  }
+
+  app.post("/api/emc/lfs-config/:propertyId", requireEmcLfsSession, handleGenerateKey);
+  app.post("/api/emc/lfs-config/:propertyId/generate-key", requireEmcLfsSession, handleGenerateKey);
 
   app.post("/api/emc/lfs-config/:propertyId/rotate-key", requireEmcLfsSession, async (req: Request, res: Response) => {
     try {
