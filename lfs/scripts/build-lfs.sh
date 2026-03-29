@@ -36,6 +36,17 @@ npx esbuild server/index.ts \
 echo "[2/9] Building frontend assets..."
 npx vite build --outDir "$BUILD_DIR/$PACKAGE_NAME/public"
 
+if [ ! -f "$BUILD_DIR/$PACKAGE_NAME/public/index.html" ]; then
+  echo "ERROR: Frontend build failed — public/index.html not found"
+  exit 1
+fi
+FRONTEND_FILES=$(ls -1 "$BUILD_DIR/$PACKAGE_NAME/public/assets/"*.js 2>/dev/null | wc -l)
+if [ "$FRONTEND_FILES" -eq 0 ]; then
+  echo "ERROR: Frontend build produced no JS bundles"
+  exit 1
+fi
+echo "  Frontend build OK: index.html + $FRONTEND_FILES JS bundle(s)"
+
 echo "[3/9] Copying LFS admin dashboard..."
 cp -r "$PROJECT_ROOT/lfs/admin" "$BUILD_DIR/$PACKAGE_NAME/lfs-admin"
 

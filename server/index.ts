@@ -129,11 +129,11 @@ app.get("/health", async (_req, res) => {
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
+    if (isLocalMode) {
+      log("Frontend serving enabled — browser refresh will load POS from LFS", "lfs");
+    }
   } else {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
