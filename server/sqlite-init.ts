@@ -229,6 +229,8 @@ export function initSqliteSchema(db: Database.Database): void {
 
     migrateExistingTables(db);
 
+    evolveSchemaColumns(db, tables);
+
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
@@ -296,5 +298,69 @@ function migrateExistingTables(db: Database.Database): void {
   }
   if (migrated > 0) {
     console.log(`[LFS] Added offline_transaction_id to ${migrated} existing table(s)`);
+  }
+}
+
+function generateColumnDef(col: any): string {
+  let sqlType = pgTypeToSqlite(col.columnType, col.dataType);
+  let def = `"${col.name}" ${sqlType}`;
+
+  if (col.hasDefault && !col.primary) {
+    if (col.columnType === "PgBoolean") {
+      def += col.default === true ? " DEFAULT 1" : " DEFAULT 0";
+    } else if (col.columnType === "PgInteger") {
+      if (typeof col.default === "number") def += ` DEFAULT ${col.default}`;
+      else def += " DEFAULT 0";
+    } else if (col.columnType === "PgReal") {
+      if (typeof col.default === "number") def += ` DEFAULT ${col.default}`;
+    } else if (col.columnType === "PgDecimal" || col.columnType === "PgNumeric") {
+      if (typeof col.default === "string") def += ` DEFAULT '${col.default}'`;
+      else def += " DEFAULT '0'";
+    } else if (col.columnType === "PgTimestamp") {
+      if (isDefaultNow(col)) def += " DEFAULT CURRENT_TIMESTAMP";
+    } else if (col.columnType === "PgJsonb") {
+      const dv = col.default;
+      if (Array.isArray(dv)) def += ` DEFAULT '${JSON.stringify(dv)}'`;
+      else if (typeof dv === "object" && dv !== null) def += ` DEFAULT '${JSON.stringify(dv)}'`;
+      else if (typeof dv === "string") def += ` DEFAULT '${dv.replace(/'/g, "''")}'`;
+      else def += " DEFAULT NULL";
+    } else if (col.columnType === "PgVarchar" || col.columnType === "PgText") {
+      if (typeof col.default === "string") def += ` DEFAULT '${col.default.replace(/'/g, "''")}'`;
+    }
+  }
+
+  return def;
+}
+
+function evolveSchemaColumns(db: Database.Database, tables: any[]): void {
+  let totalAdded = 0;
+
+  for (const table of tables) {
+    try {
+      const config = getTableConfig(table);
+      const existingCols = db.pragma(`table_info("${config.name}")`) as Array<{ name: string }>;
+      if (existingCols.length === 0) continue;
+
+      const existingNames = new Set(existingCols.map(c => c.name));
+
+      for (const col of config.columns) {
+        if (!existingNames.has(col.name)) {
+          const colDef = generateColumnDef(col);
+          try {
+            db.exec(`ALTER TABLE "${config.name}" ADD COLUMN ${colDef}`);
+            totalAdded++;
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (!msg.includes("duplicate column")) {
+              console.warn(`[LFS] Failed to add column ${config.name}.${col.name}: ${msg}`);
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  if (totalAdded > 0) {
+    console.log(`[LFS] Schema evolution: added ${totalAdded} new column(s) to existing tables`);
   }
 }
