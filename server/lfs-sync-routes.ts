@@ -88,9 +88,10 @@ function requireLfsLocalAuth(req: Request, res: Response, next: Function) {
   if (cookie) {
     const match = cookie.match(/lfs_admin_session=([^;]+)/);
     if (match) {
-      const crypto = require("crypto");
-      const expectedToken = crypto.createHmac("sha256", apiKey).update("lfs-admin-session").digest("hex");
-      if (match[1] === expectedToken) return next();
+      try {
+        const { isValidAdminSession } = require("./lfs-admin-routes");
+        if (isValidAdminSession(match[1])) return next();
+      } catch {}
     }
   }
 

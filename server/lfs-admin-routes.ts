@@ -35,9 +35,21 @@ export function captureLog(message: string) {
   }
 }
 
-function createSessionToken(apiKey: string): string {
+const activeSessions = new Set<string>();
+
+function createSessionToken(): string {
   const crypto = require("crypto");
-  return crypto.createHmac("sha256", apiKey).update("lfs-admin-session").digest("hex");
+  const token = crypto.randomBytes(32).toString("hex");
+  activeSessions.add(token);
+  return token;
+}
+
+function invalidateSession(token: string): void {
+  activeSessions.delete(token);
+}
+
+export function isValidAdminSession(token: string): boolean {
+  return activeSessions.has(token);
 }
 
 function buildCookieHeader(token: string): string {
@@ -67,8 +79,7 @@ function lfsAdminAuth(req: Request, res: Response, next: Function) {
   const cookie = req.headers.cookie;
   if (cookie) {
     const match = cookie.match(/lfs_admin_session=([^;]+)/);
-    const expectedToken = createSessionToken(apiKey);
-    if (match && match[1] === expectedToken) return next();
+    if (match && activeSessions.has(match[1])) return next();
   }
 
   res.status(401).json({ error: "Unauthorized" });
@@ -85,7 +96,7 @@ export function registerLfsAdminRoutes(app: Express) {
       return;
     }
     if (apiKey === expected) {
-      const token = createSessionToken(expected);
+      const token = createSessionToken();
       res.setHeader("Set-Cookie", buildCookieHeader(token));
       res.json({ ok: true });
     } else {
