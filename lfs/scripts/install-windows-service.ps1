@@ -67,7 +67,7 @@ if (-not (Test-Path $envFile)) {
     }
 }
 
-$wrapperScript = Join-Path $InstallDir "service-wrapper.js"
+$wrapperScript = Join-Path $InstallDir "service-wrapper.cjs"
 $wrapperContent = @"
 const { spawn } = require('child_process');
 const path = require('path');
