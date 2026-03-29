@@ -39,7 +39,7 @@ function lfsAdminAuth(req: Request, res: Response, next: Function) {
   const apiKey = process.env.LFS_API_KEY;
   if (!apiKey) return next();
 
-  const provided = req.headers["x-lfs-admin-key"] || req.query["admin_key"];
+  const provided = req.headers["x-lfs-admin-key"];
   if (provided === apiKey) return next();
 
   const cookie = req.headers.cookie;
@@ -48,7 +48,7 @@ function lfsAdminAuth(req: Request, res: Response, next: Function) {
     if (match && match[1] === apiKey) return next();
   }
 
-  res.status(401).json({ error: "Unauthorized — provide x-lfs-admin-key header or admin_key query param" });
+  res.status(401).json({ error: "Unauthorized" });
 }
 
 export function registerLfsAdminRoutes(app: Express) {
@@ -235,24 +235,27 @@ export function registerLfsAdminRoutes(app: Express) {
   app.get("/api/lfs/admin/journal/pending", async (_req: Request, res: Response) => {
     try {
       const { storage } = await import("./storage");
-      const storageAny = storage as Record<string, unknown>;
-      if (typeof storageAny.getPendingTransactions === "function") {
-        const entries = (storageAny.getPendingTransactions as () => unknown[])();
+      const s = storage as {
+        getPendingTransactions?: () => unknown[];
+        getPendingTransactionCount?: () => number;
+      };
+      if (s.getPendingTransactions) {
+        const entries = s.getPendingTransactions();
         res.json({ entries, count: entries.length });
-      } else if (typeof storageAny.getPendingTransactionCount === "function") {
-        const count = (storageAny.getPendingTransactionCount as () => number)();
+      } else if (s.getPendingTransactionCount) {
+        const count = s.getPendingTransactionCount();
         res.json({ entries: [], count });
       } else {
         res.json({ entries: [], count: 0 });
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
-      res.json({ entries: [], count: 0, error: msg });
+      res.status(500).json({ entries: [], count: 0, error: msg });
     }
   });
 }
 
-export function startLfsAdminServer(app: Express) {
+export function startLfsAdminServer(_mainApp: Express) {
   if (!isLocalMode) return;
 
   const adminDir = path.resolve(process.cwd(), "lfs", "admin");
@@ -270,13 +273,80 @@ export function startLfsAdminServer(app: Express) {
     return;
   }
 
-  app.use("/lfs-admin", express.static(servePath));
+  const adminApp = express();
+  const apiPort = parseInt(process.env.PORT || "3001", 10);
+  const adminPort = parseInt(process.env.LFS_ADMIN_PORT || "3002", 10);
 
-  app.get("/lfs-admin", (_req: Request, res: Response) => {
+  adminApp.use(express.json());
+
+  adminApp.use((_req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", `http://localhost:${adminPort}`);
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-lfs-admin-key");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    if (_req.method === "OPTIONS") return res.sendStatus(204);
+    next();
+  });
+
+  adminApp.use(express.static(servePath));
+
+  adminApp.get("/", (_req: Request, res: Response) => {
     res.sendFile(path.join(servePath, "index.html"));
   });
 
-  const apiPort = parseInt(process.env.PORT || "3001", 10);
-  console.log(`[lfs-admin] Admin dashboard available at http://localhost:${apiPort}/lfs-admin`);
-  captureLog(`[admin] Admin dashboard available at /lfs-admin`);
+  const proxyToApi = (method: "get" | "post") => (routePath: string) => {
+    adminApp[method](routePath, async (req: Request, res: Response) => {
+      try {
+        const url = `http://localhost:${apiPort}${routePath}`;
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (req.headers["x-lfs-admin-key"]) {
+          headers["x-lfs-admin-key"] = req.headers["x-lfs-admin-key"] as string;
+        }
+        if (req.headers.cookie) {
+          headers["cookie"] = req.headers.cookie;
+        }
+        const options: RequestInit = {
+          method: method.toUpperCase(),
+          headers,
+          signal: AbortSignal.timeout(10000),
+        };
+        if (method === "post" && req.body) {
+          options.body = JSON.stringify(req.body);
+        }
+        const response = await fetch(url, options);
+        const setCookieHeader = response.headers.get("set-cookie");
+        if (setCookieHeader) {
+          res.setHeader("Set-Cookie", setCookieHeader);
+        }
+        const data = await response.json();
+        res.status(response.status).json(data);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Proxy error";
+        res.status(502).json({ error: msg });
+      }
+    });
+  };
+
+  const proxyGet = proxyToApi("get");
+  const proxyPost = proxyToApi("post");
+
+  proxyPost("/api/lfs/admin/login");
+  proxyGet("/api/lfs/admin/config");
+  proxyPost("/api/lfs/admin/config");
+  proxyPost("/api/lfs/admin/test-connection");
+  proxyPost("/api/lfs/admin/trigger-sync");
+  proxyGet("/api/lfs/admin/logs");
+  proxyPost("/api/lfs/admin/check-update");
+  proxyGet("/api/lfs/admin/devices");
+  proxyGet("/api/lfs/admin/journal/pending");
+  proxyGet("/api/health");
+  proxyGet("/api/lfs/sync/status");
+  proxyGet("/api/lfs/sync/latest-version");
+  proxyGet("/api/lfs/sync/pending-settlements");
+  proxyGet("/api/lfs/payment-status");
+
+  adminApp.listen(adminPort, "0.0.0.0", () => {
+    console.log(`[lfs-admin] Admin dashboard available at http://localhost:${adminPort}`);
+    captureLog(`[admin] Admin dashboard started on port ${adminPort}`);
+  });
 }

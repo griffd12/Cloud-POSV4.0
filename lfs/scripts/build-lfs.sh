@@ -125,7 +125,7 @@ fi
 
 echo "Starting Cloud POS Local Failover Server..."
 echo "  API Port: \$PORT"
-echo "  Admin: http://localhost:\$PORT/lfs-admin"
+echo "  Admin: http://localhost:\${LFS_ADMIN_PORT:-3002}"
 echo "  Data: \$DATA_DIR"
 echo "  Logs: \$LOG_DIR"
 
@@ -160,7 +160,7 @@ if not exist "%NODE_CMD%" set "NODE_CMD=node"
 
 echo Starting Cloud POS Local Failover Server...
 echo   API Port: %PORT%
-echo   Admin: http://localhost:%PORT%/lfs-admin
+echo   Admin: http://localhost:3002
 echo   Data: %DATA_DIR%
 echo   Logs: %LOG_DIR%
 
@@ -195,8 +195,9 @@ LFS_CLOUD_URL=https://your-cloud-pos.example.com
 LFS_API_KEY=your-api-key-here
 LFS_PROPERTY_ID=your-property-id
 
-# Server port
+# Server ports
 PORT=3001
+LFS_ADMIN_PORT=3002
 
 # Database
 DB_MODE=local
@@ -242,4 +243,4 @@ echo "To deploy:"
 echo "  1. Extract the archive on target machine"
 echo "  2. Copy .env.example to .env and configure"
 echo "  3. Run: ./start-lfs.sh (Linux/Mac) or start-lfs.bat (Windows)"
-echo "  4. Access admin at: http://localhost:3001/lfs-admin"
+echo "  4. Access admin at: http://localhost:3002"

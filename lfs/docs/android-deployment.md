@@ -160,7 +160,7 @@ Set a static IP on the Android device:
 
 Access the admin dashboard from any browser on the same network:
 ```
-http://ANDROID_IP:3001/lfs-admin
+http://ANDROID_IP:3002
 ```
 
 ## Troubleshooting

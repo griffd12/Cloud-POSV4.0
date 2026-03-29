@@ -11,6 +11,7 @@
 
 param(
     [int]$ApiPort = 3001,
+    [int]$AdminPort = 3002,
     [int]$PollIntervalMs = 5000
 )
 
@@ -52,7 +53,7 @@ $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
 
 $menuOpenAdmin = $contextMenu.Items.Add("Open Admin Dashboard")
 $menuOpenAdmin.Add_Click({
-    Start-Process "http://localhost:$ApiPort/lfs-admin"
+    Start-Process "http://localhost:$AdminPort"
 })
 
 $menuOpenPos = $contextMenu.Items.Add("Open POS")
@@ -88,7 +89,7 @@ $script:notifyIcon.ContextMenuStrip = $contextMenu
 $script:notifyIcon.Icon = New-Icon "gray"
 
 $script:notifyIcon.Add_DoubleClick({
-    Start-Process "http://localhost:$ApiPort/lfs-admin"
+    Start-Process "http://localhost:$AdminPort"
 })
 
 $timer = New-Object System.Windows.Forms.Timer

@@ -11,13 +11,16 @@
     The name of the Windows Service. Defaults to "CloudPOS-LFS".
 .PARAMETER Port
     The API port. Defaults to 3001.
+.PARAMETER AdminPort
+    The admin dashboard port. Defaults to 3002.
 #>
 
 param(
     [string]$InstallDir = (Get-Location).Path,
     [string]$ServiceName = "CloudPOS-LFS",
     [string]$DisplayName = "Cloud POS Local Failover Server",
-    [int]$Port = 3001
+    [int]$Port = 3001,
+    [int]$AdminPort = 3002
 )
 
 $ErrorActionPreference = "Stop"
@@ -92,6 +95,7 @@ process.env.DB_MODE = 'local';
 process.env.NODE_ENV = 'production';
 process.env.SQLITE_PATH = process.env.SQLITE_PATH || path.join(installDir, 'data', 'pos-local.db');
 process.env.PORT = process.env.PORT || '$Port';
+process.env.LFS_ADMIN_PORT = process.env.LFS_ADMIN_PORT || '$AdminPort';
 
 const logDir = path.join(installDir, 'logs');
 if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
@@ -172,7 +176,7 @@ Write-Host ""
 Write-Host "Configuration:" -ForegroundColor Cyan
 Write-Host "  Install Dir:  $InstallDir"
 Write-Host "  API Port:     $Port"
-Write-Host "  Admin:        http://localhost:$Port/lfs-admin"
+Write-Host "  Admin Port:   $AdminPort"
 Write-Host "  Data Dir:     $dataDir"
 Write-Host "  Log Dir:      $logDir"
 Write-Host ""
@@ -185,7 +189,7 @@ if ($startNow -ne 'n' -and $startNow -ne 'N') {
     if ($svc.Status -eq 'Running') {
         Write-Host "Service is running!" -ForegroundColor Green
         Write-Host "  POS API: http://localhost:$Port" -ForegroundColor Cyan
-        Write-Host "  Admin:   http://localhost:$Port/lfs-admin" -ForegroundColor Cyan
+        Write-Host "  Admin:   http://localhost:$AdminPort" -ForegroundColor Cyan
     } else {
         Write-Host "Service failed to start. Check logs at: $logDir" -ForegroundColor Red
     }
@@ -197,6 +201,11 @@ $fwRuleApi = Get-NetFirewallRule -DisplayName "CloudPOS-LFS-API" -ErrorAction Si
 if (-not $fwRuleApi) {
     New-NetFirewallRule -DisplayName "CloudPOS-LFS-API" -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow | Out-Null
     Write-Host "  Created firewall rule for API port $Port" -ForegroundColor Green
+}
+$fwRuleAdmin = Get-NetFirewallRule -DisplayName "CloudPOS-LFS-Admin" -ErrorAction SilentlyContinue
+if (-not $fwRuleAdmin) {
+    New-NetFirewallRule -DisplayName "CloudPOS-LFS-Admin" -Direction Inbound -Protocol TCP -LocalPort $AdminPort -Action Allow | Out-Null
+    Write-Host "  Created firewall rule for Admin port $AdminPort" -ForegroundColor Green
 }
 
 Write-Host ""
@@ -213,7 +222,7 @@ $shortcutPath = Join-Path $startupDir "CloudPOS-LFS-Tray.lnk"
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = "powershell.exe"
-$shortcut.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$trayScript`" -ApiPort $Port"
+$shortcut.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$trayScript`" -ApiPort $Port -AdminPort $AdminPort"
 $shortcut.WorkingDirectory = $InstallDir
 $shortcut.Description = "Cloud POS LFS System Tray Indicator"
 $shortcut.Save()
@@ -221,7 +230,7 @@ Write-Host "  Tray indicator will start automatically on login" -ForegroundColor
 
 $startTray = Read-Host "Start tray indicator now? (Y/n)"
 if ($startTray -ne 'n' -and $startTray -ne 'N') {
-    Start-Process powershell.exe -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$trayScript`" -ApiPort $Port" -WindowStyle Hidden
+    Start-Process powershell.exe -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$trayScript`" -ApiPort $Port -AdminPort $AdminPort" -WindowStyle Hidden
     Write-Host "  Tray indicator started" -ForegroundColor Green
 }
 
@@ -229,5 +238,5 @@ Write-Host ""
 Write-Host "Installation complete!" -ForegroundColor Green
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Edit .env file with cloud connection details"
-Write-Host "  2. Access admin dashboard at http://localhost:$Port/lfs-admin"
+Write-Host "  2. Access admin dashboard at http://localhost:$AdminPort"
 Write-Host "  3. Verify sync status and configure property settings"

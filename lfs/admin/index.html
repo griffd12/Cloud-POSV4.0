@@ -234,8 +234,21 @@
     </div>
   </div>
 
+  <div id="login-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9999; display:flex; align-items:center; justify-content:center;">
+    <div style="background:var(--card-bg); border-radius:12px; padding:32px; max-width:380px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+      <h2 style="margin:0 0 8px; color:var(--text-primary);">LFS Admin Login</h2>
+      <p style="margin:0 0 16px; color:var(--text-muted); font-size:14px;">Enter your LFS API key to access the admin dashboard.</p>
+      <input id="login-api-key" type="password" placeholder="LFS API Key" data-testid="input-lfs-api-key"
+        style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
+      <button id="login-btn" data-testid="button-login"
+        style="width:100%; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Login</button>
+      <p id="login-error" style="color:var(--danger); font-size:13px; margin:8px 0 0; display:none;"></p>
+    </div>
+  </div>
+
   <script>
     const API_BASE = '';
+    let adminApiKey = '';
 
     function showToast(message, type = 'success') {
       const toast = document.createElement('div');
@@ -247,10 +260,19 @@
 
     async function apiFetch(path, options = {}) {
       try {
+        const headers = { 'Content-Type': 'application/json', ...options.headers };
+        if (adminApiKey) {
+          headers['x-lfs-admin-key'] = adminApiKey;
+        }
         const res = await fetch(`${API_BASE}${path}`, {
           ...options,
-          headers: { 'Content-Type': 'application/json', ...options.headers },
+          headers,
+          credentials: 'include',
         });
+        if (res.status === 401) {
+          showLoginOverlay();
+          return null;
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return await res.json();
       } catch (e) {
@@ -258,6 +280,46 @@
         return null;
       }
     }
+
+    function showLoginOverlay() {
+      document.getElementById('login-overlay').style.display = 'flex';
+    }
+
+    function hideLoginOverlay() {
+      document.getElementById('login-overlay').style.display = 'none';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('login-btn').addEventListener('click', async () => {
+        const key = document.getElementById('login-api-key').value.trim();
+        const errorEl = document.getElementById('login-error');
+        errorEl.style.display = 'none';
+
+        try {
+          const res = await fetch(`${API_BASE}/api/lfs/admin/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiKey: key }),
+            credentials: 'include',
+          });
+          if (res.ok) {
+            adminApiKey = key;
+            hideLoginOverlay();
+            refreshAll();
+          } else {
+            errorEl.textContent = 'Invalid API key';
+            errorEl.style.display = 'block';
+          }
+        } catch (e) {
+          errorEl.textContent = 'Connection error';
+          errorEl.style.display = 'block';
+        }
+      });
+
+      document.getElementById('login-api-key').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('login-btn').click();
+      });
+    });
 
     function formatTime(isoStr) {
       if (!isoStr) return '—';
