@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePosWebSocket } from "@/hooks/use-pos-websocket";
+import { formatDateTimeInTimezone } from "@/lib/timezone";
 import { useInactivityLogout } from "@/hooks/use-inactivity-logout";
 import { useWorkstationHeartbeat } from "@/hooks/use-workstation-heartbeat";
 import { useDeviceHeartbeat } from "@/hooks/use-device-heartbeat";
@@ -1764,7 +1765,7 @@ export default function PosPage() {
                 )}
               </span>
               <span className="text-sm text-muted-foreground leading-tight" data-testid="text-pos-title">
-                {currentTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} {currentTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                {formatDateTimeInTimezone(currentTime, wsContext?.property?.timezone)}
               </span>
             </div>
           </div>
@@ -2598,6 +2599,7 @@ export default function PosPage() {
             setEditingClosedCheckId(checkId);
             loadClosedCheckForViewing(checkId);
           }}
+          timezone={wsContext?.property?.timezone || "America/New_York"}
         />
       )}
 

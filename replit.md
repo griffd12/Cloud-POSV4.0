@@ -55,6 +55,12 @@ The same Express codebase runs against either PostgreSQL (cloud) or SQLite (loca
 - **LFS Packaging & Admin**: Includes build scripts for self-contained distributions, Windows installer as a service, system tray indicator, admin dashboard for status/config/logs, and auto-update mechanism.
 - **LFS Management in EMC**: Per-property API key generation/rotation/revocation for LFS authentication, connection status monitoring, sync history logging, and first-run setup instructions. EMC route: `/emc/lfs-management` (property-only, Hierarchy nav group). DB tables: `lfs_configurations`, `lfs_sync_logs`. API routes protected by EMC session auth with enterprise/property scope enforcement.
 
+### Property Timezone Display
+- **Timezone Utility**: `client/src/lib/timezone.ts` provides centralized timezone-aware formatting functions used throughout the POS and KDS UIs.
+- **POS/KDS Header Clocks**: Display date/time in the property's configured timezone (from `properties.timezone` field) instead of browser-local time.
+- **Server-Side**: `printService.ts` and `businessDate.ts` already use property timezone for receipt formatting and business date calculations.
+- **Admin Pages**: Timecards, fiscal close, daily operations, and POS modals (refund, transaction lookup, reopen check, edit closed check) all use property timezone.
+
 ### Key Features
 - **Device Configuration**: Hierarchical setup for Workstations, Printers, KDS.
 - **KDS Order Flow**: Standard and Dynamic Order Modes with real-time updates.

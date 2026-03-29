@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Search, FileEdit, CreditCard } from "lucide-react";
+import { formatShortTimeInTimezone } from "@/lib/timezone";
 
 interface ClosedCheck {
   id: string;
@@ -20,6 +21,7 @@ interface EditClosedCheckModalProps {
   onClose: () => void;
   rvcId: string;
   onSelectCheck: (checkId: string) => void;
+  timezone?: string;
 }
 
 export function EditClosedCheckModal({
@@ -27,6 +29,7 @@ export function EditClosedCheckModal({
   onClose,
   rvcId,
   onSelectCheck,
+  timezone,
 }: EditClosedCheckModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -51,13 +54,7 @@ export function EditClosedCheckModal({
   };
 
   const formatTime = (dateStr: string | null) => {
-    if (!dateStr) return "";
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
+    return formatShortTimeInTimezone(dateStr, timezone);
   };
 
   return (

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { KdsDisplay } from "@/components/kds/kds-display";
+import { formatDateTimeInTimezone } from "@/lib/timezone";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -537,7 +538,7 @@ export default function KdsPage() {
                 )}
               </span>
               <span className="text-sm text-muted-foreground leading-tight" data-testid="text-kds-datetime">
-                {currentTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} {currentTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                {formatDateTimeInTimezone(currentTime, kdsProperty?.timezone)}
               </span>
             </div>
           </div>
