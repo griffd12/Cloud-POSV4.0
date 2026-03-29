@@ -1,0 +1,61 @@
+name: Build LFS Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Target platform'
+        required: true
+        default: 'windows'
+        type: choice
+        options:
+          - windows
+          - linux
+
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: ${{ github.event_name == 'release' && fromJSON('["windows","linux"]') || fromJSON(format('["{0}"]', inputs.platform || 'windows')) }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build LFS package (${{ matrix.platform }})
+        run: bash lfs/scripts/build-lfs.sh ${{ matrix.platform }}
+
+      - name: Determine artifact name
+        id: artifact
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          ARCHIVE=$(ls lfs/dist/cloud-pos-lfs-${VERSION}-${{ matrix.platform }}.* 2>/dev/null | head -1)
+          echo "archive=${ARCHIVE}" >> $GITHUB_OUTPUT
+          echo "filename=$(basename ${ARCHIVE})" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Upload LFS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-pos-lfs-${{ matrix.platform }}-${{ steps.artifact.outputs.version }}
+          path: ${{ steps.artifact.outputs.archive }}
+          retention-days: 90
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.artifact.outputs.archive }}
