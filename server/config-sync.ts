@@ -63,6 +63,7 @@ const CONFIG_TABLES = [
   "terminal_devices",
   "print_agents",
   "cash_drawers",
+  "rvc_counters",
 ];
 
 export class ConfigSyncService {

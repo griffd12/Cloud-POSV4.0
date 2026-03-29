@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import crypto from "crypto";
-import bcrypt from "bcryptjs";
+
 import { getColumnMap, type TableColumnMap } from "./sqlite-init";
 import type { LfsConfiguration, InsertLfsConfiguration, LfsSyncLog, InsertLfsSyncLog } from "@shared/schema";
 
@@ -361,19 +361,13 @@ export class SqliteDatabaseStorage implements IStorage {
   async getEmployee(id: string): Promise<Employee | undefined> { return this.getById("employees", id); }
 
   async getEmployeeByPin(pin: string): Promise<Employee | undefined> {
-    const emps = this.getAll<Employee>("employees");
-    for (const emp of emps) {
-      if (bcrypt.compareSync(pin, emp.pinHash)) return emp;
-    }
-    return undefined;
+    const rows = this.getAll<Employee>("employees", "pin_hash = ?", [pin]);
+    return rows[0];
   }
 
   async getEmployeeByPinAndEnterprise(pin: string, enterpriseId: string): Promise<Employee | undefined> {
-    const emps = this.getAll<Employee>("employees", "enterprise_id = ?", [enterpriseId]);
-    for (const emp of emps) {
-      if (emp.active !== false && bcrypt.compareSync(pin, emp.pinHash)) return emp;
-    }
-    return undefined;
+    const rows = this.getAll<Employee>("employees", "enterprise_id = ? AND pin_hash = ? AND active = 1", [enterpriseId, pin]);
+    return rows[0];
   }
 
   async createEmployee(data: InsertEmployee): Promise<Employee> { return this.insertOne("employees", { ...data }); }

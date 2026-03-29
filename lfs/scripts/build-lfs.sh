@@ -212,7 +212,10 @@ echo   Admin: http://localhost:3002
 echo   Data: %DATA_DIR%
 echo   Logs: %LOG_DIR%
 
-"%NODE_CMD%" "%SCRIPT_DIR%server.cjs"
+set "LOG_FILE=%LOG_DIR%\lfs.log"
+echo [%date% %time%] === LFS Starting === >> "%LOG_FILE%"
+
+powershell -NoProfile -Command "& '%NODE_CMD%' '%SCRIPT_DIR%server.cjs' 2>&1 | ForEach-Object { $line = \"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $_\"; Write-Host $_; Add-Content -Path '%LOG_FILE%' -Value $line }"
 STARTUP_BAT
 
 echo "[7/9] Copying installer and utility scripts..."

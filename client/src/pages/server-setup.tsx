@@ -19,12 +19,25 @@ export default function ServerSetupPage() {
   const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validatedEnterprise, setValidatedEnterprise] = useState<{ id: string; name: string; code: string } | null>(null);
+  const [resolvedBaseUrl, setResolvedBaseUrl] = useState<string | null>(null);
 
-  const parseServerUrl = (input: string): { baseUrl: string; enterpriseCode: string } | null => {
+  const isPrivateIp = (hostname: string): boolean => {
+    return /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|localhost$)/i.test(hostname);
+  };
+
+  const parseServerUrl = (input: string): { baseUrl: string; enterpriseCode: string; needsProtocolProbe: boolean } | null => {
     let cleanInput = input.trim();
+    let needsProtocolProbe = false;
     
     if (!cleanInput.startsWith("http://") && !cleanInput.startsWith("https://")) {
-      cleanInput = "https://" + cleanInput;
+      needsProtocolProbe = true;
+      const testHostname = cleanInput.split("/")[0].split(":")[0];
+      if (isPrivateIp(testHostname)) {
+        cleanInput = "http://" + cleanInput;
+        needsProtocolProbe = false;
+      } else {
+        cleanInput = "https://" + cleanInput;
+      }
     }
     
     try {
@@ -38,9 +51,24 @@ export default function ServerSetupPage() {
       const enterpriseCode = pathParts[0].toUpperCase();
       const baseUrl = urlObj.origin;
       
-      return { baseUrl, enterpriseCode };
+      return { baseUrl, enterpriseCode, needsProtocolProbe };
     } catch {
       return null;
+    }
+  };
+
+  const tryFetchEnterprise = async (baseUrl: string, code: string): Promise<{ ok: boolean; enterprise?: any; status?: number }> => {
+    try {
+      const response = await fetch(`${baseUrl}/api/enterprises/by-code/${code}`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) {
+        return { ok: false, status: response.status };
+      }
+      const enterprise = await response.json();
+      return { ok: true, enterprise };
+    } catch {
+      return { ok: false };
     }
   };
 
@@ -57,10 +85,18 @@ export default function ServerSetupPage() {
     setIsValidating(true);
 
     try {
-      const response = await fetch(`${parsed.baseUrl}/api/enterprises/by-code/${parsed.enterpriseCode}`);
+      let result = await tryFetchEnterprise(parsed.baseUrl, parsed.enterpriseCode);
+
+      if (!result.ok && parsed.needsProtocolProbe) {
+        const fallbackUrl = parsed.baseUrl.replace("https://", "http://");
+        result = await tryFetchEnterprise(fallbackUrl, parsed.enterpriseCode);
+        if (result.ok) {
+          parsed.baseUrl = fallbackUrl;
+        }
+      }
       
-      if (!response.ok) {
-        if (response.status === 404) {
+      if (!result.ok) {
+        if (result.status === 404) {
           setError(`Enterprise "${parsed.enterpriseCode}" not found. Please check the code and try again.`);
         } else {
           setError("Failed to connect to server. Please check the URL and try again.");
@@ -68,11 +104,11 @@ export default function ServerSetupPage() {
         return;
       }
 
-      const enterprise = await response.json();
+      setResolvedBaseUrl(parsed.baseUrl);
       setValidatedEnterprise({
-        id: enterprise.id,
-        name: enterprise.name,
-        code: enterprise.code,
+        id: result.enterprise.id,
+        name: result.enterprise.name,
+        code: result.enterprise.code,
       });
     } catch (err) {
       setError("Failed to connect to server. Please check the URL and try again.");
@@ -82,12 +118,9 @@ export default function ServerSetupPage() {
   };
 
   const handleConfirm = () => {
-    if (!validatedEnterprise) return;
+    if (!validatedEnterprise || !resolvedBaseUrl) return;
 
-    const parsed = parseServerUrl(url);
-    if (!parsed) return;
-
-    setServerConfig(parsed.baseUrl, validatedEnterprise.code, validatedEnterprise.id);
+    setServerConfig(resolvedBaseUrl, validatedEnterprise.code, validatedEnterprise.id);
     navigate("/device-type");
   };
 
@@ -136,6 +169,7 @@ export default function ServerSetupPage() {
               onChange={(e) => {
                 setUrl(e.target.value);
                 setValidatedEnterprise(null);
+                setResolvedBaseUrl(null);
                 setError(null);
               }}
               onKeyDown={(e) => {
