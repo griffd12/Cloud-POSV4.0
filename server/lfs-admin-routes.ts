@@ -35,9 +35,31 @@ export function captureLog(message: string) {
   }
 }
 
+function createSessionToken(apiKey: string): string {
+  const crypto = require("crypto");
+  return crypto.createHmac("sha256", apiKey).update("lfs-admin-session").digest("hex");
+}
+
+function buildCookieHeader(token: string): string {
+  const parts = [
+    `lfs_admin_session=${token}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Strict",
+    "Max-Age=86400",
+  ];
+  if (process.env.NODE_ENV === "production") {
+    parts.push("Secure");
+  }
+  return parts.join("; ");
+}
+
 function lfsAdminAuth(req: Request, res: Response, next: Function) {
   const apiKey = process.env.LFS_API_KEY;
-  if (!apiKey) return next();
+  if (!apiKey) {
+    res.status(401).json({ error: "Unauthorized: LFS_API_KEY not configured" });
+    return;
+  }
 
   const provided = req.headers["x-lfs-admin-key"];
   if (provided === apiKey) return next();
@@ -45,7 +67,8 @@ function lfsAdminAuth(req: Request, res: Response, next: Function) {
   const cookie = req.headers.cookie;
   if (cookie) {
     const match = cookie.match(/lfs_admin_session=([^;]+)/);
-    if (match && match[1] === apiKey) return next();
+    const expectedToken = createSessionToken(apiKey);
+    if (match && match[1] === expectedToken) return next();
   }
 
   res.status(401).json({ error: "Unauthorized" });
@@ -57,8 +80,13 @@ export function registerLfsAdminRoutes(app: Express) {
   app.post("/api/lfs/admin/login", (req: Request, res: Response) => {
     const { apiKey } = req.body;
     const expected = process.env.LFS_API_KEY;
-    if (!expected || apiKey === expected) {
-      res.setHeader("Set-Cookie", `lfs_admin_session=${expected || "open"}; Path=/; HttpOnly; SameSite=Strict`);
+    if (!expected) {
+      res.status(401).json({ error: "LFS_API_KEY not configured on server" });
+      return;
+    }
+    if (apiKey === expected) {
+      const token = createSessionToken(expected);
+      res.setHeader("Set-Cookie", buildCookieHeader(token));
       res.json({ ok: true });
     } else {
       res.status(401).json({ error: "Invalid API key" });

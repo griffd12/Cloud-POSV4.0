@@ -74,7 +74,10 @@ function sortByDependency(entries: Array<Record<string, unknown>>): Array<Record
 
 function requireLfsLocalAuth(req: Request, res: Response, next: Function) {
   const apiKey = process.env.LFS_API_KEY;
-  if (!apiKey) return next();
+  if (!apiKey) {
+    res.status(401).json({ error: "Unauthorized: LFS_API_KEY not configured" });
+    return;
+  }
 
   const provided = req.headers["x-lfs-admin-key"] || req.headers["x-lfs-api-key"];
   if (provided === apiKey) return next();
@@ -82,7 +85,11 @@ function requireLfsLocalAuth(req: Request, res: Response, next: Function) {
   const cookie = req.headers.cookie;
   if (cookie) {
     const match = cookie.match(/lfs_admin_session=([^;]+)/);
-    if (match && match[1] === apiKey) return next();
+    if (match) {
+      const crypto = require("crypto");
+      const expectedToken = crypto.createHmac("sha256", apiKey).update("lfs-admin-session").digest("hex");
+      if (match[1] === expectedToken) return next();
+    }
   }
 
   res.status(401).json({ error: "Unauthorized" });
