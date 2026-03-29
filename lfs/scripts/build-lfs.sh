@@ -27,7 +27,6 @@ npx esbuild server/index.ts \
   --format=cjs \
   --outfile="$BUILD_DIR/$PACKAGE_NAME/server.cjs" \
   --external:better-sqlite3 \
-  --external:pg \
   --external:pg-native \
   --external:bufferutil \
   --external:utf-8-validate \

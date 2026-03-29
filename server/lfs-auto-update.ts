@@ -124,14 +124,16 @@ async function downloadAndApplyUpdate(info: UpdateInfo): Promise<boolean> {
     const arrayBuffer = await res.arrayBuffer();
     fs.writeFileSync(archivePath, Buffer.from(arrayBuffer));
 
-    if (info.checksum) {
-      const { createHash } = await import("crypto");
-      const hash = createHash("sha256").update(Buffer.from(arrayBuffer)).digest("hex");
-      if (hash !== info.checksum) {
-        throw new Error(`Checksum mismatch: expected ${info.checksum}, got ${hash}`);
-      }
-      console.log("[lfs-update] Checksum verified");
+    if (!info.checksum) {
+      throw new Error("Update rejected: no checksum provided. Server must supply a SHA-256 checksum for integrity verification.");
     }
+
+    const { createHash } = await import("crypto");
+    const hash = createHash("sha256").update(Buffer.from(arrayBuffer)).digest("hex");
+    if (hash !== info.checksum) {
+      throw new Error(`Checksum mismatch: expected ${info.checksum}, got ${hash}`);
+    }
+    console.log("[lfs-update] Checksum verified");
 
     console.log("[lfs-update] Extracting update...");
     const { execSync } = await import("child_process");
