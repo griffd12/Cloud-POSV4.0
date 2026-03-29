@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS "lfs_configurations" (
   "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
-  "property_id" varchar NOT NULL UNIQUE,
+  "property_id" varchar NOT NULL UNIQUE REFERENCES "properties"("id"),
   "api_key" varchar NOT NULL,
   "api_key_masked" varchar NOT NULL,
   "sync_status" varchar DEFAULT 'never_connected',
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS "lfs_configurations" (
 
 CREATE TABLE IF NOT EXISTS "lfs_sync_logs" (
   "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
-  "property_id" varchar NOT NULL,
+  "property_id" varchar NOT NULL REFERENCES "properties"("id"),
   "sync_type" varchar NOT NULL,
   "direction" varchar NOT NULL,
   "status" varchar NOT NULL,

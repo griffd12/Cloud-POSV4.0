@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import crypto from "crypto";
 import { createRequire } from "node:module";
 import { getColumnMap, type TableColumnMap } from "./sqlite-init";
+import type { LfsConfiguration, InsertLfsConfiguration, LfsSyncLog, InsertLfsSyncLog } from "@shared/schema";
 
 export interface TransactionJournalEntry {
   id: string;
@@ -2353,12 +2354,12 @@ export class SqliteDatabaseStorage implements IStorage {
     ).run(new Date().toISOString(), offlineTransactionId);
   }
 
-  async getLfsConfiguration(_propertyId: string): Promise<any> { return undefined; }
-  async getLfsConfigurations(): Promise<any[]> { return []; }
-  async createLfsConfiguration(_data: any): Promise<any> { throw new Error("LFS config management not available in local mode"); }
-  async updateLfsConfiguration(_propertyId: string, _data: any): Promise<any> { return undefined; }
+  async getLfsConfiguration(_propertyId: string): Promise<LfsConfiguration | undefined> { return undefined; }
+  async getLfsConfigurations(): Promise<LfsConfiguration[]> { return []; }
+  async createLfsConfiguration(_data: InsertLfsConfiguration): Promise<LfsConfiguration> { throw new Error("LFS config management not available in local mode"); }
+  async updateLfsConfiguration(_propertyId: string, _data: Partial<InsertLfsConfiguration>): Promise<LfsConfiguration | undefined> { return undefined; }
   async deleteLfsConfiguration(_propertyId: string): Promise<boolean> { return false; }
-  async getLfsConfigurationByApiKey(_apiKey: string): Promise<any> { return undefined; }
-  async getLfsSyncLogs(_propertyId: string, _limit?: number): Promise<any[]> { return []; }
-  async createLfsSyncLog(_data: any): Promise<any> { throw new Error("LFS sync logs not available in local mode"); }
+  async getLfsConfigurationByApiKey(_apiKey: string): Promise<LfsConfiguration | undefined> { return undefined; }
+  async getLfsSyncLogs(_propertyId: string, _limit?: number): Promise<LfsSyncLog[]> { return []; }
+  async createLfsSyncLog(_data: InsertLfsSyncLog): Promise<LfsSyncLog> { throw new Error("LFS sync logs not available in local mode"); }
 }

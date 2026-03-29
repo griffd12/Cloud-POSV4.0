@@ -28,14 +28,6 @@ async function requireLfsApiKey(req: Request, res: Response, next: NextFunction)
     return res.status(403).json({ error: "Invalid or missing LFS API key" });
   }
 
-  const envKey = process.env.LFS_API_KEY;
-  if (envKey && provided === envKey) {
-    if (propertyIdHeader) {
-      (req as LfsAuthenticatedRequest).lfsPropertyId = propertyIdHeader;
-    }
-    return next();
-  }
-
   const hashedProvided = crypto.createHash("sha256").update(provided).digest("hex");
 
   if (propertyIdHeader) {
@@ -52,6 +44,11 @@ async function requireLfsApiKey(req: Request, res: Response, next: NextFunction)
   if (dbConfig) {
     (req as LfsAuthenticatedRequest).lfsPropertyId = dbConfig.propertyId;
     (req as LfsAuthenticatedRequest).lfsConfigId = dbConfig.id;
+    return next();
+  }
+
+  const envKey = process.env.LFS_API_KEY;
+  if (envKey && provided === envKey) {
     return next();
   }
 
