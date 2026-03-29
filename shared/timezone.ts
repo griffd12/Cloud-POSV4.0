@@ -4,6 +4,12 @@ function safeTz(timezone?: string | null): string {
   return timezone || DEFAULT_TIMEZONE;
 }
 
+function safeDate(date: Date | string): Date | null {
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
 export function formatTimeInTimezone(
   date: Date,
   timezone?: string | null,
@@ -59,7 +65,8 @@ export function formatTimestampInTimezone(
   options?: Intl.DateTimeFormatOptions,
 ): string {
   if (!date) return "";
-  const d = typeof date === "string" ? new Date(date) : date;
+  const d = safeDate(date);
+  if (!d) return "";
   const defaults: Intl.DateTimeFormatOptions = {
     timeZone: safeTz(timezone),
     month: "short",
@@ -80,7 +87,8 @@ export function formatShortTimeInTimezone(
   timezone?: string | null,
 ): string {
   if (!date) return "";
-  const d = typeof date === "string" ? new Date(date) : date;
+  const d = safeDate(date);
+  if (!d) return "";
   try {
     return d.toLocaleTimeString("en-US", {
       timeZone: safeTz(timezone),
@@ -101,7 +109,8 @@ export function formatShortDateInTimezone(
   timezone?: string | null,
 ): string {
   if (!date) return "";
-  const d = typeof date === "string" ? new Date(date) : date;
+  const d = safeDate(date);
+  if (!d) return "";
   try {
     return d.toLocaleDateString("en-US", {
       timeZone: safeTz(timezone),
