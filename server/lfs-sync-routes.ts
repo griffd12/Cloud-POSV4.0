@@ -237,6 +237,17 @@ function registerLfsLocalRoutes(app: Express) {
     }
   });
 
+  app.get("/api/lfs/sync/pending-settlements", requireLfsLocalAuth, async (_req: Request, res: Response) => {
+    try {
+      const allPayments = await storage.getAllPayments();
+      const pendingPayments = allPayments.filter(p => p.paymentStatus === "pending_settlement");
+      res.json({ count: pendingPayments.length, payments: pendingPayments });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
   app.post("/api/lfs/reconcile-saf", requireLfsLocalAuth, async (_req: Request, res: Response) => {
     try {
       const allPayments = await storage.getAllPayments();

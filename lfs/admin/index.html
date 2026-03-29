@@ -402,7 +402,7 @@
         document.getElementById('pending-saf').textContent = pendingSettlements.count ?? '0';
       }
 
-      const updateStatus = await apiFetch('/api/lfs/admin/check-update');
+      const updateStatus = await apiFetch('/api/lfs/admin/check-update', { method: 'POST' });
       if (updateStatus) {
         document.getElementById('update-current-version').textContent = updateStatus.currentVersion || '—';
         document.getElementById('update-latest-version').textContent = updateStatus.latestVersion || '—';
