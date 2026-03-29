@@ -344,6 +344,8 @@ export function startLfsAdminServer(_mainApp: Express) {
   proxyGet("/api/lfs/sync/latest-version");
   proxyGet("/api/lfs/sync/pending-settlements");
   proxyGet("/api/lfs/payment-status");
+  proxyGet("/api/lfs/capabilities");
+  proxyPost("/api/lfs/reconcile-saf");
 
   adminApp.listen(adminPort, "0.0.0.0", () => {
     console.log(`[lfs-admin] Admin dashboard available at http://localhost:${adminPort}`);

@@ -129,6 +129,7 @@ function registerLfsLocalRoutes(app: Express) {
         internetAvailable,
         cloudReachable,
         cloudUrl: cloudUrl || null,
+        propertyId: process.env.LFS_PROPERTY_ID || null,
         paymentCapabilities: {
           cashPayments: true,
           semiIntegratedTerminals: true,
