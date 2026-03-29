@@ -235,13 +235,27 @@
   </div>
 
   <div id="login-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9999; align-items:center; justify-content:center;">
-    <div style="background:var(--card-bg); border-radius:12px; padding:32px; max-width:380px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
-      <h2 style="margin:0 0 8px; color:var(--text-primary);">LFS Admin Login</h2>
-      <p style="margin:0 0 16px; color:var(--text-muted); font-size:14px;">Enter your LFS API key to access the admin dashboard.</p>
-      <input id="login-api-key" type="password" placeholder="LFS API Key" data-testid="input-lfs-api-key"
-        style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
-      <button id="login-btn" data-testid="button-login"
-        style="width:100%; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Login</button>
+    <div style="background:var(--card-bg); border-radius:12px; padding:32px; max-width:420px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+      <div id="login-form">
+        <h2 style="margin:0 0 8px; color:var(--text-primary);">LFS Admin Login</h2>
+        <p style="margin:0 0 16px; color:var(--text-muted); font-size:14px;">Enter your LFS API key to access the admin dashboard.</p>
+        <input id="login-api-key" type="password" placeholder="LFS API Key" data-testid="input-lfs-api-key"
+          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
+        <button id="login-btn" data-testid="button-login"
+          style="width:100%; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Login</button>
+      </div>
+      <div id="setup-form" style="display:none;">
+        <h2 style="margin:0 0 8px; color:var(--text-primary);">Initial Setup</h2>
+        <p style="margin:0 0 16px; color:var(--text-muted); font-size:14px;">Configure your LFS server for the first time.</p>
+        <input id="setup-api-key" type="password" placeholder="Create API Key (min 16 chars)" data-testid="input-setup-api-key"
+          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:8px;" />
+        <input id="setup-cloud-url" type="text" placeholder="Cloud URL (e.g. https://pos.example.com)" data-testid="input-setup-cloud-url"
+          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:8px;" />
+        <input id="setup-property-id" type="text" placeholder="Property ID" data-testid="input-setup-property-id"
+          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
+        <button id="setup-btn" data-testid="button-setup"
+          style="width:100%; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Complete Setup</button>
+      </div>
       <p id="login-error" style="color:var(--danger); font-size:13px; margin:8px 0 0; display:none;"></p>
     </div>
   </div>
@@ -290,6 +304,59 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      async function checkSetupStatus() {
+        try {
+          const res = await fetch(`${API_BASE}/api/lfs/admin/setup-status`);
+          if (res.ok) {
+            const status = await res.json();
+            if (status.needsSetup) {
+              document.getElementById('login-form').style.display = 'none';
+              document.getElementById('setup-form').style.display = 'block';
+              showLoginOverlay();
+              return;
+            }
+          }
+        } catch {}
+        refreshAll();
+      }
+      checkSetupStatus();
+
+      document.getElementById('setup-btn').addEventListener('click', async () => {
+        const apiKey = document.getElementById('setup-api-key').value.trim();
+        const cloudUrl = document.getElementById('setup-cloud-url').value.trim();
+        const propertyId = document.getElementById('setup-property-id').value.trim();
+        const errorEl = document.getElementById('login-error');
+        errorEl.style.display = 'none';
+
+        if (apiKey.length < 16) {
+          errorEl.textContent = 'API key must be at least 16 characters';
+          errorEl.style.display = 'block';
+          return;
+        }
+
+        try {
+          const res = await fetch(`${API_BASE}/api/lfs/admin/setup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiKey, cloudUrl: cloudUrl || undefined, propertyId: propertyId || undefined }),
+            credentials: 'include',
+          });
+          if (res.ok) {
+            adminApiKey = apiKey;
+            hideLoginOverlay();
+            showToast('Setup complete! LFS server configured.');
+            refreshAll();
+          } else {
+            const data = await res.json().catch(() => ({}));
+            errorEl.textContent = data.error || 'Setup failed';
+            errorEl.style.display = 'block';
+          }
+        } catch (e) {
+          errorEl.textContent = 'Connection error';
+          errorEl.style.display = 'block';
+        }
+      });
+
       document.getElementById('login-btn').addEventListener('click', async () => {
         const key = document.getElementById('login-api-key').value.trim();
         const errorEl = document.getElementById('login-error');
@@ -307,7 +374,12 @@
             hideLoginOverlay();
             refreshAll();
           } else {
-            errorEl.textContent = 'Invalid API key';
+            const data = await res.json().catch(() => ({}));
+            if (data.needsSetup) {
+              document.getElementById('login-form').style.display = 'none';
+              document.getElementById('setup-form').style.display = 'block';
+            }
+            errorEl.textContent = data.error || 'Invalid API key';
             errorEl.style.display = 'block';
           }
         } catch (e) {
@@ -318,6 +390,9 @@
 
       document.getElementById('login-api-key').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') document.getElementById('login-btn').click();
+      });
+      document.getElementById('setup-api-key').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('setup-btn').click();
       });
     });
 
