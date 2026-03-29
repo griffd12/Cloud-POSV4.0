@@ -70,9 +70,31 @@ done
 
 echo "  Bundled $(ls -1 "$BUILD_DIR/$PACKAGE_NAME/node_modules" | wc -l) runtime packages"
 
-if [ "$TARGET_PLATFORM" = "windows" ] || [ "$TARGET_PLATFORM" = "win" ] || [ "$TARGET_PLATFORM" = "win64" ]; then
-  echo "  NOTE: Native modules bundled from build host — for cross-platform builds,"
-  echo "  run 'npm rebuild better-sqlite3' on the target platform after extraction."
+SQLITE_VER=$(node -p "require('$BUILD_DIR/$PACKAGE_NAME/node_modules/better-sqlite3/package.json').version")
+
+SQLITE_DEST="$BUILD_DIR/$PACKAGE_NAME/node_modules/better-sqlite3"
+NODE_ABI=115
+
+case "$TARGET_PLATFORM" in
+  "windows"|"win"|"win64") PREBUILD_PLATFORM="win32-x64" ;;
+  "arm"|"linux-arm64"|"rpi") PREBUILD_PLATFORM="linux-arm64" ;;
+  *) PREBUILD_PLATFORM="" ;;
+esac
+
+if [ -n "$PREBUILD_PLATFORM" ]; then
+  echo "  Downloading ${PREBUILD_PLATFORM} native binary for better-sqlite3 v${SQLITE_VER}..."
+  PREBUILD_URL="https://github.com/WiseLibs/better-sqlite3/releases/download/v${SQLITE_VER}/better-sqlite3-v${SQLITE_VER}-node-v${NODE_ABI}-${PREBUILD_PLATFORM}.tar.gz"
+  PREBUILD_TAR="$BUILD_DIR/better-sqlite3-prebuild.tar.gz"
+  if curl -sL --fail "$PREBUILD_URL" -o "$PREBUILD_TAR"; then
+    rm -rf "$SQLITE_DEST/build"
+    tar -xzf "$PREBUILD_TAR" -C "$SQLITE_DEST"
+    rm -f "$PREBUILD_TAR"
+    echo "  Native binary installed: $(ls "$SQLITE_DEST/build/Release/" 2>/dev/null)"
+  else
+    echo "  WARNING: Could not download prebuilt binary from:"
+    echo "    $PREBUILD_URL"
+    echo "  User must run 'npm rebuild better-sqlite3' on the target machine."
+  fi
 fi
 
 echo "[5/9] Downloading Node.js runtime for $TARGET_PLATFORM..."
