@@ -302,7 +302,7 @@
         document.getElementById('server-db').textContent = health.database || '—';
         document.getElementById('db-size').textContent = formatBytes(health.sqliteFileSizeBytes);
         document.getElementById('server-uptime').textContent = formatDuration(health.uptimeSeconds);
-        document.getElementById('api-port').textContent = window.location.port === '3002' ? '3001' : window.location.port;
+        document.getElementById('api-port').textContent = window.location.port;
 
         if (health.sync) {
           document.getElementById('last-sync').textContent = formatTime(health.sync.lastSyncAt);

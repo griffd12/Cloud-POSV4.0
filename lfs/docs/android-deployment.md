@@ -79,7 +79,6 @@ LFS_CLOUD_URL=https://your-cloud-pos.example.com
 LFS_API_KEY=your-api-key
 LFS_PROPERTY_ID=your-property-id
 PORT=3001
-LFS_ADMIN_PORT=3002
 ```
 
 ### 6. Start the Server
@@ -161,7 +160,7 @@ Set a static IP on the Android device:
 
 Access the admin dashboard from any browser on the same network:
 ```
-http://ANDROID_IP:3002
+http://ANDROID_IP:3001/lfs-admin
 ```
 
 ## Troubleshooting

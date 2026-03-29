@@ -11,16 +11,13 @@
     The name of the Windows Service. Defaults to "CloudPOS-LFS".
 .PARAMETER Port
     The API port. Defaults to 3001.
-.PARAMETER AdminPort
-    The admin dashboard port. Defaults to 3002.
 #>
 
 param(
     [string]$InstallDir = (Get-Location).Path,
     [string]$ServiceName = "CloudPOS-LFS",
     [string]$DisplayName = "Cloud POS Local Failover Server",
-    [int]$Port = 3001,
-    [int]$AdminPort = 3002
+    [int]$Port = 3001
 )
 
 $ErrorActionPreference = "Stop"
@@ -95,7 +92,6 @@ process.env.DB_MODE = 'local';
 process.env.NODE_ENV = 'production';
 process.env.SQLITE_PATH = process.env.SQLITE_PATH || path.join(installDir, 'data', 'pos-local.db');
 process.env.PORT = process.env.PORT || '$Port';
-process.env.LFS_ADMIN_PORT = process.env.LFS_ADMIN_PORT || '$AdminPort';
 
 const logDir = path.join(installDir, 'logs');
 if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
@@ -176,7 +172,7 @@ Write-Host ""
 Write-Host "Configuration:" -ForegroundColor Cyan
 Write-Host "  Install Dir:  $InstallDir"
 Write-Host "  API Port:     $Port"
-Write-Host "  Admin Port:   $AdminPort"
+Write-Host "  Admin:        http://localhost:$Port/lfs-admin"
 Write-Host "  Data Dir:     $dataDir"
 Write-Host "  Log Dir:      $logDir"
 Write-Host ""
@@ -189,7 +185,7 @@ if ($startNow -ne 'n' -and $startNow -ne 'N') {
     if ($svc.Status -eq 'Running') {
         Write-Host "Service is running!" -ForegroundColor Green
         Write-Host "  POS API: http://localhost:$Port" -ForegroundColor Cyan
-        Write-Host "  Admin:   http://localhost:$AdminPort" -ForegroundColor Cyan
+        Write-Host "  Admin:   http://localhost:$Port/lfs-admin" -ForegroundColor Cyan
     } else {
         Write-Host "Service failed to start. Check logs at: $logDir" -ForegroundColor Red
     }
@@ -201,11 +197,6 @@ $fwRuleApi = Get-NetFirewallRule -DisplayName "CloudPOS-LFS-API" -ErrorAction Si
 if (-not $fwRuleApi) {
     New-NetFirewallRule -DisplayName "CloudPOS-LFS-API" -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow | Out-Null
     Write-Host "  Created firewall rule for API port $Port" -ForegroundColor Green
-}
-$fwRuleAdmin = Get-NetFirewallRule -DisplayName "CloudPOS-LFS-Admin" -ErrorAction SilentlyContinue
-if (-not $fwRuleAdmin) {
-    New-NetFirewallRule -DisplayName "CloudPOS-LFS-Admin" -Direction Inbound -Protocol TCP -LocalPort $AdminPort -Action Allow | Out-Null
-    Write-Host "  Created firewall rule for Admin port $AdminPort" -ForegroundColor Green
 }
 
 Write-Host ""

@@ -20,7 +20,7 @@ Recommended LAN setup for deploying the Local Failover Server at a property loca
         │  LFS Host  │ │  POS  │ │  KDS/Print  │
         │ 192.168.1.10│ │  WS   │ │  Devices    │
         │ :3001 API  │ │       │ │             │
-        │ :3002 Admin│ │       │ │             │
+        │ /lfs-admin │ │       │ │             │
         └───────────┘ └───────┘ └─────────────┘
 ```
 
@@ -31,7 +31,7 @@ Recommended LAN setup for deploying the Local Failover Server at a property loca
 | Device              | IP Address      | Port(s)   | Notes                    |
 |---------------------|-----------------|-----------|--------------------------|
 | Router/Gateway      | 192.168.1.1     | —         | DHCP server              |
-| LFS Server          | 192.168.1.10    | 3001,3002 | Static IP required       |
+| LFS Server          | 192.168.1.10    | 3001      | Static IP required       |
 | POS Workstation 1   | 192.168.1.101   | —         | DHCP or static           |
 | POS Workstation 2   | 192.168.1.102   | —         | DHCP or static           |
 | KDS Display 1       | 192.168.1.201   | —         | DHCP or static           |
@@ -90,8 +90,7 @@ Settings → WiFi → network → Advanced → IP settings: Static
 
 | Port | Protocol | Direction | Purpose                    |
 |------|----------|-----------|----------------------------|
-| 3001 | TCP      | Inbound   | LFS API (POS traffic)      |
-| 3002 | TCP      | Inbound   | LFS Admin dashboard        |
+| 3001 | TCP      | Inbound   | LFS API + Admin (/lfs-admin) |
 | 443  | TCP      | Outbound  | Cloud server connection    |
 | 53   | TCP/UDP  | Outbound  | DNS resolution             |
 
@@ -100,14 +99,12 @@ Settings → WiFi → network → Advanced → IP settings: Static
 The installer script creates rules automatically. Manual setup:
 ```powershell
 netsh advfirewall firewall add rule name="CloudPOS-LFS-API" dir=in action=allow protocol=TCP localport=3001
-netsh advfirewall firewall add rule name="CloudPOS-LFS-Admin" dir=in action=allow protocol=TCP localport=3002
 ```
 
 ### Linux (iptables)
 
 ```bash
 sudo iptables -A INPUT -p tcp --dport 3001 -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 3002 -j ACCEPT
 sudo iptables-save | sudo tee /etc/iptables/rules.v4
 ```
 
@@ -115,7 +112,6 @@ sudo iptables-save | sudo tee /etc/iptables/rules.v4
 
 ```bash
 sudo ufw allow 3001/tcp
-sudo ufw allow 3002/tcp
 ```
 
 ## DNS / mDNS Configuration
@@ -190,7 +186,7 @@ After setup, verify:
 
 - [ ] LFS host has static IP: `ping 192.168.1.10`
 - [ ] LFS API responds: `curl http://192.168.1.10:3001/api/health`
-- [ ] Admin dashboard loads: `http://192.168.1.10:3002`
+- [ ] Admin dashboard loads: `http://192.168.1.10:3001/lfs-admin`
 - [ ] Cloud sync working: Check admin dashboard sync status
 - [ ] POS terminal connects: Open POS in browser, verify offline banner shows LFS URL
 - [ ] Each POS workstation can reach LFS: Test from each terminal

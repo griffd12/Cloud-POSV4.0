@@ -2,7 +2,18 @@ import fs from "fs";
 import path from "path";
 import { isLocalMode } from "./db";
 
-const LFS_VERSION = "1.0.0";
+function getLfsVersion(): string {
+  try {
+    const pkgPath = path.resolve(process.cwd(), "package.json");
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+      return pkg.version || "0.0.0";
+    }
+  } catch {}
+  return "0.0.0";
+}
+
+const LFS_VERSION = getLfsVersion();
 
 interface UpdateInfo {
   version: string;

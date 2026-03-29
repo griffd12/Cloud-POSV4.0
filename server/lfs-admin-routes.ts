@@ -5,7 +5,24 @@ import { getConfigSyncService } from "./config-sync";
 import path from "path";
 import fs from "fs";
 
-const LFS_VERSION = "1.0.0";
+function getLfsVersion(): string {
+  try {
+    const pkgPath = require.resolve("../package.json");
+    const pkg = JSON.parse(require("fs").readFileSync(pkgPath, "utf8"));
+    return pkg.version || "0.0.0";
+  } catch {
+    try {
+      const localPkg = path.resolve(process.cwd(), "package.json");
+      if (fs.existsSync(localPkg)) {
+        const pkg = JSON.parse(fs.readFileSync(localPkg, "utf8"));
+        return pkg.version || "0.0.0";
+      }
+    } catch {}
+  }
+  return "0.0.0";
+}
+
+const LFS_VERSION = getLfsVersion();
 
 let serverLogBuffer: string[] = [];
 const MAX_LOG_LINES = 500;
