@@ -1,0 +1,34 @@
+C:\CloudPOS-LFS>start-lfs.bat
+Starting Cloud POS Local Failover Server...
+  API Port: 3001
+  Admin: http://localhost:3002
+  Data: C:\CloudPOS-LFS\data
+  Logs: C:\CloudPOS-LFS\logs
+[LFS] SQLite schema initialized with 141 tables
+[LFS] Using SQLite storage (local mode)
+1:03:23 AM [lfs] Starting in LOCAL FAILOVER SERVER mode (SQLite)
+Migration error (non-fatal): TypeError: Cannot read properties of null (reading 'execute')
+    at yzi (C:\CloudPOS-LFS\server.cjs:932:26976)
+    at C:\CloudPOS-LFS\server.cjs:1034:86752
+    at C:\CloudPOS-LFS\server.cjs:1034:87219
+    at C:\CloudPOS-LFS\server.cjs:1:232
+    at Object.<anonymous> (C:\CloudPOS-LFS\server.cjs:1034:87224)
+    at Module._compile (node:internal/modules/cjs/loader:1376:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)
+    at Module.load (node:internal/modules/cjs/loader:1207:32)
+    at Module._load (node:internal/modules/cjs/loader:1023:12)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:135:12)
+    at node:internal/main/run_main_module:28:49
+[delivery-platform] Delivery platform routes registered
+1:03:24 AM [lfs-sync] Running blocking initial config sync from https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/...
+1:03:30 AM [lfs-sync] Initialized offline check range for workstation SNS-001-WS02: 200001-300000
+1:03:30 AM [lfs-sync] Initialized offline check range for workstation SNS-001-WS01: 10000-20000
+1:03:30 AM [lfs-sync] Initialized offline check range for workstation Derek-Laptop: 300001-400000
+1:03:30 AM [lfs-sync] Config sync completed (#1)
+1:03:30 AM [lfs-sync] Initial config sync completed successfully
+1:03:30 AM [lfs-sync] Config sync starting (interval: 60000ms, cloud: https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/)
+1:03:30 AM [express] serving on port 3001
+1:03:30 AM [lfs] Local Failover Server ready
+[lfs-update] Auto-update checker started (check+apply, interval: 60m)
+[lfs-admin] Admin dashboard available at http://localhost:3002
+1:04:35 AM [lfs-sync] Config sync completed (#2)
