@@ -74,6 +74,15 @@ The same Express codebase runs against either PostgreSQL (cloud) or SQLite (loca
   - **Config Sync Additions**: `terminal_devices`, `print_agents`, `cash_drawers` tables added to config sync for LFS.
   - **KDS Failover**: KDS display component uses `failoverFetch` for all API calls (bumped tickets, item availability).
   - **Payment Modal Offline Banner**: Shows "Running Locally" with SAF/offline context when connection manager reports offline state.
+- **LFS Packaging & Admin**:
+  - **Build Script**: `lfs/scripts/build-lfs.sh` produces a self-contained distribution (compiled server, frontend, SQLite, startup scripts) as a tar.gz archive.
+  - **Windows Installer**: `lfs/scripts/install-windows-service.ps1` installs LFS as a Windows Service with auto-restart, firewall rules, and NSSM support. Uninstaller at `lfs/scripts/uninstall-windows-service.ps1`.
+  - **System Tray**: `lfs/scripts/lfs-tray.ps1` — PowerShell system tray indicator showing LFS status (green/yellow/red) with quick actions.
+  - **Admin Dashboard**: `lfs/admin/index.html` — standalone web UI served on port 3002 by the LFS. Shows sync status, connected devices, pending transactions, configuration, and logs. API routes in `server/lfs-admin-routes.ts`.
+  - **Admin API Routes**: `/api/lfs/admin/config` (GET/POST), `/api/lfs/admin/test-connection`, `/api/lfs/admin/trigger-sync`, `/api/lfs/admin/logs`, `/api/lfs/admin/check-update`.
+  - **Auto-Update**: `server/lfs-auto-update.ts` — polls cloud for new versions, downloads with backup/rollback. Controlled by `LFS_AUTO_UPDATE` and `LFS_UPDATE_CHECK_INTERVAL_MS` env vars.
+  - **Android Deployment**: Guide at `lfs/docs/android-deployment.md` — Termux setup, auto-start via Termux:Boot, WiFi configuration.
+  - **Network Setup Guide**: `lfs/docs/network-setup.md` — IP planning, DHCP/static config, firewall rules, DNS/mDNS, verification checklist.
 
 ### Key Features
 - **Device Configuration**: Hierarchical setup for Workstations, Printers, KDS.

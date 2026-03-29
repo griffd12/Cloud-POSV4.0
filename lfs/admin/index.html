@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LFS Admin — Cloud POS Local Failover Server</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --bg-card: #1e293b;
+      --bg-card-hover: #334155;
+      --border: #334155;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --radius: 8px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .header { background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header .version { color: var(--text-muted); font-size: 13px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+    .status-dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .status-dot.warning { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+    .status-dot.error { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; margin-bottom: 24px; }
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+    .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+    .card h2 svg { width: 18px; height: 18px; stroke: var(--accent); }
+    .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-label { color: var(--text-muted); font-size: 14px; }
+    .stat-value { font-size: 14px; font-weight: 500; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+    .badge.success { background: rgba(34,197,94,0.15); color: var(--success); }
+    .badge.warning { background: rgba(245,158,11,0.15); color: var(--warning); }
+    .badge.error { background: rgba(239,68,68,0.15); color: var(--danger); }
+    .btn { padding: 8px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--bg-card); color: var(--text); cursor: pointer; font-size: 14px; transition: all 0.2s; }
+    .btn:hover { background: var(--bg-card-hover); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); }
+    .btn.primary:hover { background: var(--accent-hover); }
+    .btn.danger { border-color: var(--danger); color: var(--danger); }
+    .btn.danger:hover { background: rgba(239,68,68,0.1); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-group { display: flex; gap: 8px; margin-top: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    table th { text-align: left; color: var(--text-muted); font-weight: 500; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    table td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    .config-form label { display: block; color: var(--text-muted); font-size: 13px; margin-bottom: 4px; margin-top: 12px; }
+    .config-form input { width: 100%; padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 14px; }
+    .config-form input:focus { outline: none; border-color: var(--accent); }
+    .log-viewer { background: #0a0e17; border-radius: var(--radius); padding: 12px; max-height: 300px; overflow-y: auto; font-family: 'Fira Code', 'Cascadia Code', monospace; font-size: 12px; line-height: 1.6; color: #94a3b8; white-space: pre-wrap; word-break: break-all; }
+    .log-viewer .log-error { color: var(--danger); }
+    .log-viewer .log-warn { color: var(--warning); }
+    .log-viewer .log-info { color: var(--accent); }
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+    .tab { padding: 10px 20px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-muted); font-size: 14px; transition: all 0.2s; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: var(--radius); color: white; font-size: 14px; z-index: 100; animation: slideIn 0.3s ease; }
+    .toast.success { background: var(--success); }
+    .toast.error { background: var(--danger); }
+    @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .refresh-indicator { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--text-muted); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; margin-left: 8px; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <h1>&#9881; LFS Admin</h1>
+      <span class="version" id="version-label">v—</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <span id="status-indicator">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Checking...</span>
+      </span>
+      <span class="version" id="uptime-label"></span>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="tabs">
+      <div class="tab active" data-tab="overview">Overview</div>
+      <div class="tab" data-tab="devices">Devices</div>
+      <div class="tab" data-tab="transactions">Transactions</div>
+      <div class="tab" data-tab="config">Configuration</div>
+      <div class="tab" data-tab="logs">Logs</div>
+    </div>
+
+    <!-- Overview Tab -->
+    <div class="tab-content active" id="tab-overview">
+      <div class="grid">
+        <div class="card">
+          <h2>Sync Status</h2>
+          <div class="stat-row"><span class="stat-label">Last Sync</span><span class="stat-value" id="last-sync">—</span></div>
+          <div class="stat-row"><span class="stat-label">Sync Age</span><span class="stat-value" id="sync-age">—</span></div>
+          <div class="stat-row"><span class="stat-label">Tables Synced</span><span class="stat-value" id="tables-synced">—</span></div>
+          <div class="stat-row"><span class="stat-label">Sync Errors</span><span class="stat-value" id="sync-errors">—</span></div>
+          <div class="stat-row"><span class="stat-label">Cloud Reachable</span><span class="stat-value" id="cloud-reachable">—</span></div>
+          <div class="stat-row"><span class="stat-label">Internet Available</span><span class="stat-value" id="internet-available">—</span></div>
+          <div class="btn-group">
+            <button class="btn primary" id="btn-sync-now" data-testid="btn-sync-now">Sync Now</button>
+            <button class="btn" id="btn-refresh" data-testid="btn-refresh">Refresh</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Server Info</h2>
+          <div class="stat-row"><span class="stat-label">Mode</span><span class="stat-value" id="server-mode">—</span></div>
+          <div class="stat-row"><span class="stat-label">Database</span><span class="stat-value" id="server-db">—</span></div>
+          <div class="stat-row"><span class="stat-label">DB Size</span><span class="stat-value" id="db-size">—</span></div>
+          <div class="stat-row"><span class="stat-label">Uptime</span><span class="stat-value" id="server-uptime">—</span></div>
+          <div class="stat-row"><span class="stat-label">API Port</span><span class="stat-value" id="api-port">—</span></div>
+          <div class="stat-row"><span class="stat-label">Property ID</span><span class="stat-value" id="property-id">—</span></div>
+        </div>
+
+        <div class="card">
+          <h2>Pending Sync-Back</h2>
+          <div class="stat-row"><span class="stat-label">Journal Entries</span><span class="stat-value" id="pending-journal">—</span></div>
+          <div class="stat-row"><span class="stat-label">SAF Payments</span><span class="stat-value" id="pending-saf">—</span></div>
+          <div class="stat-row"><span class="stat-label">Failed Settlements</span><span class="stat-value" id="failed-settlements">—</span></div>
+          <div class="btn-group">
+            <button class="btn" id="btn-reconcile-saf" data-testid="btn-reconcile-saf">Reconcile SAF</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Capabilities</h2>
+          <div class="stat-row"><span class="stat-label">Payments</span><span class="stat-value" id="cap-payments">—</span></div>
+          <div class="stat-row"><span class="stat-label">KDS</span><span class="stat-value" id="cap-kds">—</span></div>
+          <div class="stat-row"><span class="stat-label">Printing</span><span class="stat-value" id="cap-printing">—</span></div>
+          <div class="stat-row"><span class="stat-label">Card Mode</span><span class="stat-value" id="cap-card-mode">—</span></div>
+          <div class="stat-row"><span class="stat-label">Store & Forward</span><span class="stat-value" id="cap-saf">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Devices Tab -->
+    <div class="tab-content" id="tab-devices">
+      <div class="card">
+        <h2>Connected POS Terminals</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>IP Address</th><th>Last Seen</th></tr></thead>
+          <tbody id="devices-table-body">
+            <tr><td colspan="5" style="color: var(--text-muted)">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top: 20px;">
+        <h2>KDS Displays</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Station</th><th>Status</th></tr></thead>
+          <tbody id="kds-table-body">
+            <tr><td colspan="3" style="color: var(--text-muted)">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Transactions Tab -->
+    <div class="tab-content" id="tab-transactions">
+      <div class="card">
+        <h2>Pending Journal Entries</h2>
+        <table>
+          <thead><tr><th>Time</th><th>Type</th><th>Entity</th><th>Method</th><th>Endpoint</th><th>Status</th></tr></thead>
+          <tbody id="journal-table-body">
+            <tr><td colspan="6" style="color: var(--text-muted)">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top: 20px;">
+        <h2>SAF Payments (Pending Settlement)</h2>
+        <table>
+          <thead><tr><th>Time</th><th>Check</th><th>Amount</th><th>Transaction ID</th><th>Status</th></tr></thead>
+          <tbody id="saf-table-body">
+            <tr><td colspan="5" style="color: var(--text-muted)">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Config Tab -->
+    <div class="tab-content" id="tab-config">
+      <div class="card">
+        <h2>Cloud Connection</h2>
+        <div class="config-form">
+          <label for="cfg-cloud-url">Cloud URL</label>
+          <input type="url" id="cfg-cloud-url" placeholder="https://your-cloud-pos.example.com" data-testid="input-cloud-url" />
+          <label for="cfg-property-id">Property ID</label>
+          <input type="text" id="cfg-property-id" placeholder="PROP-001" data-testid="input-property-id" />
+          <label for="cfg-api-key">API Key</label>
+          <input type="password" id="cfg-api-key" placeholder="Enter API key" data-testid="input-api-key" />
+          <label for="cfg-sync-interval">Sync Interval (seconds)</label>
+          <input type="number" id="cfg-sync-interval" placeholder="60" min="10" max="3600" data-testid="input-sync-interval" />
+          <div class="btn-group">
+            <button class="btn primary" id="btn-save-config" data-testid="btn-save-config">Save Configuration</button>
+            <button class="btn" id="btn-test-connection" data-testid="btn-test-connection">Test Connection</button>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top: 20px;">
+        <h2>Auto-Update</h2>
+        <div class="stat-row"><span class="stat-label">Current Version</span><span class="stat-value" id="update-current-version">—</span></div>
+        <div class="stat-row"><span class="stat-label">Latest Available</span><span class="stat-value" id="update-latest-version">—</span></div>
+        <div class="stat-row"><span class="stat-label">Auto-Update Enabled</span><span class="stat-value" id="update-auto-enabled">—</span></div>
+        <div class="stat-row"><span class="stat-label">Last Check</span><span class="stat-value" id="update-last-check">—</span></div>
+        <div class="btn-group">
+          <button class="btn" id="btn-check-update" data-testid="btn-check-update">Check for Updates</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs Tab -->
+    <div class="tab-content" id="tab-logs">
+      <div class="card">
+        <h2>Server Logs</h2>
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+          <button class="btn" id="btn-refresh-logs" data-testid="btn-refresh-logs">Refresh Logs</button>
+          <button class="btn danger" id="btn-clear-logs" data-testid="btn-clear-logs">Clear</button>
+        </div>
+        <div class="log-viewer" id="log-viewer">Loading logs...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.port === '3002' 
+      ? `${window.location.protocol}//${window.location.hostname}:3001`
+      : '';
+
+    function showToast(message, type = 'success') {
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    async function apiFetch(path, options = {}) {
+      try {
+        const res = await fetch(`${API_BASE}${path}`, {
+          ...options,
+          headers: { 'Content-Type': 'application/json', ...options.headers },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      } catch (e) {
+        console.error(`API error ${path}:`, e);
+        return null;
+      }
+    }
+
+    function formatTime(isoStr) {
+      if (!isoStr) return '—';
+      const d = new Date(isoStr);
+      return d.toLocaleString();
+    }
+
+    function formatDuration(seconds) {
+      if (!seconds && seconds !== 0) return '—';
+      if (seconds < 60) return `${seconds}s`;
+      if (seconds < 3600) return `${Math.floor(seconds/60)}m ${seconds%60}s`;
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      return `${h}h ${m}m`;
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes) return '—';
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1048576) return `${(bytes/1024).toFixed(1)} KB`;
+      return `${(bytes/1048576).toFixed(1)} MB`;
+    }
+
+    function badge(text, type) {
+      return `<span class="badge ${type}">${text}</span>`;
+    }
+
+    async function refreshOverview() {
+      const [health, capabilities, paymentStatus] = await Promise.all([
+        apiFetch('/api/health'),
+        apiFetch('/api/lfs/capabilities'),
+        apiFetch('/api/lfs/payment-status'),
+      ]);
+
+      if (health) {
+        const dot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        dot.className = 'status-dot ' + (health.status === 'ok' ? 'online' : 'error');
+        statusText.textContent = health.status === 'ok' ? 'Online' : 'Error';
+
+        document.getElementById('server-mode').textContent = health.mode || '—';
+        document.getElementById('server-db').textContent = health.database || '—';
+        document.getElementById('db-size').textContent = formatBytes(health.sqliteFileSizeBytes);
+        document.getElementById('server-uptime').textContent = formatDuration(health.uptimeSeconds);
+        document.getElementById('api-port').textContent = window.location.port === '3002' ? '3001' : window.location.port;
+
+        if (health.sync) {
+          document.getElementById('last-sync').textContent = formatTime(health.sync.lastSyncAt);
+          document.getElementById('sync-age').textContent = health.syncAgeSeconds != null ? formatDuration(health.syncAgeSeconds) : '—';
+          document.getElementById('tables-synced').textContent = health.sync.tablesSynced || '—';
+          const errCount = health.sync.errors || 0;
+          document.getElementById('sync-errors').innerHTML = errCount > 0 ? badge(errCount, 'error') : badge('0', 'success');
+        }
+      }
+
+      if (capabilities) {
+        document.getElementById('cloud-reachable').innerHTML = capabilities.cloudReachable ? badge('Yes', 'success') : badge('No', 'error');
+        document.getElementById('internet-available').innerHTML = capabilities.internetAvailable ? badge('Yes', 'success') : badge('No', 'error');
+        document.getElementById('cap-payments').innerHTML = capabilities.features?.payments ? badge('Enabled', 'success') : badge('Disabled', 'warning');
+        document.getElementById('cap-kds').innerHTML = capabilities.features?.kds ? badge('Enabled', 'success') : badge('Disabled', 'warning');
+        document.getElementById('cap-printing').innerHTML = capabilities.features?.printing ? badge('Enabled', 'success') : badge('Disabled', 'warning');
+        document.getElementById('cap-saf').innerHTML = capabilities.paymentCapabilities?.storeAndForward ? badge('Enabled', 'success') : badge('Disabled', 'warning');
+        document.getElementById('property-id').textContent = capabilities.propertyId || '—';
+      }
+
+      if (paymentStatus) {
+        document.getElementById('cap-card-mode').innerHTML = paymentStatus.cardMode === 'online'
+          ? badge('Online', 'success')
+          : badge('Store & Forward', 'warning');
+      }
+
+      const journalCount = await apiFetch('/api/lfs/journal/count');
+      document.getElementById('pending-journal').textContent = journalCount?.count ?? '—';
+
+      const pendingSettlements = await apiFetch('/api/lfs/sync/pending-settlements');
+      if (pendingSettlements) {
+        document.getElementById('pending-saf').textContent = pendingSettlements.count ?? '0';
+      }
+    }
+
+    async function refreshDevices() {
+      const tbody = document.getElementById('devices-table-body');
+      try {
+        const data = await apiFetch('/api/workstations');
+        if (data && Array.isArray(data)) {
+          if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="color: var(--text-muted)">No workstations found</td></tr>';
+          } else {
+            tbody.innerHTML = data.map(ws => `
+              <tr>
+                <td>${ws.name || '—'}</td>
+                <td>${ws.type || 'POS'}</td>
+                <td>${badge(ws.status || 'unknown', ws.status === 'active' ? 'success' : 'warning')}</td>
+                <td>${ws.ipAddress || '—'}</td>
+                <td>${formatTime(ws.lastSeenAt)}</td>
+              </tr>
+            `).join('');
+          }
+        }
+      } catch { tbody.innerHTML = '<tr><td colspan="5" style="color: var(--danger)">Error loading devices</td></tr>'; }
+
+      const kdsTbody = document.getElementById('kds-table-body');
+      try {
+        const kdsData = await apiFetch('/api/kds-displays');
+        if (kdsData && Array.isArray(kdsData)) {
+          if (kdsData.length === 0) {
+            kdsTbody.innerHTML = '<tr><td colspan="3" style="color: var(--text-muted)">No KDS displays found</td></tr>';
+          } else {
+            kdsTbody.innerHTML = kdsData.map(kds => `
+              <tr>
+                <td>${kds.name || '—'}</td>
+                <td>${kds.stationName || '—'}</td>
+                <td>${badge(kds.status || 'unknown', kds.status === 'active' ? 'success' : 'warning')}</td>
+              </tr>
+            `).join('');
+          }
+        }
+      } catch { kdsTbody.innerHTML = '<tr><td colspan="3" style="color: var(--danger)">Error loading KDS displays</td></tr>'; }
+    }
+
+    async function refreshTransactions() {
+      const journalTbody = document.getElementById('journal-table-body');
+      try {
+        const journal = await apiFetch('/api/lfs/journal/pending');
+        if (journal && Array.isArray(journal)) {
+          if (journal.length === 0) {
+            journalTbody.innerHTML = '<tr><td colspan="6" style="color: var(--text-muted)">No pending entries</td></tr>';
+          } else {
+            journalTbody.innerHTML = journal.slice(0, 50).map(j => `
+              <tr>
+                <td>${formatTime(j.createdAt)}</td>
+                <td>${j.operationType || '—'}</td>
+                <td>${j.entityType || '—'}</td>
+                <td>${j.httpMethod || '—'}</td>
+                <td style="font-family: monospace; font-size: 12px;">${j.endpoint || '—'}</td>
+                <td>${j.synced ? badge('Synced', 'success') : badge('Pending', 'warning')}</td>
+              </tr>
+            `).join('');
+          }
+        }
+      } catch { journalTbody.innerHTML = '<tr><td colspan="6" style="color: var(--danger)">Error loading journal</td></tr>'; }
+
+      const safTbody = document.getElementById('saf-table-body');
+      try {
+        const safPayments = await apiFetch('/api/lfs/sync/pending-settlements');
+        if (safPayments?.payments && Array.isArray(safPayments.payments)) {
+          if (safPayments.payments.length === 0) {
+            safTbody.innerHTML = '<tr><td colspan="5" style="color: var(--text-muted)">No pending SAF payments</td></tr>';
+          } else {
+            safTbody.innerHTML = safPayments.payments.map(p => `
+              <tr>
+                <td>${formatTime(p.createdAt)}</td>
+                <td>${p.checkId || '—'}</td>
+                <td>$${(parseFloat(p.amount) || 0).toFixed(2)}</td>
+                <td style="font-family: monospace; font-size: 12px;">${p.offlineTransactionId || p.id || '—'}</td>
+                <td>${badge(p.paymentStatus || '—', p.paymentStatus === 'pending_settlement' ? 'warning' : p.paymentStatus === 'settlement_failed' ? 'error' : 'success')}</td>
+              </tr>
+            `).join('');
+          }
+        }
+      } catch { safTbody.innerHTML = '<tr><td colspan="5" style="color: var(--danger)">Error loading SAF payments</td></tr>'; }
+    }
+
+    async function refreshLogs() {
+      const viewer = document.getElementById('log-viewer');
+      try {
+        const data = await apiFetch('/api/lfs/admin/logs');
+        if (data?.logs) {
+          viewer.innerHTML = data.logs.map(line => {
+            let cls = '';
+            if (/error|ERR/i.test(line)) cls = 'log-error';
+            else if (/warn|WARN/i.test(line)) cls = 'log-warn';
+            else if (/info|sync|startup/i.test(line)) cls = 'log-info';
+            return `<div class="${cls}">${line}</div>`;
+          }).join('');
+          viewer.scrollTop = viewer.scrollHeight;
+        } else {
+          viewer.textContent = 'No logs available';
+        }
+      } catch { viewer.textContent = 'Error loading logs'; }
+    }
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+
+        if (tab.dataset.tab === 'devices') refreshDevices();
+        if (tab.dataset.tab === 'transactions') refreshTransactions();
+        if (tab.dataset.tab === 'logs') refreshLogs();
+      });
+    });
+
+    document.getElementById('btn-sync-now').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-sync-now');
+      btn.disabled = true;
+      btn.textContent = 'Syncing...';
+      try {
+        const res = await apiFetch('/api/lfs/admin/trigger-sync', { method: 'POST' });
+        if (res?.ok) {
+          showToast('Sync triggered successfully');
+        } else {
+          showToast(res?.error || 'Sync failed', 'error');
+        }
+      } catch { showToast('Sync request failed', 'error'); }
+      btn.disabled = false;
+      btn.textContent = 'Sync Now';
+      setTimeout(refreshOverview, 2000);
+    });
+
+    document.getElementById('btn-refresh').addEventListener('click', refreshOverview);
+
+    document.getElementById('btn-reconcile-saf').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-reconcile-saf');
+      btn.disabled = true;
+      btn.textContent = 'Reconciling...';
+      try {
+        const res = await apiFetch('/api/lfs/reconcile-saf', { method: 'POST' });
+        if (res) {
+          showToast(`Reconciliation: ${res.settled || 0} settled, ${res.failed || 0} failed`);
+        } else {
+          showToast('Reconciliation failed', 'error');
+        }
+      } catch { showToast('Reconciliation request failed', 'error'); }
+      btn.disabled = false;
+      btn.textContent = 'Reconcile SAF';
+      setTimeout(refreshOverview, 2000);
+    });
+
+    document.getElementById('btn-save-config').addEventListener('click', async () => {
+      const config = {
+        cloudUrl: document.getElementById('cfg-cloud-url').value,
+        propertyId: document.getElementById('cfg-property-id').value,
+        apiKey: document.getElementById('cfg-api-key').value,
+        syncIntervalMs: parseInt(document.getElementById('cfg-sync-interval').value || '60') * 1000,
+      };
+      try {
+        const res = await apiFetch('/api/lfs/admin/config', { method: 'POST', body: JSON.stringify(config) });
+        if (res?.ok) {
+          showToast('Configuration saved');
+        } else {
+          showToast(res?.error || 'Save failed', 'error');
+        }
+      } catch { showToast('Save request failed', 'error'); }
+    });
+
+    document.getElementById('btn-test-connection').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-test-connection');
+      btn.disabled = true;
+      btn.textContent = 'Testing...';
+      try {
+        const res = await apiFetch('/api/lfs/admin/test-connection', { method: 'POST' });
+        if (res?.ok) {
+          showToast('Connection successful!');
+        } else {
+          showToast(res?.error || 'Connection failed', 'error');
+        }
+      } catch { showToast('Connection test failed', 'error'); }
+      btn.disabled = false;
+      btn.textContent = 'Test Connection';
+    });
+
+    document.getElementById('btn-check-update').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-check-update');
+      btn.disabled = true;
+      btn.textContent = 'Checking...';
+      try {
+        const res = await apiFetch('/api/lfs/admin/check-update', { method: 'POST' });
+        if (res) {
+          document.getElementById('update-latest-version').textContent = res.latestVersion || '—';
+          if (res.updateAvailable) {
+            showToast(`Update available: ${res.latestVersion}`);
+          } else {
+            showToast('You are running the latest version');
+          }
+        }
+      } catch { showToast('Update check failed', 'error'); }
+      btn.disabled = false;
+      btn.textContent = 'Check for Updates';
+    });
+
+    document.getElementById('btn-refresh-logs').addEventListener('click', refreshLogs);
+    document.getElementById('btn-clear-logs').addEventListener('click', () => {
+      document.getElementById('log-viewer').innerHTML = '';
+    });
+
+    async function loadConfig() {
+      const config = await apiFetch('/api/lfs/admin/config');
+      if (config) {
+        document.getElementById('cfg-cloud-url').value = config.cloudUrl || '';
+        document.getElementById('cfg-property-id').value = config.propertyId || '';
+        document.getElementById('cfg-sync-interval').value = Math.floor((config.syncIntervalMs || 60000) / 1000);
+        document.getElementById('update-current-version').textContent = config.version || '—';
+        document.getElementById('update-auto-enabled').innerHTML = config.autoUpdate ? badge('Yes', 'success') : badge('No', 'warning');
+        document.getElementById('version-label').textContent = `v${config.version || '?'}`;
+      }
+    }
+
+    refreshOverview();
+    loadConfig();
+    setInterval(refreshOverview, 30000);
+  </script>
+</body>
+</html>

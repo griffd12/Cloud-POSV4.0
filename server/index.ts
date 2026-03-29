@@ -7,6 +7,8 @@ import { startAlertEngine } from "./alertEngine";
 import { storage } from "./storage";
 import { isLocalMode, sqliteDb } from "./db";
 import { startConfigSync, getConfigSyncService } from "./config-sync";
+import { registerLfsAdminRoutes, startLfsAdminServer, captureLog } from "./lfs-admin-routes";
+import { startAutoUpdateChecker } from "./lfs-auto-update";
 import path from "path";
 import fs from "fs";
 
@@ -117,6 +119,7 @@ app.get("/health", async (_req, res) => {
   }
 
   await registerRoutes(httpServer, app);
+  registerLfsAdminRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -159,6 +162,9 @@ app.get("/health", async (_req, res) => {
       log(`serving on port ${port}`);
       if (isLocalMode) {
         log("Local Failover Server ready", "lfs");
+        captureLog("[startup] LFS server started on port " + port);
+        startLfsAdminServer();
+        startAutoUpdateChecker();
       } else {
         startFiscalScheduler();
         startAlertEngine(storage);
