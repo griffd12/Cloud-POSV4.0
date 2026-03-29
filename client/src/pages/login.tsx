@@ -146,61 +146,71 @@ export default function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: async (pinCode: string) => {
       loginAbortRef.current?.abort();
-      const controller = new AbortController();
-      loginAbortRef.current = controller;
+      const cancelController = new AbortController();
+      loginAbortRef.current = cancelController;
 
       const payload = JSON.stringify({ pin: pinCode, rvcId: selectedRvcId });
       const baseUrl = connectionManager.getBaseUrl();
       const url = `${baseUrl}/api/auth/login`;
       const LOGIN_TIMEOUT_MS = 8000;
 
-      const timedFetch = (targetUrl: string) => {
-        const timeoutId = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS);
-        return fetch(targetUrl, {
+      const isRetryableError = (err: unknown, res?: Response): boolean => {
+        if (err instanceof TypeError) return true;
+        if (err instanceof DOMException && err.name === "TimeoutError") return true;
+        if (res && res.status >= 500) return true;
+        return false;
+      };
+
+      const doLogin = async (targetUrl: string): Promise<Response> => {
+        const res = await fetch(targetUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...getAuthHeaders() },
           body: payload,
           credentials: "include",
-          signal: controller.signal,
-        }).finally(() => clearTimeout(timeoutId));
+          signal: AbortSignal.any([
+            cancelController.signal,
+            AbortSignal.timeout(LOGIN_TIMEOUT_MS),
+          ]),
+        });
+        return res;
       };
 
+      let firstRes: Response | undefined;
+      let firstErr: unknown;
       try {
-        const res = await timedFetch(url);
-        if (!res.ok) {
-          const text = (await res.text()) || res.statusText;
-          throw new Error(`${res.status}: ${text}`);
+        firstRes = await doLogin(url);
+        if (firstRes.ok) {
+          return firstRes.json() as Promise<LoginResponse>;
         }
-        return res.json() as Promise<LoginResponse>;
-      } catch (firstErr: unknown) {
-        if (controller.signal.aborted) throw firstErr;
-
-        const lfsUrl = connectionManager.localServerUrl;
-        if (!lfsUrl || url.startsWith(lfsUrl)) throw firstErr;
-
-        const retryController = new AbortController();
-        loginAbortRef.current = retryController;
-        const retryUrl = `${lfsUrl}/api/auth/login`;
-        const retryTimeoutId = setTimeout(() => retryController.abort(), LOGIN_TIMEOUT_MS);
-        try {
-          const res = await fetch(retryUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-            body: payload,
-            credentials: "include",
-            signal: retryController.signal,
-          });
-          clearTimeout(retryTimeoutId);
-          if (!res.ok) {
-            const text = (await res.text()) || res.statusText;
-            throw new Error(`${res.status}: ${text}`);
-          }
-          return res.json() as Promise<LoginResponse>;
-        } catch (retryErr) {
-          clearTimeout(retryTimeoutId);
-          throw retryErr;
+        if (!isRetryableError(null, firstRes)) {
+          const text = (await firstRes.text()) || firstRes.statusText;
+          throw new Error(`${firstRes.status}: ${text}`);
         }
+        firstErr = new Error(`${firstRes.status}: ${firstRes.statusText}`);
+      } catch (err: unknown) {
+        if (cancelController.signal.aborted) throw err;
+        firstErr = err;
+        if (!isRetryableError(err)) throw err;
       }
+
+      const lfsUrl = connectionManager.localServerUrl;
+      if (!lfsUrl || url.startsWith(lfsUrl)) throw firstErr;
+
+      const retryRes = await fetch(`${lfsUrl}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: payload,
+        credentials: "include",
+        signal: AbortSignal.any([
+          cancelController.signal,
+          AbortSignal.timeout(LOGIN_TIMEOUT_MS),
+        ]),
+      });
+      if (!retryRes.ok) {
+        const text = (await retryRes.text()) || retryRes.statusText;
+        throw new Error(`${retryRes.status}: ${text}`);
+      }
+      return retryRes.json() as Promise<LoginResponse>;
     },
     onSuccess: async (data) => {
       // For salaried bypass, skip clock-in check - they have privileges without clocking in
@@ -270,12 +280,14 @@ export default function LoginPage() {
       navigate("/pos");
     },
     onError: async (error: Error) => {
-      if (error.name === "AbortError" || error.message?.includes("abort")) {
+      if (error.name === "AbortError") {
         return;
       }
       const msg = error.message || "";
-      if (msg.startsWith("4")) {
+      if (msg.startsWith("4") || msg.includes("Invalid") || msg.includes("not found")) {
         setLoginError("Invalid PIN or employee not found");
+      } else if (error.name === "TimeoutError" || msg.includes("timeout") || msg.includes("Timeout")) {
+        setLoginError("Connection timed out. Please check network and try again.");
       } else {
         setLoginError("Unable to connect. Please check network and try again.");
       }
