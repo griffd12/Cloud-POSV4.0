@@ -1,0 +1,137 @@
+C:\CloudPOS-LFS>start-lfs.bat
+Starting Cloud POS Local Failover Server...
+  API Port: 3001
+  Admin: http://localhost:3002
+  Data: C:\CloudPOS-LFS\data
+  Logs: C:\CloudPOS-LFS\logs
+[LFS] SQLite schema initialized with 141 tables
+[LFS] Using SQLite storage (local mode)
+2:26:23 AM [lfs] Starting in LOCAL FAILOVER SERVER mode (SQLite)
+Migration error (non-fatal): TypeError: Cannot read properties of null (reading 'execute')
+    at bzi (C:\CloudPOS-LFS\server.cjs:932:26976)
+    at C:\CloudPOS-LFS\server.cjs:1034:86752
+    at C:\CloudPOS-LFS\server.cjs:1034:87219
+    at C:\CloudPOS-LFS\server.cjs:1:232
+    at Object.<anonymous> (C:\CloudPOS-LFS\server.cjs:1034:87224)
+    at Module._compile (node:internal/modules/cjs/loader:1376:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)
+    at Module.load (node:internal/modules/cjs/loader:1207:32)
+    at Module._load (node:internal/modules/cjs/loader:1023:12)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:135:12)
+    at node:internal/main/run_main_module:28:49
+[delivery-platform] Delivery platform routes registered
+2:26:24 AM [lfs-sync] Running blocking initial config sync from https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/...
+2:26:30 AM [lfs-sync] Initialized offline check range for workstation SNS-001-WS02: 200001-300000
+2:26:30 AM [lfs-sync] Initialized offline check range for workstation Derek-Laptop: 300001-400000
+2:26:30 AM [lfs-sync] Initialized offline check range for workstation SNS-001-WS01: 10000-20000
+2:26:30 AM [lfs-sync] Config sync completed (#1)
+2:26:30 AM [lfs-sync] Initial config sync completed successfully
+2:26:30 AM [lfs-sync] Config sync starting (interval: 60000ms, cloud: https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/)
+2:26:30 AM [express] serving on port 3001
+2:26:30 AM [lfs] Local Failover Server ready
+[lfs-update] Auto-update checker started (check+apply, interval: 60m)
+[lfs-admin] Admin dashboard available at http://localhost:3002
+2:26:52 AM [express] GET /api/health 200 in 7ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":28,"timestamp":"2026-03-29T09:26:52.054Z","sqliteFileSizeBytes":4096,"sync":{"lastSyncAt":"2026-03-29T09:26:30.060Z","lastSyncError":null,"syncCount":1,"isSyncing":false},"syncAgeSeconds":21}
+2:26:52 AM [express] GET /api/lfs/admin/config 401 in 26ms :: {"error":"Unauthorized"}
+2:26:52 AM [express] GET /api/lfs/admin/setup-status 200 in 3ms :: {"configured":true,"hasCloudUrl":true,"needsSetup":false}
+2:26:52 AM [express] GET /api/health 200 in 1ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":28,"timestamp":"2026-03-29T09:26:52.248Z","sqliteFileSizeBytes":4096,"sync":{"lastSyncAt":"2026-03-29T09:26:30.060Z","lastSyncError":null,"syncCount":1,"isSyncing":false},"syncAgeSeconds":22}
+2:26:52 AM [express] GET /api/lfs/admin/config 401 in 2ms :: {"error":"Unauthorized"}
+2:26:52 AM [express] GET /api/lfs/capabilities 200 in 276ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:26:52 AM [express] GET /api/lfs/capabilities 200 in 85ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:26:52 AM [express] GET /api/lfs/payment-status 200 in 360ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:26:52 AM [express] GET /api/lfs/admin/journal/pending 401 in 2ms :: {"error":"Unauthorized"}
+2:26:52 AM [express] GET /api/lfs/sync/pending-settlements 401 in 1ms :: {"error":"Unauthorized"}
+2:26:52 AM [express] POST /api/lfs/admin/check-update 401 in 1ms :: {"error":"Unauthorized"}
+2:26:52 AM [express] GET /api/lfs/payment-status 200 in 83ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:26:52 AM [express] GET /api/lfs/admin/journal/pending 401 in 1ms :: {"error":"Unauthorized"}
+2:26:52 AM [express] GET /api/lfs/sync/pending-settlements 401 in 2ms :: {"error":"Unauthorized"}
+2:26:52 AM [express] POST /api/lfs/admin/check-update 401 in 2ms :: {"error":"Unauthorized"}
+2:27:04 AM [express] POST /api/lfs/admin/login 200 in 7ms :: {"ok":true}
+2:27:04 AM [express] GET /api/health 200 in 4ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":40,"timestamp":"2026-03-29T09:27:04.957Z","sqliteFileSizeBytes":4096,"sync":{"lastSyncAt":"2026-03-29T09:26:30.060Z","lastSyncError":null,"syncCount":1,"isSyncing":false},"syncAgeSeconds":34}
+2:27:04 AM [express] GET /api/lfs/admin/config 200 in 3ms :: {"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","syncIntervalMs":60000,"autoUpdate":true,"version":"4.0.0"}
+2:27:05 AM [express] GET /api/lfs/payment-status 200 in 99ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:27:05 AM [express] GET /api/lfs/capabilities 200 in 271ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:27:05 AM [express] GET /api/lfs/admin/journal/pending 200 in 5ms :: {"entries":[],"count":0}
+2:27:05 AM [express] GET /api/lfs/sync/pending-settlements 200 in 3ms :: {"count":0,"payments":[]}
+2:27:05 AM [express] POST /api/lfs/admin/check-update 200 in 91ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:27:09 AM [express] GET /api/lfs/admin/devices 200 in 7ms :: {"devices":[]}
+2:27:09 AM [express] GET /api/lfs/admin/devices 200 in 4ms :: {"devices":[]}
+2:27:10 AM [express] GET /api/lfs/admin/journal/pending 200 in 6ms :: {"entries":[],"count":0}
+2:27:10 AM [express] GET /api/lfs/sync/pending-settlements 200 in 5ms :: {"count":0,"payments":[]}
+2:27:11 AM [express] GET /api/lfs/admin/devices 200 in 4ms :: {"devices":[]}
+2:27:22 AM [express] GET /api/health 200 in 4ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":58,"timestamp":"2026-03-29T09:27:22.052Z","sqliteFileSizeBytes":4096,"sync":{"lastSyncAt":"2026-03-29T09:26:30.060Z","lastSyncError":null,"syncCount":1,"isSyncing":false},"syncAgeSeconds":51}
+2:27:22 AM [express] GET /api/lfs/capabilities 200 in 394ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:27:22 AM [express] GET /api/lfs/payment-status 200 in 228ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:27:22 AM [express] GET /api/lfs/admin/journal/pending 200 in 3ms :: {"entries":[],"count":0}
+2:27:22 AM [express] GET /api/lfs/sync/pending-settlements 200 in 8ms :: {"count":0,"payments":[]}
+2:27:22 AM [express] POST /api/lfs/admin/check-update 200 in 109ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:27:35 AM [lfs-sync] Config sync completed (#2)
+2:27:52 AM [express] GET /api/health 200 in 4ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":88,"timestamp":"2026-03-29T09:27:52.054Z","sqliteFileSizeBytes":2945024,"sync":{"lastSyncAt":"2026-03-29T09:27:35.777Z","lastSyncError":null,"syncCount":2,"isSyncing":false},"syncAgeSeconds":16}
+2:27:52 AM [express] GET /api/lfs/capabilities 200 in 403ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:27:52 AM [express] GET /api/lfs/payment-status 200 in 227ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:27:52 AM [express] GET /api/lfs/admin/journal/pending 200 in 9ms :: {"entries":[],"count":0}
+2:27:52 AM [express] GET /api/lfs/sync/pending-settlements 200 in 3ms :: {"count":0,"payments":[]}
+2:27:52 AM [express] POST /api/lfs/admin/check-update 200 in 93ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:28:22 AM [express] GET /api/health 200 in 3ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":118,"timestamp":"2026-03-29T09:28:22.048Z","sqliteFileSizeBytes":2945024,"sync":{"lastSyncAt":"2026-03-29T09:27:35.777Z","lastSyncError":null,"syncCount":2,"isSyncing":false},"syncAgeSeconds":46}
+2:28:22 AM [express] GET /api/lfs/capabilities 200 in 388ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:28:22 AM [express] GET /api/lfs/payment-status 200 in 234ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:28:22 AM [express] GET /api/lfs/admin/journal/pending 200 in 4ms :: {"entries":[],"count":0}
+2:28:22 AM [express] GET /api/lfs/sync/pending-settlements 200 in 3ms :: {"count":0,"payments":[]}
+2:28:22 AM [express] POST /api/lfs/admin/check-update 200 in 100ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:28:35 AM [lfs-sync] Config sync completed (#3)
+2:28:52 AM [express] GET /api/health 200 in 4ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":148,"timestamp":"2026-03-29T09:28:52.054Z","sqliteFileSizeBytes":2945024,"sync":{"lastSyncAt":"2026-03-29T09:28:35.878Z","lastSyncError":null,"syncCount":3,"isSyncing":false},"syncAgeSeconds":16}
+2:28:52 AM [express] GET /api/lfs/capabilities 200 in 415ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:28:52 AM [express] GET /api/lfs/payment-status 200 in 234ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:28:52 AM [express] GET /api/lfs/admin/journal/pending 200 in 4ms :: {"entries":[],"count":0}
+2:28:52 AM [express] GET /api/lfs/sync/pending-settlements 200 in 4ms :: {"count":0,"payments":[]}
+2:28:52 AM [express] POST /api/lfs/admin/check-update 200 in 103ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:29:22 AM [express] GET /api/health 200 in 1ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":178,"timestamp":"2026-03-29T09:29:22.938Z","sqliteFileSizeBytes":2945024,"sync":{"lastSyncAt":"2026-03-29T09:28:35.878Z","lastSyncError":null,"syncCount":3,"isSyncing":false},"syncAgeSeconds":47}
+2:29:23 AM [express] GET /api/lfs/capabilities 200 in 373ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:29:23 AM [express] GET /api/lfs/payment-status 200 in 227ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:29:23 AM [express] GET /api/lfs/admin/journal/pending 200 in 3ms :: {"entries":[],"count":0}
+2:29:23 AM [express] GET /api/lfs/sync/pending-settlements 200 in 3ms :: {"count":0,"payments":[]}
+2:29:23 AM [express] POST /api/lfs/admin/check-update 200 in 89ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:29:36 AM [lfs-sync] Config sync completed (#4)
+2:29:52 AM [express] GET /api/health 200 in 3ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":208,"timestamp":"2026-03-29T09:29:52.927Z","sqliteFileSizeBytes":2945024,"sync":{"lastSyncAt":"2026-03-29T09:29:36.056Z","lastSyncError":null,"syncCount":4,"isSyncing":false},"syncAgeSeconds":16}
+2:29:53 AM [express] GET /api/lfs/capabilities 200 in 384ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:29:53 AM [express] GET /api/lfs/payment-status 200 in 234ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:29:53 AM [express] GET /api/lfs/admin/journal/pending 200 in 4ms :: {"entries":[],"count":0}
+2:29:53 AM [express] GET /api/lfs/sync/pending-settlements 200 in 3ms :: {"count":0,"payments":[]}
+2:29:53 AM [express] POST /api/lfs/admin/check-update 200 in 99ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:30:16 AM [express] GET /api/lfs/admin/journal/pending 200 in 6ms :: {"entries":[],"count":0}
+2:30:16 AM [express] GET /api/lfs/sync/pending-settlements 200 in 2ms :: {"count":0,"payments":[]}
+2:30:22 AM [express] GET /api/health 200 in 1ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":238,"timestamp":"2026-03-29T09:30:22.331Z","sqliteFileSizeBytes":2945024,"sync":{"lastSyncAt":"2026-03-29T09:29:36.056Z","lastSyncError":null,"syncCount":4,"isSyncing":false},"syncAgeSeconds":46}
+2:30:22 AM [express] GET /api/lfs/admin/logs 200 in 2ms :: {"logs":["2026-03-29T09:26:30.085Z [startup] LFS server started on port 3001","2026-03-29T09:26:30.097Z [admin] Admin dashboard started on port 3002"]}
+2:30:22 AM [express] GET /api/lfs/payment-status 200 in 268ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:30:22 AM [express] GET /api/lfs/capabilities 200 in 406ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:30:22 AM [express] GET /api/lfs/admin/journal/pending 200 in 5ms :: {"entries":[],"count":0}
+2:30:22 AM [express] GET /api/lfs/sync/pending-settlements 200 in 5ms :: {"count":0,"payments":[]}
+2:30:22 AM [express] POST /api/lfs/admin/check-update 200 in 95ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:30:23 AM [express] GET /api/lfs/admin/devices 200 in 3ms :: {"devices":[]}
+2:30:35 AM [lfs-sync] Config sync completed (#5)
+2:30:52 AM [express] GET /api/health 200 in 4ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":268,"timestamp":"2026-03-29T09:30:52.948Z","sqliteFileSizeBytes":2945024,"sync":{"lastSyncAt":"2026-03-29T09:30:35.867Z","lastSyncError":null,"syncCount":5,"isSyncing":false},"syncAgeSeconds":17}
+2:30:53 AM [express] GET /api/lfs/capabilities 200 in 281ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:30:53 AM [express] GET /api/lfs/payment-status 200 in 393ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:30:53 AM [express] GET /api/lfs/admin/journal/pending 200 in 3ms :: {"entries":[],"count":0}
+2:30:53 AM [express] GET /api/lfs/sync/pending-settlements 200 in 1ms :: {"count":0,"payments":[]}
+2:30:53 AM [express] POST /api/lfs/admin/check-update 200 in 89ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:31:22 AM [express] GET /api/health 200 in 2ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":298,"timestamp":"2026-03-29T09:31:22.049Z","sqliteFileSizeBytes":2945024,"sync":{"lastSyncAt":"2026-03-29T09:30:35.867Z","lastSyncError":null,"syncCount":5,"isSyncing":false},"syncAgeSeconds":46}
+2:31:22 AM [express] GET /api/lfs/capabilities 200 in 417ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:31:22 AM [express] GET /api/lfs/payment-status 200 in 232ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:31:22 AM [express] GET /api/lfs/admin/journal/pending 200 in 4ms :: {"entries":[],"count":0}
+2:31:22 AM [express] GET /api/lfs/sync/pending-settlements 200 in 4ms :: {"count":0,"payments":[]}
+2:31:22 AM [express] POST /api/lfs/admin/check-update 200 in 88ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:31:35 AM [lfs-sync] Config sync completed (#6)
+2:31:52 AM [express] GET /api/health 200 in 5ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":328,"timestamp":"2026-03-29T09:31:52.937Z","sqliteFileSizeBytes":2945024,"sync":{"lastSyncAt":"2026-03-29T09:31:35.825Z","lastSyncError":null,"syncCount":6,"isSyncing":false},"syncAgeSeconds":17}
+2:31:53 AM [express] GET /api/lfs/capabilities 200 in 376ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:31:53 AM [express] GET /api/lfs/payment-status 200 in 230ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:31:53 AM [express] GET /api/lfs/admin/journal/pending 200 in 3ms :: {"entries":[],"count":0}
+2:31:53 AM [express] GET /api/lfs/sync/pending-settlements 200 in 3ms :: {"count":0,"payments":[]}
+2:31:53 AM [express] POST /api/lfs/admin/check-update 200 in 90ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:32:22 AM [express] GET /api/health 200 in 3ms :: {"status":"ok","mode":"local","database":"sqlite","uptimeSeconds":358,"timestamp":"2026-03-29T09:32:22.374Z","sqliteFileSizeBytes":2945024,"sync":{"lastSyncAt":"2026-03-29T09:31:35.825Z","lastSyncError":null,"syncCount":6,"isSyncing":false},"syncAgeSeconds":46}
+2:32:22 AM [express] GET /api/lfs/payment-status 200 in 249ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+2:32:22 AM [express] GET /api/lfs/capabilities 200 in 412ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+2:32:22 AM [express] GET /api/lfs/admin/journal/pending 200 in 4ms :: {"entries":[],"count":0}
+2:32:22 AM [express] GET /api/lfs/sync/pending-settlements 200 in 3ms :: {"count":0,"payments":[]}
+2:32:22 AM [express] POST /api/lfs/admin/check-update 200 in 93ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":"HTTP 400","currentVersion":"4.0.0","autoUpdateEnabled":true}
+2:32:37 AM [lfs-sync] Config sync completed (#7)
