@@ -625,6 +625,9 @@ function registerLfsCloudRoutes(app: Express) {
 
   app.post("/api/lfs/sync/transaction-up", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as any).lfsPropertyId) return;
+
       const entry = req.body;
       if (!entry || !(entry.entity_type || entry.entityType) || !entry.payload) {
         return res.status(400).json({ error: "Missing required fields: entity_type and payload" });
@@ -662,6 +665,9 @@ function registerLfsCloudRoutes(app: Express) {
 
   app.post("/api/lfs/sync/batch-up", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as any).lfsPropertyId) return;
+
       const { entries } = req.body;
       if (!Array.isArray(entries)) {
         return res.status(400).json({ error: "entries must be an array" });

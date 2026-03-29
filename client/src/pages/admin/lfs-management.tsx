@@ -28,7 +28,7 @@ export default function LfsManagementPage() {
 
   const { data: syncLogs, isLoading: logsLoading } = useQuery({
     queryKey: ["/api/emc/lfs-sync-logs", selectedPropertyId],
-    queryFn: () => apiRequest("GET", `/api/emc/lfs-sync-logs/${selectedPropertyId}?limit=50`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", `/api/emc/lfs-sync-logs/${selectedPropertyId}?limit=20`).then(r => r.json()),
     enabled: !!selectedPropertyId,
   });
 
