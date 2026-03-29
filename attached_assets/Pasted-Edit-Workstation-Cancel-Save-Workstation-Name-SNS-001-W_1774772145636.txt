@@ -1,0 +1,177 @@
+Edit Workstation
+Cancel
+Save
+Workstation Name
+SNS-001-WS01
+Device Type
+POS Terminal
+
+Revenue Center (Optional)
+SNS-001 Shop
+
+Default Order Type
+Take Out
+
+Workstation Settings
+Fast Transaction
+
+
+Require Begin Check
+
+
+Allow Pickup Check
+
+
+Reopen Closed Checks
+
+
+Allow Offline
+
+
+Offline Check Number Range
+Assign a unique check number range for this workstation to prevent duplicates when operating offline.
+
+Range Start
+10000
+Range End
+20000
+Capacity: 10,001 checks
+
+Manager Approval
+
+
+Clock-In Allowed
+
+
+Active
+
+
+Auto-Logout (minutes)
+2
+Automatically sign out employee after this many minutes of inactivity. Unsent items will be cancelled. Set to 0 or leave empty to disable.
+
+Display Font Size
+Large (120%)
+
+Controls the text size on POS screens, check details, popups, and KDS tickets for this workstation. Use Large or Extra Large for smaller touchscreens.
+
+Printer Assignments
+Select a printer and click "Set for all" to apply it to all printer types.
+
+Receipt Printer
+Set for all
+
+Station1-PTR (receipt) - SNS-Newport Beach
+
+Primary printer for guest checks
+
+Backup Receipt Printer
+Set for all
+
+Station1-PTR (receipt) - SNS-Newport Beach
+
+Fallback if primary is offline
+
+Report Printer
+Set for all
+
+Station1-PTR (receipt) - SNS-Newport Beach
+
+Printer for reports and summaries
+
+Backup Report Printer
+Set for all
+
+Station1-PTR (receipt) - SNS-Newport Beach
+
+Fallback for report printing
+
+Void Printer
+Set for all
+
+Station1-PTR (receipt) - SNS-Newport Beach
+
+Printer for void receipts
+
+Backup Void Printer
+Set for all
+
+Station1-PTR (receipt) - SNS-Newport Beach
+
+Fallback for void printing
+
+Serial Port Settings
+Configure the COM port for serial printers connected to this workstation. The serial adapter connects to a COM port on the workstation hardware.
+
+COM Port
+None (Not Used)
+
+Physical COM port on the workstation
+
+Baud Rate
+9600 (Standard)
+
+Communication speed — 9600 is standard for most receipt printers
+
+Data Bits
+8 (Standard)
+
+Stop Bits
+1 (Standard)
+
+Parity
+None (Standard)
+
+Flow Control
+None (Standard)
+
+Cash Drawer
+Configure a printer-driven cash drawer connected to one of this workstation's receipt printers.
+
+Cash Drawer Enabled
+Enable cash drawer kick commands for this workstation
+
+
+
+Drawer Printer
+Station1-PTR (receipt) - SNS-Newport Beach
+
+The receipt printer that controls the cash drawer via its kick connector
+
+Kick Pin
+Pin 2 (Standard)
+
+Most drawers (MMF, APG, Star) use Pin 2. Some dual-drawer setups use Pin 5.
+
+Pulse Duration (ms)
+100
+Duration of the electronic kick pulse. 100ms works for most drawers.
+
+Auto-Open on Cash Tender
+Automatically open the drawer when a cash payment is applied
+
+
+
+Auto-Open on Drop/Pickup
+Automatically open the drawer for cash drops and pickups
+
+
+
+Order Device Routing
+Select which Order Devices this workstation is allowed to send orders to. If none are selected, the workstation will send to all devices based on the menu item's Print Class.
+
+Expo Station 1
+EXPO1
+SNS-Newport Beach
+Specialty Expo
+SNS-Newport Beach
+Expo Station 2
+EXPO2
+SNS-Newport Beach
+Selected: 2 device(s) — orders will only route to these devices
+
+Network Settings
+IP Address
+192.168.1.21
+Hostname
+DESKTOP-JBC9TG5
