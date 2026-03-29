@@ -40,8 +40,12 @@ let updateState: UpdateState = {
 
 let updateInterval: ReturnType<typeof setInterval> | null = null;
 
-export function getUpdateState(): UpdateState & { currentVersion: string } {
-  return { ...updateState, currentVersion: LFS_VERSION };
+export function getUpdateState(): UpdateState & { currentVersion: string; autoUpdateEnabled: boolean } {
+  return {
+    ...updateState,
+    currentVersion: LFS_VERSION,
+    autoUpdateEnabled: process.env.LFS_AUTO_UPDATE !== "false",
+  };
 }
 
 async function checkForUpdate(): Promise<UpdateInfo | null> {
@@ -230,22 +234,21 @@ function copyDirSync(src: string, dest: string) {
 export function startAutoUpdateChecker() {
   if (!isLocalMode) return;
   if (process.env.LFS_AUTO_UPDATE === "false") {
-    console.log("[lfs-update] Auto-update disabled");
+    console.log("[lfs-update] Auto-update disabled (LFS_AUTO_UPDATE=false)");
     return;
   }
 
   const intervalMs = parseInt(process.env.LFS_UPDATE_CHECK_INTERVAL_MS || "3600000", 10);
 
-  console.log(`[lfs-update] Auto-update checker started (interval: ${Math.floor(intervalMs / 60000)}m)`);
+  console.log(`[lfs-update] Auto-update checker started (check+apply, interval: ${Math.floor(intervalMs / 60000)}m)`);
 
   setTimeout(() => checkForUpdate(), 30000);
 
   updateInterval = setInterval(async () => {
     const info = await checkForUpdate();
     if (info?.downloadUrl && updateState.updateAvailable) {
-      if (process.env.LFS_AUTO_APPLY_UPDATES === "true") {
-        await downloadAndApplyUpdate(info);
-      }
+      console.log(`[lfs-update] Update available (${info.version}), downloading and applying...`);
+      await downloadAndApplyUpdate(info);
     }
   }, intervalMs);
 }
