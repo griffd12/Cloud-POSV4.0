@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
 import { usePosContext } from "@/lib/pos-context";
+import { connectionManager } from "@/lib/connection-manager";
 import { useDeviceContext } from "@/lib/device-context";
 import { usePosWebSocket, subscribeToKdsTestTicket } from "@/hooks/use-pos-websocket";
 import { useDeviceHeartbeat } from "@/hooks/use-device-heartbeat";
@@ -280,8 +281,8 @@ export default function KdsPage() {
     const connect = () => {
       if (unmounted) return;
 
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      const wsBase = connectionManager.getWsUrl();
+      const wsUrl = `${wsBase}/ws`;
 
       try {
         socket = new WebSocket(wsUrl);

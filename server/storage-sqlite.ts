@@ -1568,8 +1568,25 @@ export class SqliteDatabaseStorage implements IStorage {
   }
   async createRefund(data: InsertRefund, items: Omit<InsertRefundItem, 'refundId'>[], payments: Omit<InsertRefundPayment, 'refundId'>[]): Promise<Refund> {
     const refund = this.insertOne<Refund>("refunds", { ...data });
-    for (const item of items) this.insertOne("refund_items", { ...item, refundId: refund.id });
-    for (const payment of payments) this.insertOne("refund_payments", { ...payment, refundId: refund.id });
+    const createdItems: any[] = [];
+    const createdPayments: any[] = [];
+    for (const item of items) {
+      const ri = this.insertOne("refund_items", { ...item, refundId: refund.id });
+      createdItems.push(ri);
+    }
+    for (const payment of payments) {
+      const rp = this.insertOne("refund_payments", { ...payment, refundId: refund.id });
+      createdPayments.push(rp);
+    }
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "refund",
+      entityId: refund.id,
+      httpMethod: "POST",
+      endpoint: "/api/refunds",
+      payload: { refund, items: createdItems, payments: createdPayments },
+      offlineTransactionId: crypto.randomUUID(),
+    });
     return refund;
   }
   async getAllRefundItems(): Promise<RefundItem[]> { return this.getAll("refund_items"); }
@@ -1668,12 +1685,48 @@ export class SqliteDatabaseStorage implements IStorage {
   async getActiveTimePunches(propertyId: string): Promise<TimePunch[]> {
     return this.getAll("time_punches", "property_id = ? AND clock_out IS NULL AND is_voided = 0", [propertyId]);
   }
-  async createTimePunch(data: InsertTimePunch): Promise<TimePunch> { return this.insertOne("time_punches", { ...data }); }
+  async createTimePunch(data: InsertTimePunch): Promise<TimePunch> {
+    const result = this.insertOne<TimePunch>("time_punches", { ...data });
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "time_punch",
+      entityId: result.id,
+      httpMethod: "POST",
+      endpoint: "/api/time-punches",
+      payload: result as unknown as Record<string, unknown>,
+      offlineTransactionId: crypto.randomUUID(),
+    });
+    return result;
+  }
   async updateTimePunch(id: string, data: Partial<InsertTimePunch>, editedById?: string, editReason?: string, editedByEmcUserId?: string, editedByDisplayName?: string): Promise<TimePunch | undefined> {
-    return this.updateOne("time_punches", id, data);
+    const result = await this.updateOne<TimePunch>("time_punches", id, data);
+    if (result) {
+      this.recordTransaction({
+        operationType: "update",
+        entityType: "time_punch",
+        entityId: id,
+        httpMethod: "PATCH",
+        endpoint: `/api/time-punches/${id}`,
+        payload: { id, ...data } as Record<string, unknown>,
+        offlineTransactionId: crypto.randomUUID(),
+      });
+    }
+    return result;
   }
   async voidTimePunch(id: string, voidedById: string, voidReason: string): Promise<TimePunch | undefined> {
-    return this.updateOne("time_punches", id, { isVoided: true, voidedBy: voidedById, voidReason } as any);
+    const result = await this.updateOne<TimePunch>("time_punches", id, { isVoided: true, voidedBy: voidedById, voidReason } as any);
+    if (result) {
+      this.recordTransaction({
+        operationType: "update",
+        entityType: "time_punch",
+        entityId: id,
+        httpMethod: "PATCH",
+        endpoint: `/api/time-punches/${id}/void`,
+        payload: { id, isVoided: true, voidedBy: voidedById, voidReason },
+        offlineTransactionId: crypto.randomUUID(),
+      });
+    }
+    return result;
   }
 
   async getBreakSessions(filters: { propertyId?: string; employeeId?: string; businessDate?: string }): Promise<BreakSession[]> {
@@ -2220,7 +2273,19 @@ export class SqliteDatabaseStorage implements IStorage {
   async updateDrawerAssignment(id: string, data: Partial<InsertDrawerAssignment>): Promise<DrawerAssignment | undefined> { return this.updateOne("drawer_assignments", id, data); }
 
   async getCashTransactions(propertyId: string): Promise<CashTransaction[]> { return this.getAll("cash_transactions", "property_id = ?", [propertyId]); }
-  async createCashTransaction(data: InsertCashTransaction): Promise<CashTransaction> { return this.insertOne("cash_transactions", { ...data }); }
+  async createCashTransaction(data: InsertCashTransaction): Promise<CashTransaction> {
+    const result = this.insertOne<CashTransaction>("cash_transactions", { ...data });
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "cash_transaction",
+      entityId: result.id,
+      httpMethod: "POST",
+      endpoint: "/api/cash-transactions",
+      payload: result as unknown as Record<string, unknown>,
+      offlineTransactionId: crypto.randomUUID(),
+    });
+    return result;
+  }
 
   async getSafeCounts(propertyId: string): Promise<SafeCount[]> { return this.getAll("safe_counts", "property_id = ?", [propertyId]); }
   async getSafeCount(id: string): Promise<SafeCount | undefined> { return this.getById("safe_counts", id); }

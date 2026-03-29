@@ -118,11 +118,11 @@ export const queryClient = new QueryClient({
       staleTime: 0,
       gcTime: 5 * 60 * 1000,
       retry: false,
-      networkMode: 'online',
+      networkMode: 'always',
     },
     mutations: {
       retry: false,
-      networkMode: 'online',
+      networkMode: 'always',
     },
   },
 });

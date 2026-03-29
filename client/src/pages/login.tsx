@@ -414,6 +414,9 @@ export default function LoginPage() {
   const handleClear = () => {
     setPin("");
     setLoginError(null);
+    if (loginMutation.isPending) {
+      loginMutation.reset();
+    }
   };
 
   const handleSubmit = () => {

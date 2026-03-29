@@ -101,6 +101,9 @@ const ENTITY_SYNC_ORDER: Record<string, number> = {
   check_payment: 3,
   check_discount: 4,
   check_service_charge: 5,
+  refund: 6,
+  time_punch: 10,
+  cash_transaction: 11,
 };
 
 function sortByDependency(entries: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
@@ -1252,6 +1255,70 @@ async function syncEntity(
         );
       }
       throw new Error(`Unsupported operation for check_service_charge: ${operationType}`);
+    }
+    case "refund": {
+      if (operationType === "create") {
+        const refundPayload = dataWithOfflineId.refund as Record<string, unknown> | undefined;
+        const itemsPayload = (dataWithOfflineId.items || []) as Array<Record<string, unknown>>;
+        const paymentsPayload = (dataWithOfflineId.payments || []) as Array<Record<string, unknown>>;
+        const refundData = refundPayload || dataWithOfflineId;
+        const { id: localId, ...insertData } = refundData;
+        const remappedRefund = await remapCheckIdAsync(insertData as Record<string, unknown>);
+        if (remappedRefund.originalCheckId) {
+          const cloudCheckId = await resolveCloudId(remappedRefund.originalCheckId as string);
+          remappedRefund.originalCheckId = cloudCheckId;
+        }
+        const remappedItems = [];
+        for (const item of itemsPayload) {
+          const { id: _itemId, refundId: _refundId, ...itemData } = item;
+          remappedItems.push(itemData);
+        }
+        const remappedPayments = [];
+        for (const payment of paymentsPayload) {
+          const { id: _paymentId, refundId: _refundId, ...paymentData } = payment;
+          remappedPayments.push(paymentData);
+        }
+        const created = await storage.createRefund(
+          remappedRefund as Parameters<typeof storage.createRefund>[0],
+          remappedItems as Parameters<typeof storage.createRefund>[1],
+          remappedPayments as Parameters<typeof storage.createRefund>[2],
+        );
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+          await storeDurableRemap(localId, created.id);
+        }
+        return created;
+      }
+      throw new Error(`Unsupported operation for refund: ${operationType}`);
+    }
+    case "time_punch": {
+      if (operationType === "create") {
+        const { id: localId, ...insertData } = dataWithOfflineId;
+        const created = await storage.createTimePunch(insertData as Parameters<typeof storage.createTimePunch>[0]);
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+          await storeDurableRemap(localId, created.id);
+        }
+        return created;
+      } else if (operationType === "update") {
+        const id = dataWithOfflineId.id as string;
+        const cloudId = await resolveCloudId(id);
+        const { id: _id, offlineTransactionId: _otxn, ...updateData } = dataWithOfflineId;
+        return await storage.updateTimePunch(cloudId, updateData as Parameters<typeof storage.updateTimePunch>[1]);
+      }
+      throw new Error(`Unsupported operation for time_punch: ${operationType}`);
+    }
+    case "cash_transaction": {
+      if (operationType === "create") {
+        const { id: localId, ...insertData } = dataWithOfflineId;
+        const created = await storage.createCashTransaction(insertData as Parameters<typeof storage.createCashTransaction>[0]);
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+          await storeDurableRemap(localId, created.id);
+        }
+        return created;
+      }
+      throw new Error(`Unsupported operation for cash_transaction: ${operationType}`);
     }
     default:
       throw new Error(`Unknown entity type for sync: ${entityType}`);

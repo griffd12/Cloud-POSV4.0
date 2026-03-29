@@ -1075,11 +1075,12 @@ async function finalizePreviewTicket(
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   registerReportingRoutes(app, storage);
 
-  // Run schema migrations
-  try {
-    await db.execute(sql`ALTER TABLE emc_users ADD COLUMN IF NOT EXISTS employee_id VARCHAR REFERENCES employees(id)`);
-  } catch (e) {
-    console.error("Migration error (non-fatal):", e);
+  if (db) {
+    try {
+      await db.execute(sql`ALTER TABLE emc_users ADD COLUMN IF NOT EXISTS employee_id VARCHAR REFERENCES employees(id)`);
+    } catch (e) {
+      console.error("Migration error (non-fatal):", e);
+    }
   }
 
   // Use noServer: true for all WebSocket servers and handle upgrade manually
