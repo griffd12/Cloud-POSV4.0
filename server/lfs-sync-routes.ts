@@ -1,4 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import fs from "fs";
+import path from "path";
 import { storage } from "./storage";
 import { db } from "./db";
 import { checks, checkItems, checkPayments, tenders, paymentGatewayConfig } from "@shared/schema";
@@ -610,6 +612,26 @@ function registerLfsCloudRoutes(app: Express) {
   app.post("/api/lfs/sync/clear-remap-cache", requireLfsApiKey, async (_req: Request, res: Response) => {
     idRemapCache.clear();
     res.json({ ok: true });
+  });
+
+  app.get("/api/lfs/sync/latest-version", requireLfsApiKey, async (_req: Request, res: Response) => {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
+      const version = pkg.version || "1.0.0";
+      const updateUrl = process.env.LFS_UPDATE_DOWNLOAD_URL || null;
+      const checksum = process.env.LFS_UPDATE_CHECKSUM || null;
+      const releaseNotes = process.env.LFS_UPDATE_RELEASE_NOTES || null;
+
+      res.json({
+        version,
+        downloadUrl: updateUrl,
+        checksum,
+        releaseNotes,
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
   });
 
   app.get("/api/lfs/sync/pending-settlements", requireLfsApiKey, async (req: Request, res: Response) => {

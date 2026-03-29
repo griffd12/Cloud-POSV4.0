@@ -101,7 +101,7 @@ async function downloadAndApplyUpdate(info: UpdateInfo): Promise<boolean> {
     fs.mkdirSync(backupDir, { recursive: true });
     fs.mkdirSync(tempDir, { recursive: true });
 
-    const filesToBackup = ["server.cjs", "lfs-admin"];
+    const filesToBackup = ["server.cjs", "lfs-admin", "package.json"];
     console.log(`[lfs-update] Backing up current version to ${backupDir}`);
     for (const file of filesToBackup) {
       const src = path.join(installDir, file);
@@ -176,7 +176,7 @@ async function downloadAndApplyUpdate(info: UpdateInfo): Promise<boolean> {
       }
     }
 
-    const updateFiles = ["server.cjs", "lfs-admin"];
+    const updateFiles = ["server.cjs", "lfs-admin", "package.json"];
     console.log("[lfs-update] Applying update files...");
     for (const file of updateFiles) {
       const src = path.join(sourceDir, file);
