@@ -140,14 +140,31 @@ async function downloadAndApplyUpdate(info: UpdateInfo): Promise<boolean> {
     console.log("[lfs-update] Checksum verified");
 
     console.log("[lfs-update] Extracting update...");
-    const { execSync } = await import("child_process");
     const extractDir = path.join(tempDir, "extracted");
     fs.mkdirSync(extractDir, { recursive: true });
 
+    let extracted = false;
     try {
+      const { execSync } = await import("child_process");
       execSync(`tar -xzf "${archivePath}" -C "${extractDir}"`, { stdio: "pipe" });
+      extracted = true;
     } catch {
-      throw new Error("Failed to extract update archive");
+      console.log("[lfs-update] System tar not available, using Node.js zlib extraction...");
+    }
+
+    if (!extracted) {
+      try {
+        const zlib = await import("zlib");
+        const compressed = fs.readFileSync(archivePath);
+        const decompressed = zlib.gunzipSync(compressed);
+        const tarPath = path.join(tempDir, "update.tar");
+        fs.writeFileSync(tarPath, decompressed);
+        const { execSync } = await import("child_process");
+        execSync(`tar -xf "${tarPath}" -C "${extractDir}"`, { stdio: "pipe" });
+        extracted = true;
+      } catch {
+        throw new Error("Failed to extract update archive: neither system tar+gzip nor Node.js zlib extraction worked");
+      }
     }
 
     const extractedContents = fs.readdirSync(extractDir);

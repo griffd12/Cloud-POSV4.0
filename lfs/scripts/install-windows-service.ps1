@@ -105,6 +105,8 @@ const logStream = fs.createWriteStream(logFile, { flags: 'a' });
 
 const serverPath = path.join(installDir, 'server.cjs');
 
+let currentChild = null;
+
 function startServer() {
   const ts = new Date().toISOString();
   logStream.write(ts + ' [service] Starting LFS server...\n');
@@ -114,6 +116,7 @@ function startServer() {
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  currentChild = child;
 
   child.stdout.pipe(logStream, { end: false });
   child.stderr.pipe(logStream, { end: false });
@@ -121,6 +124,7 @@ function startServer() {
   child.on('exit', (code, signal) => {
     const ts2 = new Date().toISOString();
     logStream.write(ts2 + ' [service] Server exited: code=' + code + ' signal=' + signal + '\n');
+    currentChild = null;
     if (code === 100) {
       logStream.write(ts2 + ' [service] Update applied, restarting immediately...\n');
       setTimeout(startServer, 2000);
@@ -137,10 +141,26 @@ function startServer() {
 
 startServer();
 
-process.on('SIGTERM', () => {
-  logStream.write(new Date().toISOString() + ' [service] Received SIGTERM, shutting down...\n');
-  process.exit(0);
-});
+function gracefulShutdown(signal) {
+  logStream.write(new Date().toISOString() + ' [service] Received ' + signal + ', shutting down...\n');
+  if (currentChild && !currentChild.killed) {
+    currentChild.kill('SIGTERM');
+    const timeout = setTimeout(() => {
+      logStream.write(new Date().toISOString() + ' [service] Force killing child after timeout...\n');
+      currentChild.kill('SIGKILL');
+      process.exit(1);
+    }, 10000);
+    currentChild.on('exit', () => {
+      clearTimeout(timeout);
+      process.exit(0);
+    });
+  } else {
+    process.exit(0);
+  }
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 "@
 Set-Content -Path $wrapperScript -Value $wrapperContent -Encoding UTF8
 
