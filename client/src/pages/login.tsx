@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { usePosContext } from "@/lib/pos-context";
 import { useDeviceContext } from "@/lib/device-context";
-import { apiRequest, getAuthHeaders, failoverFetch } from "@/lib/queryClient";
+import { apiRequest, getAuthHeaders, failoverFetch, fetchWithTimeout } from "@/lib/queryClient";
+import { connectionManager } from "@/lib/connection-manager";
 import BreakAttestationDialog from "@/components/pos/break-attestation-dialog";
 import type { Employee, Rvc, Property, Timecard, JobCode, Workstation, BreakRule } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -84,6 +85,7 @@ export default function LoginPage() {
   const [showAttestationDialog, setShowAttestationDialog] = useState(false);
   const [pendingAttestationData, setPendingAttestationData] = useState<any>(null);
   const [showRvcSwitcher, setShowRvcSwitcher] = useState(false);
+  const loginAbortRef = useRef<AbortController | null>(null);
 
   // Fetch workstation context (includes property and allowed RVCs) if workstation is set
   const { data: wsContext, isLoading: wsContextLoading, error: wsContextError } = useQuery<WorkstationContext>({
@@ -143,11 +145,47 @@ export default function LoginPage() {
 
   const loginMutation = useMutation({
     mutationFn: async (pinCode: string) => {
-      const response = await apiRequest("POST", "/api/auth/login", {
-        pin: pinCode,
-        rvcId: selectedRvcId,
-      });
-      return response.json() as Promise<LoginResponse>;
+      loginAbortRef.current?.abort();
+      const controller = new AbortController();
+      loginAbortRef.current = controller;
+
+      const payload = JSON.stringify({ pin: pinCode, rvcId: selectedRvcId });
+      const baseUrl = connectionManager.getBaseUrl();
+      const url = `${baseUrl}/api/auth/login`;
+
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+          body: payload,
+          credentials: "include",
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const text = (await res.text()) || res.statusText;
+          throw new Error(`${res.status}: ${text}`);
+        }
+        return res.json() as Promise<LoginResponse>;
+      } catch (firstErr: any) {
+        if (controller.signal.aborted) throw firstErr;
+
+        const lfsUrl = connectionManager.localServerUrl;
+        if (!lfsUrl || url.startsWith(lfsUrl)) throw firstErr;
+
+        const retryUrl = `${lfsUrl}/api/auth/login`;
+        const res = await fetch(retryUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+          body: payload,
+          credentials: "include",
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const text = (await res.text()) || res.statusText;
+          throw new Error(`${res.status}: ${text}`);
+        }
+        return res.json() as Promise<LoginResponse>;
+      }
     },
     onSuccess: async (data) => {
       // For salaried bypass, skip clock-in check - they have privileges without clocking in
@@ -414,6 +452,10 @@ export default function LoginPage() {
   const handleClear = () => {
     setPin("");
     setLoginError(null);
+    if (loginAbortRef.current) {
+      loginAbortRef.current.abort();
+      loginAbortRef.current = null;
+    }
     if (loginMutation.isPending) {
       loginMutation.reset();
     }

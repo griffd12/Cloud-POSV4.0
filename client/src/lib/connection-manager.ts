@@ -16,6 +16,8 @@ class ConnectionManager {
   private healthInterval: ReturnType<typeof setInterval> | null = null;
   private pendingSyncCount = 0;
   private syncProgress: { phase: string; current: number; total: number } | null = null;
+  private syncInProgress = false;
+  private lastSyncAttempt = 0;
 
   get currentState(): ConnectionState {
     return this.state;
@@ -112,12 +114,15 @@ class ConnectionManager {
       });
       if (res.ok) {
         this.consecutiveFailures = 0;
-        if (this.state === "cloud-offline") {
+        if (this.state === "cloud-offline" && !this.syncInProgress) {
           this.setState("reconnecting");
           this.runReconnectionSync();
-        } else if (this.state === "cloud-degraded" && this.syncRequired) {
-          this.setState("reconnecting");
-          this.runReconnectionSync();
+        } else if (this.state === "cloud-degraded" && this.syncRequired && !this.syncInProgress) {
+          const elapsed = Date.now() - this.lastSyncAttempt;
+          if (elapsed >= 30000) {
+            this.setState("reconnecting");
+            this.runReconnectionSync();
+          }
         } else if (this.state !== "reconnecting") {
           this.setState("cloud-online");
         }
@@ -147,9 +152,14 @@ class ConnectionManager {
   }
 
   private async runReconnectionSync(): Promise<void> {
+    if (this.syncInProgress) return;
+    this.syncInProgress = true;
+    this.lastSyncAttempt = Date.now();
+
     const lfsUrl = this.localServerUrl;
     if (!lfsUrl) {
       this.pendingSyncCount = 0;
+      this.syncInProgress = false;
       this.setState("cloud-online");
       return;
     }
@@ -291,6 +301,8 @@ class ConnectionManager {
       console.error("[ConnectionManager] Reconnection sync error:", e instanceof Error ? e.message : e);
       this.syncProgress = null;
       this.setState("cloud-degraded");
+    } finally {
+      this.syncInProgress = false;
     }
   }
 
