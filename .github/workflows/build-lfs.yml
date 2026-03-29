@@ -15,6 +15,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -43,6 +46,11 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           ARCHIVE=$(ls lfs/dist/cloud-pos-lfs-${VERSION}-${{ matrix.platform }}.* 2>/dev/null | head -1)
+          if [ -z "$ARCHIVE" ]; then
+            echo "ERROR: No archive found in lfs/dist/ for version ${VERSION} platform ${{ matrix.platform }}"
+            ls -la lfs/dist/ || true
+            exit 1
+          fi
           echo "archive=${ARCHIVE}" >> $GITHUB_OUTPUT
           echo "filename=$(basename ${ARCHIVE})" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT

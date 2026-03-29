@@ -106,5 +106,5 @@ The same Express codebase runs against either PostgreSQL (cloud) or SQLite (loca
 - **Repository**: `griffd12/Cloud-POSV4.0` (main branch)
 - **Version**: 4.0.0 (`package.json`)
 - **GitHub Actions**: `.github/workflows/build-lfs.yml` — builds LFS packages (Windows/Linux) on manual dispatch or tagged releases
-- **Release**: v4.0.0 tag with comprehensive release notes covering Tasks #1–#83
+- **Release**: v4.0.0 tag with comprehensive release notes covering all features (Tasks #1–#82) plus CI/CD setup (#83)
 - **LFS Deployment Docs**: `lfs/docs/newport-beach-deployment.md` — Derek-Laptop setup guide for Newport Beach test location
