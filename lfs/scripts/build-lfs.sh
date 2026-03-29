@@ -18,7 +18,7 @@ echo "=========================================="
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/$PACKAGE_NAME"
 
-echo "[1/8] Building server bundle..."
+echo "[1/9] Building server bundle..."
 cd "$PROJECT_ROOT"
 npx esbuild server/index.ts \
   --bundle \
@@ -33,13 +33,13 @@ npx esbuild server/index.ts \
   --define:process.env.NODE_ENV=\"production\" \
   --minify
 
-echo "[2/8] Building frontend assets..."
+echo "[2/9] Building frontend assets..."
 npx vite build --outDir "$BUILD_DIR/$PACKAGE_NAME/public"
 
-echo "[3/8] Copying LFS admin dashboard..."
+echo "[3/9] Copying LFS admin dashboard..."
 cp -r "$PROJECT_ROOT/lfs/admin" "$BUILD_DIR/$PACKAGE_NAME/lfs-admin"
 
-echo "[4/8] Copying runtime dependencies..."
+echo "[4/9] Copying runtime dependencies..."
 mkdir -p "$BUILD_DIR/$PACKAGE_NAME/node_modules"
 
 copy_dep_tree() {
@@ -75,7 +75,7 @@ if [ "$TARGET_PLATFORM" = "windows" ] || [ "$TARGET_PLATFORM" = "win" ] || [ "$T
   echo "  run 'npm rebuild better-sqlite3' on the target platform after extraction."
 fi
 
-echo "[5/8] Downloading Node.js runtime for $TARGET_PLATFORM..."
+echo "[5/9] Downloading Node.js runtime for $TARGET_PLATFORM..."
 NODE_DIR="$BUILD_DIR/$PACKAGE_NAME/runtime"
 mkdir -p "$NODE_DIR"
 
@@ -121,7 +121,7 @@ case "$TARGET_PLATFORM" in
     ;;
 esac
 
-echo "[6/8] Creating startup scripts..."
+echo "[6/9] Creating startup scripts..."
 
 cat > "$BUILD_DIR/$PACKAGE_NAME/start-lfs.sh" << STARTUP_SH
 #!/bin/bash
