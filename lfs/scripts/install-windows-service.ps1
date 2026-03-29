@@ -121,8 +121,13 @@ function startServer() {
   child.on('exit', (code, signal) => {
     const ts2 = new Date().toISOString();
     logStream.write(ts2 + ' [service] Server exited: code=' + code + ' signal=' + signal + '\n');
-    if (code !== 0) {
-      logStream.write(ts2 + ' [service] Restarting in 5 seconds...\n');
+    if (code === 100) {
+      logStream.write(ts2 + ' [service] Update applied, restarting immediately...\n');
+      setTimeout(startServer, 2000);
+    } else if (code === 0) {
+      logStream.write(ts2 + ' [service] Clean shutdown, not restarting.\n');
+    } else {
+      logStream.write(ts2 + ' [service] Unexpected exit, restarting in 5 seconds...\n');
       setTimeout(startServer, 5000);
     }
   });

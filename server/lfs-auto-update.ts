@@ -177,7 +177,7 @@ async function downloadAndApplyUpdate(info: UpdateInfo): Promise<boolean> {
 
     setTimeout(() => {
       console.log("[lfs-update] Triggering restart...");
-      process.exit(0);
+      process.exit(100);
     }, 1000);
 
     return true;
