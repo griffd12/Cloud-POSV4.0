@@ -249,7 +249,31 @@ function registerLfsLocalRoutes(app: Express) {
     }
   });
 
-  app.post("/api/lfs/reconcile-saf", async (_req: Request, res: Response) => {
+  app.post("/api/lfs/reconcile-saf", (req: Request, res: Response, next: Function) => {
+    const apiKey = process.env.LFS_API_KEY;
+    if (!apiKey) return next();
+
+    const provided = req.headers["x-lfs-admin-key"] || req.headers["x-lfs-api-key"];
+    if (provided === apiKey) return next();
+
+    const cookie = req.headers.cookie;
+    if (cookie) {
+      const match = cookie.match(/lfs_admin_session=([^;]+)/);
+      if (match) {
+        try {
+          const { isValidAdminSession } = require("./lfs-admin-routes");
+          if (isValidAdminSession(match[1])) return next();
+        } catch {}
+      }
+    }
+
+    const ip = req.ip || req.socket.remoteAddress || "";
+    const isLocal = ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1" ||
+      ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("::ffff:192.168.") || ip.startsWith("::ffff:10.");
+    if (isLocal) return next();
+
+    res.status(401).json({ error: "Unauthorized" });
+  }, async (_req: Request, res: Response) => {
     try {
       const allPayments = await storage.getAllPayments();
       const pendingPayments = allPayments.filter(p => p.paymentStatus === "pending_settlement");
