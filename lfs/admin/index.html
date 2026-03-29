@@ -18,6 +18,9 @@
       --warning: #f59e0b;
       --danger: #ef4444;
       --radius: 8px;
+      --primary: #3b82f6;
+      --card-bg: #1e293b;
+      --text-primary: #f1f5f9;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
@@ -717,8 +720,12 @@
       }
     }
 
-    refreshOverview();
-    loadConfig();
+    function refreshAll() {
+      refreshOverview();
+      loadConfig();
+    }
+
+    refreshAll();
     setInterval(refreshOverview, 30000);
   </script>
 </body>
