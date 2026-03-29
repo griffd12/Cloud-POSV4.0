@@ -210,7 +210,7 @@ async function downloadAndApplyUpdate(info: UpdateInfo): Promise<boolean> {
     updateState.lastError = msg;
 
     try {
-      const filesToRestore = ["server.cjs", "lfs-admin"];
+      const filesToRestore = ["server.cjs", "lfs-admin", "package.json"];
       for (const file of filesToRestore) {
         const backup = path.join(backupDir, file);
         const dest = path.join(installDir, file);

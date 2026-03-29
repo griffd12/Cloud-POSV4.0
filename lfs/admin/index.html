@@ -343,8 +343,13 @@
       return `${(bytes/1048576).toFixed(1)} MB`;
     }
 
+    function esc(str) {
+      if (str == null) return '';
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
     function badge(text, type) {
-      return `<span class="badge ${type}">${text}</span>`;
+      return `<span class="badge ${esc(type)}">${esc(text)}</span>`;
     }
 
     async function refreshOverview() {
@@ -432,11 +437,11 @@
           } else {
             tbody.innerHTML = posDevices.map(ws => `
               <tr>
-                <td>${ws.name || ws.deviceName || '—'}</td>
-                <td>${ws.deviceType || 'POS'}</td>
+                <td>${esc(ws.name || ws.deviceName || '—')}</td>
+                <td>${esc(ws.deviceType || 'POS')}</td>
                 <td>${badge(ws.status || 'unknown', ws.status === 'active' ? 'success' : 'warning')}</td>
-                <td>${ws.ipAddress || '—'}</td>
-                <td>${formatTime(ws.lastSeenAt || ws.lastHeartbeatAt)}</td>
+                <td>${esc(ws.ipAddress || '—')}</td>
+                <td>${esc(formatTime(ws.lastSeenAt || ws.lastHeartbeatAt))}</td>
               </tr>
             `).join('');
           }
@@ -446,8 +451,8 @@
           } else {
             kdsTbody.innerHTML = kdsDevices.map(kds => `
               <tr>
-                <td>${kds.name || kds.deviceName || '—'}</td>
-                <td>${kds.stationName || '—'}</td>
+                <td>${esc(kds.name || kds.deviceName || '—')}</td>
+                <td>${esc(kds.stationName || '—')}</td>
                 <td>${badge(kds.status || 'unknown', kds.status === 'active' ? 'success' : 'warning')}</td>
               </tr>
             `).join('');
@@ -467,11 +472,11 @@
           } else {
             journalTbody.innerHTML = journal.slice(0, 50).map(j => `
               <tr>
-                <td>${formatTime(j.createdAt)}</td>
-                <td>${j.operationType || '—'}</td>
-                <td>${j.entityType || '—'}</td>
-                <td>${j.httpMethod || '—'}</td>
-                <td style="font-family: monospace; font-size: 12px;">${j.endpoint || '—'}</td>
+                <td>${esc(formatTime(j.createdAt))}</td>
+                <td>${esc(j.operationType || '—')}</td>
+                <td>${esc(j.entityType || '—')}</td>
+                <td>${esc(j.httpMethod || '—')}</td>
+                <td style="font-family: monospace; font-size: 12px;">${esc(j.endpoint || '—')}</td>
                 <td>${j.synced ? badge('Synced', 'success') : badge('Pending', 'warning')}</td>
               </tr>
             `).join('');
@@ -488,10 +493,10 @@
           } else {
             safTbody.innerHTML = safPayments.payments.map(p => `
               <tr>
-                <td>${formatTime(p.createdAt)}</td>
-                <td>${p.checkId || '—'}</td>
-                <td>$${(parseFloat(p.amount) || 0).toFixed(2)}</td>
-                <td style="font-family: monospace; font-size: 12px;">${p.offlineTransactionId || p.id || '—'}</td>
+                <td>${esc(formatTime(p.createdAt))}</td>
+                <td>${esc(p.checkId || '—')}</td>
+                <td>$${esc((parseFloat(p.amount) || 0).toFixed(2))}</td>
+                <td style="font-family: monospace; font-size: 12px;">${esc(p.offlineTransactionId || p.id || '—')}</td>
                 <td>${badge(p.paymentStatus || '—', p.paymentStatus === 'pending_settlement' ? 'warning' : p.paymentStatus === 'settlement_failed' ? 'error' : 'success')}</td>
               </tr>
             `).join('');
@@ -510,7 +515,7 @@
             if (/error|ERR/i.test(line)) cls = 'log-error';
             else if (/warn|WARN/i.test(line)) cls = 'log-warn';
             else if (/info|sync|startup/i.test(line)) cls = 'log-info';
-            return `<div class="${cls}">${line}</div>`;
+            return `<div class="${cls}">${esc(line)}</div>`;
           }).join('');
           viewer.scrollTop = viewer.scrollHeight;
         } else {
