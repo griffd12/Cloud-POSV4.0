@@ -78,12 +78,7 @@ This will:
 
 ## Step 6: Verify
 
-1. Open browser: **http://localhost:3002** → LFS Admin Dashboard
-2. Enter your API key to log in
-3. Check the **Overview** tab:
-   - Status should show **Online**
-   - Cloud Reachable should show **Yes**
-   - Sync should complete within 60 seconds
+1. Open browser: 
 4. Open **http://localhost:3001** → POS interface (failover mode)
 
 ## Network Configuration
