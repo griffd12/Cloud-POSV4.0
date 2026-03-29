@@ -22826,6 +22826,77 @@ connect();
     }
   });
 
+  // ============================================================================
+  // LFS CONFIGURATION MANAGEMENT (EMC → per-property API keys + status)
+  // ============================================================================
+
+  app.get("/api/emc/lfs-config/:propertyId", async (req, res) => {
+    try {
+      const config = await storage.getLfsConfiguration(req.params.propertyId);
+      if (!config) {
+        return res.json(null);
+      }
+      res.json({ ...config, apiKey: config.apiKeyMasked });
+    } catch (error: any) {
+      console.error("Error fetching LFS config:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch LFS config" });
+    }
+  });
+
+  app.post("/api/emc/lfs-config/:propertyId/generate-key", async (req, res) => {
+    try {
+      const { propertyId } = req.params;
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+
+      const rawKey = `lfs_${crypto.randomBytes(32).toString("hex")}`;
+      const masked = rawKey.substring(0, 8) + "..." + rawKey.substring(rawKey.length - 4);
+
+      const existing = await storage.getLfsConfiguration(propertyId);
+      let config;
+      if (existing) {
+        config = await storage.updateLfsConfiguration(propertyId, {
+          apiKey: rawKey,
+          apiKeyMasked: masked,
+        });
+      } else {
+        config = await storage.createLfsConfiguration({
+          propertyId,
+          apiKey: rawKey,
+          apiKeyMasked: masked,
+        });
+      }
+
+      res.json({ config: { ...config, apiKey: masked }, rawKey });
+    } catch (error: any) {
+      console.error("Error generating LFS API key:", error);
+      res.status(500).json({ message: error.message || "Failed to generate API key" });
+    }
+  });
+
+  app.post("/api/emc/lfs-config/:propertyId/revoke-key", async (req, res) => {
+    try {
+      const deleted = await storage.deleteLfsConfiguration(req.params.propertyId);
+      res.json({ deleted });
+    } catch (error: any) {
+      console.error("Error revoking LFS API key:", error);
+      res.status(500).json({ message: error.message || "Failed to revoke API key" });
+    }
+  });
+
+  app.get("/api/emc/lfs-sync-logs/:propertyId", async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const logs = await storage.getLfsSyncLogs(req.params.propertyId, limit);
+      res.json(logs);
+    } catch (error: any) {
+      console.error("Error fetching LFS sync logs:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch sync logs" });
+    }
+  });
+
   registerStressTestRoutes(app, storage);
   registerOnboardingRoutes(app);
   registerDeliveryPlatformRoutes(app, storage, broadcastPosEvent, calculateTaxSnapshot, recalculateCheckTotals);

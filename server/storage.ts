@@ -173,6 +173,9 @@ import {
   type CalDeploymentTarget, type InsertCalDeploymentTarget,
   emcOptionFlags,
   type EmcOptionFlag, type InsertEmcOptionFlag,
+  lfsConfigurations, lfsSyncLogs,
+  type LfsConfiguration, type InsertLfsConfiguration,
+  type LfsSyncLog, type InsertLfsSyncLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -984,6 +987,18 @@ export interface IStorage {
   deleteOptionFlagByKey(enterpriseId: string, entityType: string, entityId: string, optionKey: string, scopeLevel: string, scopeId: string): Promise<boolean>;
   listOptionFlagsByScope(enterpriseId: string, scopeLevel: string, scopeId: string): Promise<EmcOptionFlag[]>;
   listAllOptionFlagsByEnterprise(enterpriseId: string): Promise<EmcOptionFlag[]>;
+
+  // LFS Configurations
+  getLfsConfiguration(propertyId: string): Promise<LfsConfiguration | undefined>;
+  getLfsConfigurations(): Promise<LfsConfiguration[]>;
+  createLfsConfiguration(data: InsertLfsConfiguration): Promise<LfsConfiguration>;
+  updateLfsConfiguration(propertyId: string, data: Partial<InsertLfsConfiguration>): Promise<LfsConfiguration | undefined>;
+  deleteLfsConfiguration(propertyId: string): Promise<boolean>;
+  getLfsConfigurationByApiKey(apiKey: string): Promise<LfsConfiguration | undefined>;
+
+  // LFS Sync Logs
+  getLfsSyncLogs(propertyId: string, limit?: number): Promise<LfsSyncLog[]>;
+  createLfsSyncLog(data: InsertLfsSyncLog): Promise<LfsSyncLog>;
 }
 
 function sanitizeDates<T extends Record<string, any>>(data: T): T {
@@ -6917,6 +6932,44 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(emcOptionFlags).where(
       eq(emcOptionFlags.enterpriseId, enterpriseId)
     );
+  }
+
+  async getLfsConfiguration(propertyId: string): Promise<LfsConfiguration | undefined> {
+    const [result] = await db.select().from(lfsConfigurations).where(eq(lfsConfigurations.propertyId, propertyId));
+    return result;
+  }
+
+  async getLfsConfigurations(): Promise<LfsConfiguration[]> {
+    return db.select().from(lfsConfigurations);
+  }
+
+  async createLfsConfiguration(data: InsertLfsConfiguration): Promise<LfsConfiguration> {
+    const [result] = await db.insert(lfsConfigurations).values(sanitizeDates(data)).returning();
+    return result;
+  }
+
+  async updateLfsConfiguration(propertyId: string, data: Partial<InsertLfsConfiguration>): Promise<LfsConfiguration | undefined> {
+    const [result] = await db.update(lfsConfigurations).set({ ...sanitizeDates(data), updatedAt: new Date() }).where(eq(lfsConfigurations.propertyId, propertyId)).returning();
+    return result;
+  }
+
+  async deleteLfsConfiguration(propertyId: string): Promise<boolean> {
+    const result = await db.delete(lfsConfigurations).where(eq(lfsConfigurations.propertyId, propertyId));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async getLfsConfigurationByApiKey(apiKey: string): Promise<LfsConfiguration | undefined> {
+    const [result] = await db.select().from(lfsConfigurations).where(eq(lfsConfigurations.apiKey, apiKey));
+    return result;
+  }
+
+  async getLfsSyncLogs(propertyId: string, limit = 20): Promise<LfsSyncLog[]> {
+    return db.select().from(lfsSyncLogs).where(eq(lfsSyncLogs.propertyId, propertyId)).orderBy(desc(lfsSyncLogs.createdAt)).limit(limit);
+  }
+
+  async createLfsSyncLog(data: InsertLfsSyncLog): Promise<LfsSyncLog> {
+    const [result] = await db.insert(lfsSyncLogs).values(sanitizeDates(data)).returning();
+    return result;
   }
 }
 

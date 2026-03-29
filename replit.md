@@ -1,7 +1,7 @@
 # Cloud POS System
 
 ## Overview
-This project is an enterprise cloud-based Point of Sale (POS) system designed for high-volume Quick Service Restaurants (QSRs). It is a pure cloud web POS — React frontend + Express/PostgreSQL backend, accessed via web browsers on Windows PCs/workstations. Key capabilities include multi-property hierarchy support, KDS integration, fiscal close, cash management, gift cards, loyalty programs, inventory, forecasting, and online ordering integration. It features a Simphony-class design for configuration inheritance with override capabilities. Local printing (receipt printers, cash drawer kicks) uses the browser print API initially, with a future lightweight local print relay. Payment terminals (EMV/card readers) are handled via cloud gateway APIs (Stripe Terminal, etc.).
+This project is an enterprise cloud-based Point of Sale (POS) system for high-volume Quick Service Restaurants (QSRs). It's a pure cloud web POS with a React frontend and Express/PostgreSQL backend, accessed via web browsers. Key capabilities include multi-property hierarchy, KDS integration, fiscal close, cash management, gift cards, loyalty, inventory, forecasting, and online ordering integration. It supports Simphony-class configuration inheritance and is designed for high-availability with a robust Local Failover Server (LFS) architecture for offline operations and payment processing. The system aims to provide a comprehensive, resilient, and scalable POS solution for QSRs.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -23,18 +23,15 @@ Never fix a single symptom in isolation. Always trace the full impact chain.
 ## System Architecture
 
 ### ARCHITECTURE: Pure Cloud Web POS
-
-**Browser → Cloud API → PostgreSQL**
-
 All POS operations go directly to the cloud Express server and commit to PostgreSQL. There is no offline/local-first layer, no CAPS, no service-host, no Electron.
 
 - **Multi-Property Hierarchy**: Enterprise → Property → Revenue Center management.
 - **Simphony-Class Configuration**: Configuration inheritance with override capabilities.
 - **Touch-First UI**: High-contrast theming for POS terminals.
 - **Real-time Operations**: WebSocket communication for KDS updates and config push.
-- **Local Printing**: Browser print API for receipt printers and cash drawer kicks. Future: lightweight localhost print relay (reference code in `print-agent/`).
+- **Local Printing**: Browser print API for receipt printers and cash drawer kicks, with a future lightweight localhost print relay.
 - **Payment Terminals**: Cloud gateway APIs (Stripe Terminal, etc.) for EMV/card reader integration.
-- **Non-Destructive Changes**: New features default to OFF/NULL/false to prevent impact on existing enterprises.
+- **Non-Destructive Changes**: New features default to OFF/NULL/false.
 - **Context Help**: Every configuration field requires help text.
 
 ### Technical Stack
@@ -43,94 +40,38 @@ All POS operations go directly to the cloud Express server and commit to Postgre
 - **Database**: PostgreSQL with Drizzle ORM (cloud), SQLite via better-sqlite3 (local failover).
 
 ### Local Failover Server (LFS) Architecture
-The same Express codebase runs against either PostgreSQL (cloud) or SQLite (local) based on `DB_MODE` env var.
+The same Express codebase runs against either PostgreSQL (cloud) or SQLite (local) based on `DB_MODE`. LFS handles offline operations, syncing configuration and transactions between local SQLite and the cloud PostgreSQL.
 
-- **DB_MODE=local**: Server uses SQLite (better-sqlite3) via `SqliteDatabaseStorage`. Single LFS per property serves all workstations on LAN.
-- **DB_MODE unset/cloud**: Normal cloud PostgreSQL mode via `DatabaseStorage` with Drizzle ORM.
-- **Key Files**:
-  - `server/db.ts` — DB factory: conditionally initializes PG pool or SQLite connection
-  - `server/sqlite-init.ts` — Auto-generates SQLite schema from PG Drizzle table definitions (no manual SQL)
-  - `server/storage-sqlite.ts` — Full `IStorage` implementation using raw SQL against SQLite
-  - `server/config-sync.ts` — Background service that pulls config from cloud API to local SQLite
-- **Schema-Driven Column Filtering**: `insertOne()` and `updateOne()` automatically filter out keys that don't exist as columns on the target SQLite table, so passing extra fields (e.g. `propertyId` on a table without that column) is safely ignored.
-- **Offline Check Numbering**: Each workstation has configurable offline check number ranges (`lfs_offline_sequence` table) to prevent collisions between workstations.
-- **Transaction Journal**: `lfs_transaction_journal` table tracks all write operations for later sync-up to cloud. Columns: `operation_type`, `entity_type`, `entity_id`, `http_method`, `endpoint`, `payload`, `offline_transaction_id`, `workstation_id`, `created_at`, `synced`, `synced_at`.
-- **Config Sync**: Runs on configurable interval (default 60s). Syncs config DOWN first (menu, employees, tax, tenders, discounts), then transactions UP.
-- **Health Endpoint**: `GET /api/health` returns mode, database type, and sync status.
-- **Auto-Failover Detection**: Browser-side `ConnectionManager` singleton (`client/src/lib/connection-manager.ts`) pings cloud `/health` every 5s. After 3 consecutive failures, routes API/WS traffic to LFS URL (stored in localStorage `lfs_local_server_url`). States: `cloud-online`, `cloud-degraded`, `cloud-offline`, `reconnecting`. When cloud comes back online, runs reconnection sync: config-down first, then transactions-up from LFS journal.
-- **Dual-URL API Routing**: `queryClient.ts` and `api-client.ts` route through `connectionManager.getBaseUrl()`. WebSocket hooks (`use-pos-websocket.ts`, `use-config-sync.ts`) use `connectionManager.getWsUrl()`. All routing is transparent to callers.
-- **Offline UI Banner**: `OfflineBanner` component shows amber bar "RUNNING LOCALLY" when offline, with pending sync count and reconnection progress bar.
-- **Sync-Back Routes**: `server/lfs-sync-routes.ts` — LFS mode exposes `/api/lfs/journal/pending`, `/api/lfs/journal/:id/synced`; Cloud mode exposes `/api/lfs/sync/transaction-up` and `/api/lfs/sync/batch-up` with idempotent deduplication via `offlineTransactionId`.
-- **Deduplication**: `checks`, `check_items`, `check_payments` have `offlineTransactionId` column. Sync-up checks for duplicates before inserting.
-- **Env Vars for LFS**: `DB_MODE=local`, `SQLITE_PATH`, `LFS_CLOUD_URL`, `LFS_API_KEY`, `LFS_PROPERTY_ID`, `LFS_SYNC_INTERVAL_MS`.
-- **Offline Payments (Full Feature Parity)**:
-  - **Credential Fallback**: `getPaymentAdapter` resolves credentials from `payment_gateway_config` DB table when env vars are missing (LFS mode). `resolveCredentials` accepts optional `dbFallbackCredentials` parameter.
-  - **Store-and-Forward (SAF)**: Terminal devices have `supportsStoreAndForward` flag. When cloud is down, SAF-capable terminals process payments locally; payments recorded as `pending_settlement` status. Non-SAF scenarios fall back to cash-only.
-  - **LFS Capabilities**: `/api/lfs/capabilities` reports available features (payments, KDS, printing) and internet status. `/api/lfs/payment-status` reports card payment mode (online vs store_and_forward).
-  - **SAF Payment Recording**: `/api/lfs/record-saf-payment` endpoint creates payments with `pending_settlement` status on LFS. Main `/api/check-payments` route also supports `storeAndForward: true` body param in LFS mode. `pending_settlement` payments count toward paid totals for check closure.
-  - **Credential Storage**: `payment_gateway_config.encrypted_credentials` JSON column stores adapter-required secret keys (e.g., `SECRET_KEY`, `ACCESS_TOKEN`). Resolved by `getPaymentAdapter` with priority: env vars → `encryptedCredentials` JSON → column-mapped fallback.
-  - **Settlement Reconciliation (server-to-server)**: LFS `/api/lfs/reconcile-saf` iterates local `pending_settlement` payments and calls cloud `/api/lfs/sync/settle-payment` per-payment using env `LFS_API_KEY`/`LFS_CLOUD_URL` (no browser-held secrets). Cloud validates amount match, marks `completed` or `settlement_failed` with reason. Transient errors keep payment as `pending_settlement` for retry. Failed settlements flagged for manager review via `/api/lfs/sync/failed-settlements`. Browser triggers reconciliation on LFS during reconnection sync (calls LFS, not cloud). Batch endpoint `/api/lfs/sync/reconcile-saf-batch` requires `settlements` array with per-payment verification.
-  - **SAF End-to-End Flow**: Terminal session completing with `completed_offline` status triggers `storeAndForward: true` flag through `onPayment` → `paymentMutation` → `/api/checks/:id/payments` body. Server records payment as `pending_settlement` in LFS mode. `pending_settlement` payments count toward paid totals.
-  - **Config Sync Additions**: `terminal_devices`, `print_agents`, `cash_drawers` tables added to config sync for LFS.
-  - **KDS Failover**: KDS display component uses `failoverFetch` for all API calls (bumped tickets, item availability).
-  - **Payment Modal Offline Banner**: Shows "Running Locally" with SAF/offline context when connection manager reports offline state.
-- **LFS Packaging & Admin**:
-  - **Build Script**: `lfs/scripts/build-lfs.sh` produces a self-contained distribution (compiled server, frontend, SQLite, startup scripts) as a tar.gz archive.
-  - **Windows Installer**: `lfs/scripts/install-windows-service.ps1` installs LFS as a Windows Service with auto-restart, firewall rules, and NSSM support. Uninstaller at `lfs/scripts/uninstall-windows-service.ps1`.
-  - **System Tray**: `lfs/scripts/lfs-tray.ps1` — PowerShell system tray indicator showing LFS status (green/yellow/red) with quick actions.
-  - **Admin Dashboard**: `lfs/admin/index.html` — standalone web UI served on port 3002 by the LFS. Shows sync status, connected devices, pending transactions, configuration, and logs. API routes in `server/lfs-admin-routes.ts`.
-  - **Admin API Routes**: `/api/lfs/admin/config` (GET/POST), `/api/lfs/admin/test-connection`, `/api/lfs/admin/trigger-sync`, `/api/lfs/admin/logs`, `/api/lfs/admin/check-update`.
-  - **Auto-Update**: `server/lfs-auto-update.ts` — polls cloud for new versions, downloads with backup/rollback. Controlled by `LFS_AUTO_UPDATE` and `LFS_UPDATE_CHECK_INTERVAL_MS` env vars.
-  - **Android Deployment**: Guide at `lfs/docs/android-deployment.md` — Termux setup, auto-start via Termux:Boot, WiFi configuration.
-  - **Network Setup Guide**: `lfs/docs/network-setup.md` — IP planning, DHCP/static config, firewall rules, DNS/mDNS, verification checklist.
+- **DB Modes**: `DB_MODE=local` uses SQLite; unset/cloud uses PostgreSQL.
+- **Schema Management**: `sqlite-init.ts` auto-generates SQLite schema from PostgreSQL Drizzle definitions.
+- **Config Sync**: Background service pulls config from cloud to local SQLite and pushes transactions up.
+- **Auto-Failover**: Browser-side `ConnectionManager` detects cloud connectivity and transparently routes API/WebSocket traffic to LFS URL on failure, and back to cloud upon recovery.
+- **Offline Payments (Store-and-Forward)**: LFS processes payments locally for SAF-capable terminals, recording them as `pending_settlement`. Payments are later reconciled with the cloud via server-to-server calls.
+- **LFS Packaging & Admin**: Includes build scripts for self-contained distributions, Windows installer as a service, system tray indicator, admin dashboard for status/config/logs, and auto-update mechanism.
 
 ### Key Features
 - **Device Configuration**: Hierarchical setup for Workstations, Printers, KDS.
-- **KDS Order Flow**: "Standard Mode" and "Dynamic Order Mode" with real-time updates and EMC-driven routing.
+- **KDS Order Flow**: Standard and Dynamic Order Modes with real-time updates.
 - **Authentication**: PIN-based employee authentication with role-based access control.
-- **Payment Processing**: PCI-compliant, gateway-agnostic, semi-integrated via cloud gateway APIs.
-- **Printing System**: Browser print API with future local print relay support.
+- **Payment Processing**: PCI-compliant, gateway-agnostic, semi-integrated.
 - **Enterprise Features**: Fiscal Close, Cash Management, Gift Cards, Loyalty, Online Ordering, Inventory, Forecasting.
 - **Pizza Builder Module**: Visual, full-page customization.
 - **Multi-Enterprise Architecture**: Server-side data isolation.
-- **Configuration Inheritance & Override**: Items inherit with override capabilities via OptionBits system.
+- **Configuration Inheritance**: Items inherit with override capabilities via OptionBits.
 - **Concurrency-Safe Check Numbering**: Atomic, unique, sequential check numbers.
 - **Reporting**: Canonical Data Access Layer with 7 query functions.
 - **Customer Onboarding**: Excel-based bulk data import.
 - **Workstation Identity and RVC Switching**: Locked Workstation ID, interactive RVC selection.
-- **Enterprise Employee Privilege Resolution**: `getEmployeesByProperty()` includes `OR property_id IS NULL` to resolve privileges for enterprise-level employees.
-- **Price Unit Consistency**: `addItems()` response returns `unitPrice`/`totalPrice` in DOLLARS (matching `getCheckItems()`). DB stores CENTS internally.
-- **Tips in Tender/Payment Totals**: `tip_amount` is stored separately in `check_payments` but MUST be included in all tender/payment totals across reports (Z-Report, Daily Sales, Cashier, Validation, sales-summary, tender-mix, tender-detail, employee-balance). Tips are added AFTER the over-tender ratio capping logic. Reconciliation compares `netCollected` against `customerTotal` (which includes card tips), not raw `checkTotals`.
-- **Enterprise Effective Config Resolution**: Runtime config (tenders, discounts, tax groups, service charges, roles) resolves using enterprise→property→RVC hierarchy with RVC override > Property override > Enterprise default precedence.
-- **RVC-Scoped Employee Privileges**: `resolveEmployeePrivileges()` accepts `rvcId` and resolves employee's role assignment for the active RVC first, then falls back to primary assignment.
+- **Enterprise Employee Privilege Resolution**: Resolves privileges for enterprise-level employees.
+- **Price Unit Consistency**: Frontend uses dollars, backend stores cents.
+- **Tips in Tender/Payment Totals**: `tip_amount` included in all tender/payment totals across reports.
+- **Enterprise Effective Config Resolution**: Runtime config resolves using enterprise→property→RVC hierarchy.
+- **RVC-Scoped Employee Privileges**: Resolves employee's role assignment for active RVC.
 
----
-
-## Implementation Rules
-
-### Rule 1: Feature Path Completion
-A feature is NOT considered complete because tables, routes, or UI pages exist. Every feature MUST be validated through the full feature path:
-
-**schema → API route → response contract → frontend state → user flow**
-
-Do not mark a feature complete until the full path is proven end-to-end with runtime validation.
-
-### Rule 2: Feature-First Implementation
-Development MUST follow feature paths, not structural layers. Do not:
-- Add tables without runtime usage
-- Add routes without frontend integration
-- Add UI without validated backend behavior
-
-Each feature must be built and validated as a complete vertical slice.
-
-### Rule 3: Incremental Feature Rollout
-New features must:
-- Remain disabled by default
-- Be enabled only via EMC option flags
-
-This prevents breaking live environments.
-
----
+### Implementation Rules
+- **Feature Path Completion**: Features are not complete until schema → API route → response contract → frontend state → user flow is validated end-to-end.
+- **Feature-First Implementation**: Development must follow feature paths, building and validating complete vertical slices.
+- **Incremental Feature Rollout**: New features must remain disabled by default and enabled only via EMC option flags.
 
 ## External Dependencies
 

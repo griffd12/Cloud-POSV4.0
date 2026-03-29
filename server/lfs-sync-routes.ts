@@ -9,20 +9,31 @@ import { getConfigSyncService } from "./config-sync";
 
 const isLocalMode = process.env.DB_MODE === "local";
 
-function requireLfsApiKey(req: Request, res: Response, next: NextFunction) {
-  const expectedKey = process.env.LFS_API_KEY;
-  if (!expectedKey && !isLocalMode) {
-    return res.status(500).json({ error: "LFS_API_KEY not configured on cloud server" });
-  }
-  if (!expectedKey && isLocalMode) {
+async function requireLfsApiKey(req: Request, res: Response, next: NextFunction) {
+  if (isLocalMode) {
     return next();
   }
+
   const provided = req.headers["x-lfs-api-key"] as string | undefined
     || (req.headers["authorization"] as string | undefined)?.replace("Bearer ", "");
-  if (provided !== expectedKey) {
+
+  if (!provided) {
     return res.status(403).json({ error: "Invalid or missing LFS API key" });
   }
-  next();
+
+  const envKey = process.env.LFS_API_KEY;
+  if (envKey && provided === envKey) {
+    return next();
+  }
+
+  const dbConfig = await storage.getLfsConfigurationByApiKey(provided);
+  if (dbConfig) {
+    (req as any).lfsPropertyId = dbConfig.propertyId;
+    (req as any).lfsConfigId = dbConfig.id;
+    return next();
+  }
+
+  return res.status(403).json({ error: "Invalid or missing LFS API key" });
 }
 
 export function registerLfsSyncRoutes(app: Express) {
@@ -524,6 +535,36 @@ const ALLOWED_CONFIG_TABLES = new Set([
   "terminal_devices", "print_agents", "cash_drawers",
 ]);
 
+async function recordLfsSyncActivity(req: Request, syncType: string, direction: string, recordCount: number, status: string, errorMessage?: string) {
+  try {
+    const propertyId = (req as any).lfsPropertyId || req.query.propertyId as string || req.body?.propertyId;
+    if (!propertyId) return;
+
+    const lfsIp = req.headers["x-forwarded-for"] as string || req.socket.remoteAddress || "";
+    const lfsVersion = req.headers["x-lfs-version"] as string || undefined;
+
+    await storage.createLfsSyncLog({
+      propertyId,
+      syncType,
+      direction,
+      recordCount,
+      status,
+      errorMessage: errorMessage || null,
+      lfsIp: lfsIp.split(",")[0].trim(),
+      lfsVersion: lfsVersion || null,
+    });
+
+    await storage.updateLfsConfiguration(propertyId, {
+      lastSyncAt: new Date(),
+      lastSyncIp: lfsIp.split(",")[0].trim(),
+      lfsVersion: lfsVersion || null,
+      syncStatus: status === "success" ? "connected" : "error",
+    });
+  } catch (e) {
+    console.error("[LFS] Failed to record sync activity:", e);
+  }
+}
+
 function registerLfsCloudRoutes(app: Express) {
   ensureCloudRemapTable().then(() => { remapTableReady = true; }).catch(() => {});
 
@@ -560,9 +601,11 @@ function registerLfsCloudRoutes(app: Express) {
       const rows = result.rows || [];
       const columns = rows.length > 0 ? Object.keys(rows[0] as Record<string, unknown>) : [];
       res.json({ rows, columns, incremental });
+      recordLfsSyncActivity(req, `config-download:${tableName}`, "down", rows.length, "success");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       console.error(`[LFS Sync] Config export error:`, msg);
+      recordLfsSyncActivity(req, "config-download", "down", 0, "error", msg);
       res.status(500).json({ error: msg });
     }
   });
@@ -595,9 +638,11 @@ function registerLfsCloudRoutes(app: Express) {
         ? (result as Record<string, unknown>).id as string
         : undefined;
       res.json({ ok: true, result, remapId });
+      recordLfsSyncActivity(req, `transaction-up:${entityType}`, "up", 1, "success");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       console.error("[LFS Sync] Transaction upload error:", msg);
+      recordLfsSyncActivity(req, "transaction-up", "up", 0, "error", msg);
       res.status(500).json({ error: msg });
     }
   });

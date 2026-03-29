@@ -112,6 +112,7 @@ import BreakMonitoringPage from "../admin/break-monitoring";
 import BreakViolationsPage from "../admin/break-violations";
 import MinorLaborPage from "../admin/minor-labor";
 import PaymentGatewayConfigPage from "../admin/payment-gateway-config";
+import LfsManagementPage from "../admin/lfs-management";
 import StressTestReportPage from "./stress-test-report";
 import { cn } from "@/lib/utils";
 
@@ -137,6 +138,7 @@ const navGroups: NavGroup[] = [
       { title: "Enterprises", url: "/emc/enterprises", icon: Building2, enterpriseOnly: true, systemAdminOnly: true },
       { title: "Properties", url: "/emc/properties", icon: Store, propertyOnly: true },
       { title: "Revenue Centers", url: "/emc/rvcs", icon: LayoutGrid },
+      { title: "Local Failover Server", url: "/emc/lfs-management", icon: Wifi, requiresProperty: true, propertyOnly: true },
     ],
   },
   {
@@ -670,6 +672,7 @@ export default function EmcAdminLayout() {
                 <Route path="/emc/accounting-export" component={AccountingExportPage} />
                 <Route path="/emc/print-agents" component={PrintAgentsPage} />
                 <Route path="/emc/descriptors" component={DescriptorsPage} />
+                <Route path="/emc/lfs-management" component={LfsManagementPage} />
                 <Route path="/emc/stress-test-report" component={StressTestReportPage} />
               </Switch>
             )}

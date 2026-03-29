@@ -3985,3 +3985,50 @@ export const syncNotifications = pgTable("sync_notifications", {
 export const insertSyncNotificationSchema = createInsertSchema(syncNotifications).omit({ id: true, createdAt: true });
 export type SyncNotification = typeof syncNotifications.$inferSelect;
 export type InsertSyncNotification = z.infer<typeof insertSyncNotificationSchema>;
+
+// ============================================================================
+// LFS CONFIGURATIONS (per-property Local Failover Server management)
+// ============================================================================
+
+export const lfsConfigurations = pgTable("lfs_configurations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  propertyId: varchar("property_id").notNull().references(() => properties.id),
+  apiKey: text("api_key").notNull(),
+  apiKeyMasked: text("api_key_masked").notNull(),
+  lfsVersion: text("lfs_version"),
+  lastSyncAt: timestamp("last_sync_at"),
+  lastSyncIp: text("last_sync_ip"),
+  syncStatus: text("sync_status").default("never_connected"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_lfs_configurations_property").on(table.propertyId),
+]);
+
+export const lfsConfigurationsRelations = relations(lfsConfigurations, ({ one }) => ({
+  property: one(properties, { fields: [lfsConfigurations.propertyId], references: [properties.id] }),
+}));
+
+export const insertLfsConfigurationSchema = createInsertSchema(lfsConfigurations).omit({ id: true, createdAt: true, updatedAt: true });
+export type LfsConfiguration = typeof lfsConfigurations.$inferSelect;
+export type InsertLfsConfiguration = z.infer<typeof insertLfsConfigurationSchema>;
+
+export const lfsSyncLogs = pgTable("lfs_sync_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  propertyId: varchar("property_id").notNull().references(() => properties.id),
+  syncType: text("sync_type").notNull(),
+  direction: text("direction").notNull(),
+  recordCount: integer("record_count").default(0),
+  status: text("status").notNull().default("success"),
+  errorMessage: text("error_message"),
+  lfsIp: text("lfs_ip"),
+  lfsVersion: text("lfs_version"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_lfs_sync_logs_property").on(table.propertyId),
+  index("idx_lfs_sync_logs_created").on(table.createdAt),
+]);
+
+export const insertLfsSyncLogSchema = createInsertSchema(lfsSyncLogs).omit({ id: true, createdAt: true });
+export type LfsSyncLog = typeof lfsSyncLogs.$inferSelect;
+export type InsertLfsSyncLog = z.infer<typeof insertLfsSyncLogSchema>;
