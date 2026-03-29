@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import crypto from "crypto";
-import { createRequire } from "node:module";
+import bcrypt from "bcryptjs";
 import { getColumnMap, type TableColumnMap } from "./sqlite-init";
 import type { LfsConfiguration, InsertLfsConfiguration, LfsSyncLog, InsertLfsSyncLog } from "@shared/schema";
 
@@ -18,9 +18,6 @@ export interface TransactionJournalEntry {
   synced: number;
   synced_at: string | null;
 }
-
-const _require = createRequire(import.meta.url);
-const bcrypt = _require("bcryptjs");
 import type { IStorage } from "./storage";
 import type {
   Enterprise, InsertEnterprise, Property, InsertProperty, Rvc, InsertRvc,

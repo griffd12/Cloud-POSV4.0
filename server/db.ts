@@ -10,8 +10,8 @@ export const isLocalMode = process.env.DB_MODE === "local";
 let _sqliteDb: any = null;
 
 if (isLocalMode) {
-  const require = createRequire(import.meta.url);
-  const Database = require("better-sqlite3");
+  const _require = createRequire(typeof __filename !== 'undefined' ? __filename : import.meta.url);
+  const Database = _require("better-sqlite3");
 
   const dbPath = process.env.SQLITE_PATH || "./data/pos-local.db";
   const dbDir = path.dirname(dbPath);
