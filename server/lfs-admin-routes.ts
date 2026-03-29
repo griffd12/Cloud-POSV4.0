@@ -105,7 +105,18 @@ export function registerLfsAdminRoutes(app: Express) {
 
       fs.writeFileSync(envPath, envContent.trim() + "\n", "utf8");
       captureLog(`[admin] Configuration updated: ${Object.keys(updates).join(", ")}`);
-      res.json({ ok: true });
+
+      if (updates["LFS_CLOUD_URL"] || updates["LFS_API_KEY"] || updates["LFS_PROPERTY_ID"] || updates["LFS_SYNC_INTERVAL_MS"]) {
+        try {
+          const { restartConfigSync } = await import("./config-sync");
+          if (typeof restartConfigSync === "function") {
+            restartConfigSync();
+            captureLog("[admin] Config sync service reloaded with new settings");
+          }
+        } catch {}
+      }
+
+      res.json({ ok: true, requiresRestart: false });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });

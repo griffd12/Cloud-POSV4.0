@@ -66,7 +66,17 @@ $contextMenu.Items.Add("-")
 $menuSyncNow = $contextMenu.Items.Add("Sync Now")
 $menuSyncNow.Add_Click({
     try {
-        Invoke-RestMethod -Uri "http://localhost:$ApiPort/api/lfs/admin/trigger-sync" -Method POST -TimeoutSec 10 | Out-Null
+        $headers = @{ "Content-Type" = "application/json" }
+        $envFile = Join-Path (Split-Path $MyInvocation.MyCommand.Path) ".env"
+        if (Test-Path $envFile) {
+            $envLines = Get-Content $envFile
+            foreach ($line in $envLines) {
+                if ($line -match "^LFS_API_KEY=(.+)$") {
+                    $headers["x-lfs-admin-key"] = $matches[1].Trim()
+                }
+            }
+        }
+        Invoke-RestMethod -Uri "http://localhost:$ApiPort/api/lfs/admin/trigger-sync" -Method POST -Headers $headers -TimeoutSec 10 | Out-Null
         $script:notifyIcon.ShowBalloonTip(2000, "LFS", "Sync triggered", [System.Windows.Forms.ToolTipIcon]::Info)
     } catch {
         $script:notifyIcon.ShowBalloonTip(2000, "LFS", "Sync failed: $($_.Exception.Message)", [System.Windows.Forms.ToolTipIcon]::Error)

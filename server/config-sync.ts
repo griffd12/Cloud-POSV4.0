@@ -275,3 +275,36 @@ export function startConfigSync(db: Database.Database): ConfigSyncService | null
 export function getConfigSyncService(): ConfigSyncService | null {
   return syncService;
 }
+
+export function restartConfigSync(): void {
+  if (syncService) {
+    syncService.stop();
+    syncService = null;
+  }
+
+  const cloudUrl = process.env.LFS_CLOUD_URL;
+  const apiKey = process.env.LFS_API_KEY;
+  const propertyId = process.env.LFS_PROPERTY_ID;
+
+  if (!cloudUrl || !apiKey || !propertyId) {
+    log("Config sync not restarted: missing required env vars", "lfs-sync");
+    return;
+  }
+
+  const { sqliteDb } = require("./db");
+  if (!sqliteDb) {
+    log("Config sync not restarted: no local database available", "lfs-sync");
+    return;
+  }
+  const db = sqliteDb;
+
+  const intervalMs = parseInt(process.env.LFS_SYNC_INTERVAL_MS || "60000", 10);
+  syncService = new ConfigSyncService(db, {
+    cloudBaseUrl: cloudUrl,
+    apiKey,
+    propertyId,
+    intervalMs,
+  });
+
+  log("Config sync restarted with updated settings", "lfs-sync");
+}
