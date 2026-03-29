@@ -41,25 +41,43 @@ jobs:
       - name: Build LFS package (${{ matrix.platform }})
         run: bash lfs/scripts/build-lfs.sh ${{ matrix.platform }}
 
-      - name: Determine artifact name
+      - name: Verify build output
         id: artifact
         run: |
           VERSION=$(node -p "require('./package.json').version")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+          echo "=== Contents of lfs/dist/ ==="
+          ls -la lfs/dist/
+
+          echo "=== Contents of lfs/dist/cloud-pos-lfs/ ==="
+          ls -la lfs/dist/cloud-pos-lfs/ || echo "Directory not found"
+
           ARCHIVE=$(ls lfs/dist/cloud-pos-lfs-${VERSION}-${{ matrix.platform }}.* 2>/dev/null | head -1)
           if [ -z "$ARCHIVE" ]; then
-            echo "ERROR: No archive found in lfs/dist/ for version ${VERSION} platform ${{ matrix.platform }}"
-            ls -la lfs/dist/ || true
+            echo "ERROR: No archive found"
             exit 1
           fi
           echo "archive=${ARCHIVE}" >> $GITHUB_OUTPUT
-          echo "filename=$(basename ${ARCHIVE})" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Upload LFS artifact
+          DIST_DIR="lfs/dist/cloud-pos-lfs"
+          if [ ! -d "$DIST_DIR" ]; then
+            echo "ERROR: Build directory not found at $DIST_DIR"
+            exit 1
+          fi
+
+          FILE_COUNT=$(find "$DIST_DIR" -type f | wc -l)
+          echo "Built distribution contains $FILE_COUNT files"
+          if [ "$FILE_COUNT" -lt 5 ]; then
+            echo "ERROR: Build directory has too few files ($FILE_COUNT)"
+            exit 1
+          fi
+
+      - name: Upload LFS distribution
         uses: actions/upload-artifact@v4
         with:
           name: cloud-pos-lfs-${{ matrix.platform }}-${{ steps.artifact.outputs.version }}
-          path: ${{ steps.artifact.outputs.archive }}
+          path: lfs/dist/cloud-pos-lfs/
           retention-days: 90
 
       - name: Upload to release
