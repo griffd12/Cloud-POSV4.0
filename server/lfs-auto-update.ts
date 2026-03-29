@@ -86,12 +86,17 @@ async function downloadAndApplyUpdate(info: UpdateInfo): Promise<boolean> {
     fs.mkdirSync(backupDir, { recursive: true });
     fs.mkdirSync(tempDir, { recursive: true });
 
+    const filesToBackup = ["server.cjs", "lfs-admin"];
     console.log(`[lfs-update] Backing up current version to ${backupDir}`);
-    const filesToBackup = ["server.cjs", "package.json"];
     for (const file of filesToBackup) {
       const src = path.join(installDir, file);
       if (fs.existsSync(src)) {
-        fs.copyFileSync(src, path.join(backupDir, file));
+        const stat = fs.statSync(src);
+        if (stat.isDirectory()) {
+          copyDirSync(src, path.join(backupDir, file));
+        } else {
+          fs.copyFileSync(src, path.join(backupDir, file));
+        }
       }
     }
 
@@ -108,17 +113,104 @@ async function downloadAndApplyUpdate(info: UpdateInfo): Promise<boolean> {
     const arrayBuffer = await res.arrayBuffer();
     fs.writeFileSync(archivePath, Buffer.from(arrayBuffer));
 
-    console.log("[lfs-update] Update downloaded. Extraction requires manual restart.");
-    console.log(`[lfs-update] Archive saved at: ${archivePath}`);
-    console.log("[lfs-update] To apply: stop the service, extract, restart.");
-    console.log(`[lfs-update] Rollback available at: ${backupDir}`);
+    if (info.checksum) {
+      const { createHash } = await import("crypto");
+      const hash = createHash("sha256").update(Buffer.from(arrayBuffer)).digest("hex");
+      if (hash !== info.checksum) {
+        throw new Error(`Checksum mismatch: expected ${info.checksum}, got ${hash}`);
+      }
+      console.log("[lfs-update] Checksum verified");
+    }
+
+    console.log("[lfs-update] Extracting update...");
+    const { execSync } = await import("child_process");
+    const extractDir = path.join(tempDir, "extracted");
+    fs.mkdirSync(extractDir, { recursive: true });
+
+    try {
+      execSync(`tar -xzf "${archivePath}" -C "${extractDir}"`, { stdio: "pipe" });
+    } catch {
+      throw new Error("Failed to extract update archive");
+    }
+
+    const extractedContents = fs.readdirSync(extractDir);
+    let sourceDir = extractDir;
+    if (extractedContents.length === 1) {
+      const inner = path.join(extractDir, extractedContents[0]);
+      if (fs.statSync(inner).isDirectory()) {
+        sourceDir = inner;
+      }
+    }
+
+    const updateFiles = ["server.cjs", "lfs-admin"];
+    console.log("[lfs-update] Applying update files...");
+    for (const file of updateFiles) {
+      const src = path.join(sourceDir, file);
+      const dest = path.join(installDir, file);
+      if (fs.existsSync(src)) {
+        const stat = fs.statSync(src);
+        if (stat.isDirectory()) {
+          if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true });
+          copyDirSync(src, dest);
+        } else {
+          fs.copyFileSync(src, dest);
+        }
+        console.log(`[lfs-update] Updated: ${file}`);
+      }
+    }
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
+
+    console.log("[lfs-update] Update applied successfully. Restarting server...");
+    updateState.lastError = null;
+
+    setTimeout(() => {
+      console.log("[lfs-update] Triggering restart...");
+      process.exit(0);
+    }, 1000);
 
     return true;
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Unknown error";
-    console.error(`[lfs-update] Update failed: ${msg}`);
+    console.error(`[lfs-update] Update failed: ${msg}. Rolling back...`);
     updateState.lastError = msg;
+
+    try {
+      const filesToRestore = ["server.cjs", "lfs-admin"];
+      for (const file of filesToRestore) {
+        const backup = path.join(backupDir, file);
+        const dest = path.join(installDir, file);
+        if (fs.existsSync(backup)) {
+          const stat = fs.statSync(backup);
+          if (stat.isDirectory()) {
+            if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true });
+            copyDirSync(backup, dest);
+          } else {
+            fs.copyFileSync(backup, dest);
+          }
+        }
+      }
+      console.log("[lfs-update] Rollback completed");
+    } catch (rollbackErr) {
+      console.error("[lfs-update] Rollback also failed:", rollbackErr);
+    }
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
     return false;
+  }
+}
+
+function copyDirSync(src: string, dest: string) {
+  fs.mkdirSync(dest, { recursive: true });
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirSync(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
   }
 }
 

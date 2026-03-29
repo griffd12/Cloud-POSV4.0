@@ -30,15 +30,21 @@ Write-Host " Cloud POS - LFS Windows Service Installer" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$nodePath = (Get-Command node -ErrorAction SilentlyContinue).Path
-if (-not $nodePath) {
-    Write-Host "ERROR: Node.js is not installed or not in PATH." -ForegroundColor Red
-    Write-Host "Please install Node.js 18+ from https://nodejs.org" -ForegroundColor Yellow
-    exit 1
+$bundledNode = Join-Path $InstallDir "runtime\node.exe"
+if (Test-Path $bundledNode) {
+    $nodePath = $bundledNode
+    $nodeVersion = (& $nodePath --version)
+    Write-Host "Bundled Node.js found: $nodeVersion" -ForegroundColor Green
+} else {
+    $nodePath = (Get-Command node -ErrorAction SilentlyContinue).Path
+    if (-not $nodePath) {
+        Write-Host "ERROR: Node.js not found. No bundled runtime and no system Node.js." -ForegroundColor Red
+        Write-Host "Please install Node.js 18+ from https://nodejs.org or rebuild the LFS package with --platform windows" -ForegroundColor Yellow
+        exit 1
+    }
+    $nodeVersion = (& $nodePath --version)
+    Write-Host "System Node.js found: $nodeVersion at $nodePath" -ForegroundColor Green
 }
-
-$nodeVersion = (node --version)
-Write-Host "Node.js found: $nodeVersion at $nodePath" -ForegroundColor Green
 
 $serverFile = Join-Path $InstallDir "server.cjs"
 if (-not (Test-Path $serverFile)) {
@@ -203,8 +209,34 @@ if (-not $fwRuleAdmin) {
 }
 
 Write-Host ""
+Write-Host "System tray indicator..." -ForegroundColor Cyan
+$trayScript = Join-Path $InstallDir "lfs-tray.ps1"
+$traySource = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "lfs-tray.ps1"
+if (Test-Path $traySource) {
+    Copy-Item $traySource $trayScript -Force
+    Write-Host "  Copied tray indicator script" -ForegroundColor Green
+}
+
+$startupDir = [Environment]::GetFolderPath("Startup")
+$shortcutPath = Join-Path $startupDir "CloudPOS-LFS-Tray.lnk"
+$shell = New-Object -ComObject WScript.Shell
+$shortcut = $shell.CreateShortcut($shortcutPath)
+$shortcut.TargetPath = "powershell.exe"
+$shortcut.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$trayScript`" -ApiPort $Port"
+$shortcut.WorkingDirectory = $InstallDir
+$shortcut.Description = "Cloud POS LFS System Tray Indicator"
+$shortcut.Save()
+Write-Host "  Tray indicator will start automatically on login" -ForegroundColor Green
+
+$startTray = Read-Host "Start tray indicator now? (Y/n)"
+if ($startTray -ne 'n' -and $startTray -ne 'N') {
+    Start-Process powershell.exe -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$trayScript`" -ApiPort $Port" -WindowStyle Hidden
+    Write-Host "  Tray indicator started" -ForegroundColor Green
+}
+
+Write-Host ""
 Write-Host "Installation complete!" -ForegroundColor Green
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Edit .env file with cloud connection details"
-Write-Host "  2. Access admin dashboard at http://localhost:$AdminPort"
+Write-Host "  2. Access admin dashboard at http://localhost:$Port/lfs-admin"
 Write-Host "  3. Verify sync status and configure property settings"

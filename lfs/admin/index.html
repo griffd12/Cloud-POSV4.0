@@ -235,9 +235,7 @@
   </div>
 
   <script>
-    const API_BASE = window.location.port === '3002' 
-      ? `${window.location.protocol}//${window.location.hostname}:3001`
-      : '';
+    const API_BASE = '';
 
     function showToast(message, type = 'success') {
       const toast = document.createElement('div');

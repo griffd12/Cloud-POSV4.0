@@ -1,9 +1,9 @@
 import type { Express, Request, Response } from "express";
+import express from "express";
 import { isLocalMode } from "./db";
 import { getConfigSyncService } from "./config-sync";
 import path from "path";
 import fs from "fs";
-import { createServer } from "http";
 
 const LFS_VERSION = "1.0.0";
 
@@ -176,10 +176,9 @@ export function registerLfsAdminRoutes(app: Express) {
   });
 }
 
-export function startLfsAdminServer() {
+export function startLfsAdminServer(app: Express) {
   if (!isLocalMode) return;
 
-  const adminPort = parseInt(process.env.LFS_ADMIN_PORT || "3002", 10);
   const adminDir = path.resolve(process.cwd(), "lfs", "admin");
   const distAdminDir = path.resolve(process.cwd(), "lfs-admin");
 
@@ -195,18 +194,13 @@ export function startLfsAdminServer() {
     return;
   }
 
-  const express = require("express") as typeof import("express");
-  const adminApp = express();
+  app.use("/lfs-admin", express.static(servePath));
 
-  adminApp.use(express.static(servePath));
-
-  adminApp.get("*", (_req: Request, res: Response) => {
+  app.get("/lfs-admin", (_req: Request, res: Response) => {
     res.sendFile(path.join(servePath, "index.html"));
   });
 
-  const adminServer = createServer(adminApp);
-  adminServer.listen(adminPort, "0.0.0.0", () => {
-    console.log(`[lfs-admin] Admin dashboard serving on port ${adminPort}`);
-    captureLog(`[admin] Admin dashboard started on port ${adminPort}`);
-  });
+  const apiPort = parseInt(process.env.PORT || "3001", 10);
+  console.log(`[lfs-admin] Admin dashboard available at http://localhost:${apiPort}/lfs-admin`);
+  captureLog(`[admin] Admin dashboard available at /lfs-admin`);
 }

@@ -163,7 +163,7 @@ app.get("/health", async (_req, res) => {
       if (isLocalMode) {
         log("Local Failover Server ready", "lfs");
         captureLog("[startup] LFS server started on port " + port);
-        startLfsAdminServer();
+        startLfsAdminServer(app);
         startAutoUpdateChecker();
       } else {
         startFiscalScheduler();

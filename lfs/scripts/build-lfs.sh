@@ -6,16 +6,19 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/lfs/dist"
 PACKAGE_NAME="cloud-pos-lfs"
 VERSION=$(node -p "require('$PROJECT_ROOT/package.json').version")
+TARGET_PLATFORM="${1:-linux}"
+NODE_VERSION="20.11.1"
 
 echo "=========================================="
 echo " Cloud POS - Local Failover Server Builder"
 echo " Version: $VERSION"
+echo " Platform: $TARGET_PLATFORM"
 echo "=========================================="
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/$PACKAGE_NAME"
 
-echo "[1/7] Building server bundle..."
+echo "[1/8] Building server bundle..."
 cd "$PROJECT_ROOT"
 npx esbuild server/index.ts \
   --bundle \
@@ -31,13 +34,13 @@ npx esbuild server/index.ts \
   --define:process.env.NODE_ENV=\"production\" \
   --minify
 
-echo "[2/7] Building frontend assets..."
+echo "[2/8] Building frontend assets..."
 npx vite build --outDir "$BUILD_DIR/$PACKAGE_NAME/client"
 
-echo "[3/7] Copying LFS admin dashboard..."
+echo "[3/8] Copying LFS admin dashboard..."
 cp -r "$PROJECT_ROOT/lfs/admin" "$BUILD_DIR/$PACKAGE_NAME/lfs-admin"
 
-echo "[4/7] Copying native dependencies..."
+echo "[4/8] Copying native dependencies..."
 mkdir -p "$BUILD_DIR/$PACKAGE_NAME/node_modules"
 NATIVE_DEPS="better-sqlite3"
 for dep in $NATIVE_DEPS; do
@@ -46,41 +49,87 @@ for dep in $NATIVE_DEPS; do
   fi
 done
 
-if [ -d "$PROJECT_ROOT/node_modules/.package-lock.json" ]; then
-  cp "$PROJECT_ROOT/node_modules/.package-lock.json" "$BUILD_DIR/$PACKAGE_NAME/node_modules/" 2>/dev/null || true
-fi
+echo "[5/8] Downloading Node.js runtime for $TARGET_PLATFORM..."
+NODE_DIR="$BUILD_DIR/$PACKAGE_NAME/runtime"
+mkdir -p "$NODE_DIR"
 
-echo "[5/7] Creating startup scripts..."
+case "$TARGET_PLATFORM" in
+  "windows"|"win"|"win64")
+    NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-win-x64.zip"
+    NODE_ARCHIVE="$BUILD_DIR/node.zip"
+    curl -sL "$NODE_URL" -o "$NODE_ARCHIVE"
+    unzip -q "$NODE_ARCHIVE" -d "$BUILD_DIR/node-tmp"
+    mv "$BUILD_DIR/node-tmp/node-v${NODE_VERSION}-win-x64"/* "$NODE_DIR/"
+    rm -rf "$BUILD_DIR/node-tmp" "$NODE_ARCHIVE"
+    NODE_BIN="runtime/node.exe"
+    ;;
+  "linux"|"linux64")
+    NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz"
+    NODE_ARCHIVE="$BUILD_DIR/node.tar.xz"
+    curl -sL "$NODE_URL" -o "$NODE_ARCHIVE"
+    tar -xf "$NODE_ARCHIVE" -C "$BUILD_DIR/node-tmp" --strip-components=1 2>/dev/null || {
+      mkdir -p "$BUILD_DIR/node-tmp"
+      tar -xf "$NODE_ARCHIVE" -C "$BUILD_DIR/node-tmp"
+      mv "$BUILD_DIR/node-tmp/node-v${NODE_VERSION}-linux-x64"/* "$BUILD_DIR/node-tmp/" 2>/dev/null || true
+    }
+    cp "$BUILD_DIR/node-tmp/bin/node" "$NODE_DIR/node" 2>/dev/null || cp "$BUILD_DIR/node-tmp/node" "$NODE_DIR/node" 2>/dev/null || true
+    chmod +x "$NODE_DIR/node" 2>/dev/null || true
+    rm -rf "$BUILD_DIR/node-tmp" "$NODE_ARCHIVE"
+    NODE_BIN="runtime/node"
+    ;;
+  "arm"|"linux-arm64"|"rpi")
+    NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-arm64.tar.xz"
+    NODE_ARCHIVE="$BUILD_DIR/node.tar.xz"
+    curl -sL "$NODE_URL" -o "$NODE_ARCHIVE"
+    mkdir -p "$BUILD_DIR/node-tmp"
+    tar -xf "$NODE_ARCHIVE" -C "$BUILD_DIR/node-tmp" --strip-components=1
+    cp "$BUILD_DIR/node-tmp/bin/node" "$NODE_DIR/node"
+    chmod +x "$NODE_DIR/node"
+    rm -rf "$BUILD_DIR/node-tmp" "$NODE_ARCHIVE"
+    NODE_BIN="runtime/node"
+    ;;
+  *)
+    echo "WARNING: Unknown platform '$TARGET_PLATFORM'. Skipping Node.js bundling."
+    echo "The system Node.js will be used instead."
+    NODE_BIN="node"
+    ;;
+esac
 
-cat > "$BUILD_DIR/$PACKAGE_NAME/start-lfs.sh" << 'STARTUP_SH'
+echo "[6/8] Creating startup scripts..."
+
+cat > "$BUILD_DIR/$PACKAGE_NAME/start-lfs.sh" << STARTUP_SH
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DATA_DIR="$SCRIPT_DIR/data"
-LOG_DIR="$SCRIPT_DIR/logs"
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+DATA_DIR="\$SCRIPT_DIR/data"
+LOG_DIR="\$SCRIPT_DIR/logs"
 
-mkdir -p "$DATA_DIR" "$LOG_DIR"
+mkdir -p "\$DATA_DIR" "\$LOG_DIR"
 
 export DB_MODE=local
-export SQLITE_PATH="$DATA_DIR/pos-local.db"
+export SQLITE_PATH="\$DATA_DIR/pos-local.db"
 export NODE_ENV=production
-export PORT=${PORT:-3001}
-export LFS_ADMIN_PORT=${LFS_ADMIN_PORT:-3002}
+export PORT=\${PORT:-3001}
 
-if [ -f "$SCRIPT_DIR/.env" ]; then
+if [ -f "\$SCRIPT_DIR/.env" ]; then
   set -a
-  source "$SCRIPT_DIR/.env"
+  source "\$SCRIPT_DIR/.env"
   set +a
 fi
 
-echo "Starting Cloud POS Local Failover Server..."
-echo "  API Port: $PORT"
-echo "  Admin Port: $LFS_ADMIN_PORT"
-echo "  Data: $DATA_DIR"
-echo "  Logs: $LOG_DIR"
+NODE_CMD="\$SCRIPT_DIR/$NODE_BIN"
+if [ ! -x "\$NODE_CMD" ]; then
+  NODE_CMD="node"
+fi
 
-exec node "$SCRIPT_DIR/server.cjs" 2>&1 | tee -a "$LOG_DIR/lfs-$(date +%Y%m%d).log"
+echo "Starting Cloud POS Local Failover Server..."
+echo "  API Port: \$PORT"
+echo "  Admin: http://localhost:\$PORT/lfs-admin"
+echo "  Data: \$DATA_DIR"
+echo "  Logs: \$LOG_DIR"
+
+exec "\$NODE_CMD" "\$SCRIPT_DIR/server.cjs" 2>&1 | tee -a "\$LOG_DIR/lfs-\$(date +%Y%m%d).log"
 STARTUP_SH
 chmod +x "$BUILD_DIR/$PACKAGE_NAME/start-lfs.sh"
 
@@ -99,7 +148,6 @@ set DB_MODE=local
 set SQLITE_PATH=%DATA_DIR%\pos-local.db
 set NODE_ENV=production
 if not defined PORT set PORT=3001
-if not defined LFS_ADMIN_PORT set LFS_ADMIN_PORT=3002
 
 if exist "%SCRIPT_DIR%.env" (
   for /f "usebackq tokens=1,* delims==" %%a in ("%SCRIPT_DIR%.env") do (
@@ -107,16 +155,19 @@ if exist "%SCRIPT_DIR%.env" (
   )
 )
 
+set "NODE_CMD=%SCRIPT_DIR%runtime\node.exe"
+if not exist "%NODE_CMD%" set "NODE_CMD=node"
+
 echo Starting Cloud POS Local Failover Server...
 echo   API Port: %PORT%
-echo   Admin Port: %LFS_ADMIN_PORT%
+echo   Admin: http://localhost:%PORT%/lfs-admin
 echo   Data: %DATA_DIR%
 echo   Logs: %LOG_DIR%
 
-node "%SCRIPT_DIR%server.cjs"
+"%NODE_CMD%" "%SCRIPT_DIR%server.cjs"
 STARTUP_BAT
 
-echo "[6/7] Creating environment template..."
+echo "[7/8] Creating environment template..."
 cat > "$BUILD_DIR/$PACKAGE_NAME/.env.example" << 'ENV_TEMPLATE'
 # Cloud POS - Local Failover Server Configuration
 # Copy this file to .env and fill in values
@@ -126,9 +177,8 @@ LFS_CLOUD_URL=https://your-cloud-pos.example.com
 LFS_API_KEY=your-api-key-here
 LFS_PROPERTY_ID=your-property-id
 
-# Server ports
+# Server port
 PORT=3001
-LFS_ADMIN_PORT=3002
 
 # Database
 DB_MODE=local
@@ -145,19 +195,33 @@ LFS_UPDATE_CHECK_INTERVAL_MS=3600000
 LFS_LOG_LEVEL=info
 ENV_TEMPLATE
 
-echo "[7/7] Creating distribution archive..."
+echo "[8/8] Creating distribution archive..."
 cd "$BUILD_DIR"
-tar -czf "${PACKAGE_NAME}-${VERSION}.tar.gz" "$PACKAGE_NAME"
 
-ARCHIVE_SIZE=$(du -sh "${PACKAGE_NAME}-${VERSION}.tar.gz" | cut -f1)
+if [ "$TARGET_PLATFORM" = "windows" ] || [ "$TARGET_PLATFORM" = "win" ] || [ "$TARGET_PLATFORM" = "win64" ]; then
+  if command -v zip &>/dev/null; then
+    zip -rq "${PACKAGE_NAME}-${VERSION}-${TARGET_PLATFORM}.zip" "$PACKAGE_NAME"
+    ARCHIVE="${PACKAGE_NAME}-${VERSION}-${TARGET_PLATFORM}.zip"
+  else
+    tar -czf "${PACKAGE_NAME}-${VERSION}-${TARGET_PLATFORM}.tar.gz" "$PACKAGE_NAME"
+    ARCHIVE="${PACKAGE_NAME}-${VERSION}-${TARGET_PLATFORM}.tar.gz"
+  fi
+else
+  tar -czf "${PACKAGE_NAME}-${VERSION}-${TARGET_PLATFORM}.tar.gz" "$PACKAGE_NAME"
+  ARCHIVE="${PACKAGE_NAME}-${VERSION}-${TARGET_PLATFORM}.tar.gz"
+fi
+
+ARCHIVE_SIZE=$(du -sh "$ARCHIVE" | cut -f1)
 echo ""
 echo "=========================================="
 echo " Build complete!"
-echo " Output: lfs/dist/${PACKAGE_NAME}-${VERSION}.tar.gz"
+echo " Output: lfs/dist/$ARCHIVE"
 echo " Size: $ARCHIVE_SIZE"
+echo " Node.js: $NODE_VERSION (bundled)"
 echo "=========================================="
 echo ""
 echo "To deploy:"
-echo "  1. Extract: tar -xzf ${PACKAGE_NAME}-${VERSION}.tar.gz"
+echo "  1. Extract the archive on target machine"
 echo "  2. Copy .env.example to .env and configure"
 echo "  3. Run: ./start-lfs.sh (Linux/Mac) or start-lfs.bat (Windows)"
+echo "  4. Access admin at: http://localhost:3001/lfs-admin"
