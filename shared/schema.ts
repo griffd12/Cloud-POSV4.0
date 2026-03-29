@@ -369,6 +369,7 @@ export const kdsDevices = pgTable("kds_devices", {
   // Network
   wsChannel: text("ws_channel"),
   ipAddress: text("ip_address"),
+  serviceHostUrl: text("service_host_url"),
   isOnline: boolean("is_online").default(false),
   lastSeenAt: timestamp("last_seen_at"),
   active: boolean("active").default(true),

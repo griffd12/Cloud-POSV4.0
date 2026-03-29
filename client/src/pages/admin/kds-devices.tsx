@@ -134,6 +134,7 @@ export default function KdsDevicesPage() {
       fontScale: 100,
       wsChannel: "",
       ipAddress: "",
+      serviceHostUrl: "",
       active: true,
     },
   });
@@ -168,6 +169,7 @@ export default function KdsDevicesPage() {
           fontScale: editingItem.fontScale ?? 100,
           wsChannel: editingItem.wsChannel ?? "",
           ipAddress: editingItem.ipAddress ?? "",
+          serviceHostUrl: editingItem.serviceHostUrl ?? "",
           active: editingItem.active ?? true,
         });
       } else {
@@ -199,6 +201,7 @@ export default function KdsDevicesPage() {
           fontScale: 100,
           wsChannel: "",
           ipAddress: "",
+          serviceHostUrl: "",
           active: true,
         });
       }
@@ -718,6 +721,22 @@ export default function KdsDevicesPage() {
                           <FormControl>
                             <Input placeholder="e.g., 192.168.1.100" {...field} value={field.value ?? ""} data-testid="input-ipAddress" />
                           </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="serviceHostUrl"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Service Host URL</FormLabel>
+                          <FormControl>
+                            <Input placeholder="e.g., http://192.168.1.100:3001" {...field} value={field.value ?? ""} data-testid="input-serviceHostUrl" />
+                          </FormControl>
+                          <FormDescription>
+                            URL of the Local Failover Server for offline operation
+                          </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { failoverFetch } from "@/lib/queryClient";
+import { connectionManager } from "@/lib/connection-manager";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -52,6 +53,7 @@ export default function KdsDeviceSelectPage() {
 
   const handleSelectDevice = (device: KdsDeviceWithProperty) => {
     setSelectedDeviceId(device.id);
+    connectionManager.localServerUrl = device.serviceHostUrl || null;
     configureAsKds(device.id, device.name);
     navigate("/kds");
   };

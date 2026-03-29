@@ -214,6 +214,7 @@ export function WorkstationForm({
           backupVoidPrinterId: editingItem.backupVoidPrinterId || null,
           ipAddress: editingItem.ipAddress || "",
           hostname: editingItem.hostname || "",
+          serviceHostUrl: editingItem.serviceHostUrl || "",
           autoLogoutMinutes: editingItem.autoLogoutMinutes ?? null,
           active: editingItem.active ?? true,
           fontScale: editingItem.fontScale ?? 100,
@@ -253,6 +254,7 @@ export function WorkstationForm({
           backupVoidPrinterId: null,
           ipAddress: "",
           hostname: "",
+          serviceHostUrl: "",
           autoLogoutMinutes: null,
           active: true,
           fontScale: 100,
@@ -1056,6 +1058,23 @@ export function WorkstationForm({
                         <FormControl>
                           <Input placeholder="e.g., pos-terminal-1" {...field} value={field.value || ""} data-testid="input-hostname" />
                         </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="serviceHostUrl"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Service Host URL</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g., http://192.168.1.100:3001" {...field} value={field.value || ""} data-testid="input-serviceHostUrl" />
+                        </FormControl>
+                        <FormDescription>
+                          URL of the Local Failover Server for offline operation
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
