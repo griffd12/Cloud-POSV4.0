@@ -249,7 +249,7 @@ function registerLfsLocalRoutes(app: Express) {
     }
   });
 
-  app.post("/api/lfs/reconcile-saf", requireLfsLocalAuth, async (_req: Request, res: Response) => {
+  app.post("/api/lfs/reconcile-saf", async (_req: Request, res: Response) => {
     try {
       const allPayments = await storage.getAllPayments();
       const pendingPayments = allPayments.filter(p => p.paymentStatus === "pending_settlement");
