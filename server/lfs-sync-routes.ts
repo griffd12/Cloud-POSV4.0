@@ -72,6 +72,22 @@ function sortByDependency(entries: Array<Record<string, unknown>>): Array<Record
   });
 }
 
+function requireLfsLocalAuth(req: Request, res: Response, next: Function) {
+  const apiKey = process.env.LFS_API_KEY;
+  if (!apiKey) return next();
+
+  const provided = req.headers["x-lfs-admin-key"] || req.headers["x-lfs-api-key"];
+  if (provided === apiKey) return next();
+
+  const cookie = req.headers.cookie;
+  if (cookie) {
+    const match = cookie.match(/lfs_admin_session=([^;]+)/);
+    if (match && match[1] === apiKey) return next();
+  }
+
+  res.status(401).json({ error: "Unauthorized" });
+}
+
 function registerLfsLocalRoutes(app: Express) {
   if (!hasJournalMethods(storage)) {
     console.error("[LFS Sync] Storage does not support journal methods");
@@ -212,7 +228,7 @@ function registerLfsLocalRoutes(app: Express) {
     }
   });
 
-  app.post("/api/lfs/reconcile-saf", async (_req: Request, res: Response) => {
+  app.post("/api/lfs/reconcile-saf", requireLfsLocalAuth, async (_req: Request, res: Response) => {
     try {
       const allPayments = await storage.getAllPayments();
       const pendingPayments = allPayments.filter(p => p.paymentStatus === "pending_settlement");

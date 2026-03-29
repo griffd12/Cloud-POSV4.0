@@ -276,7 +276,7 @@ export function getConfigSyncService(): ConfigSyncService | null {
   return syncService;
 }
 
-export function restartConfigSync(): void {
+export async function restartConfigSync(): Promise<void> {
   if (syncService) {
     syncService.stop();
     syncService = null;
@@ -305,6 +305,9 @@ export function restartConfigSync(): void {
     propertyId,
     intervalMs,
   });
+
+  await syncService.runInitialSync();
+  syncService.start();
 
   log("Config sync restarted with updated settings", "lfs-sync");
 }

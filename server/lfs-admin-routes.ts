@@ -110,10 +110,12 @@ export function registerLfsAdminRoutes(app: Express) {
         try {
           const { restartConfigSync } = await import("./config-sync");
           if (typeof restartConfigSync === "function") {
-            restartConfigSync();
+            await restartConfigSync();
             captureLog("[admin] Config sync service reloaded with new settings");
           }
-        } catch {}
+        } catch (syncErr) {
+          captureLog(`[admin] Config sync restart failed: ${syncErr instanceof Error ? syncErr.message : "unknown"}`);
+        }
       }
 
       res.json({ ok: true, requiresRestart: false });

@@ -40,14 +40,41 @@ npx vite build --outDir "$BUILD_DIR/$PACKAGE_NAME/client"
 echo "[3/8] Copying LFS admin dashboard..."
 cp -r "$PROJECT_ROOT/lfs/admin" "$BUILD_DIR/$PACKAGE_NAME/lfs-admin"
 
-echo "[4/8] Copying native dependencies..."
+echo "[4/8] Copying runtime dependencies..."
 mkdir -p "$BUILD_DIR/$PACKAGE_NAME/node_modules"
-NATIVE_DEPS="better-sqlite3"
-for dep in $NATIVE_DEPS; do
-  if [ -d "$PROJECT_ROOT/node_modules/$dep" ]; then
-    cp -r "$PROJECT_ROOT/node_modules/$dep" "$BUILD_DIR/$PACKAGE_NAME/node_modules/"
+
+copy_dep_tree() {
+  local dep="$1"
+  local src="$PROJECT_ROOT/node_modules/$dep"
+  local dest="$BUILD_DIR/$PACKAGE_NAME/node_modules/$dep"
+  if [ -d "$src" ] && [ ! -d "$dest" ]; then
+    cp -r "$src" "$dest"
+    if [ -f "$src/package.json" ]; then
+      local subdeps=$(node -e "
+        try {
+          const pkg = require('$src/package.json');
+          const deps = Object.keys(pkg.dependencies || {});
+          console.log(deps.join(' '));
+        } catch { }
+      " 2>/dev/null)
+      for subdep in $subdeps; do
+        copy_dep_tree "$subdep"
+      done
+    fi
   fi
+}
+
+RUNTIME_DEPS="better-sqlite3 bindings file-uri-to-path prebuild-install node-abi napi-build-utils"
+for dep in $RUNTIME_DEPS; do
+  copy_dep_tree "$dep"
 done
+
+echo "  Bundled $(ls -1 "$BUILD_DIR/$PACKAGE_NAME/node_modules" | wc -l) runtime packages"
+
+if [ "$TARGET_PLATFORM" = "windows" ] || [ "$TARGET_PLATFORM" = "win" ] || [ "$TARGET_PLATFORM" = "win64" ]; then
+  echo "  NOTE: Native modules bundled from build host — for cross-platform builds,"
+  echo "  run 'npm rebuild better-sqlite3' on the target platform after extraction."
+fi
 
 echo "[5/8] Downloading Node.js runtime for $TARGET_PLATFORM..."
 NODE_DIR="$BUILD_DIR/$PACKAGE_NAME/runtime"
