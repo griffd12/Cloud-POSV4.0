@@ -10,6 +10,11 @@ import { getConfigSyncService } from "./config-sync";
 
 const isLocalMode = process.env.DB_MODE === "local";
 
+interface LfsAuthenticatedRequest extends Request {
+  lfsPropertyId?: string;
+  lfsConfigId?: string;
+}
+
 async function requireLfsApiKey(req: Request, res: Response, next: NextFunction) {
   if (isLocalMode) {
     return next();
@@ -17,6 +22,7 @@ async function requireLfsApiKey(req: Request, res: Response, next: NextFunction)
 
   const provided = req.headers["x-lfs-api-key"] as string | undefined
     || (req.headers["authorization"] as string | undefined)?.replace("Bearer ", "");
+  const propertyIdHeader = req.headers["x-lfs-property-id"] as string | undefined;
 
   if (!provided) {
     return res.status(403).json({ error: "Invalid or missing LFS API key" });
@@ -24,14 +30,20 @@ async function requireLfsApiKey(req: Request, res: Response, next: NextFunction)
 
   const envKey = process.env.LFS_API_KEY;
   if (envKey && provided === envKey) {
+    if (propertyIdHeader) {
+      (req as LfsAuthenticatedRequest).lfsPropertyId = propertyIdHeader;
+    }
     return next();
   }
 
   const hashedProvided = crypto.createHash("sha256").update(provided).digest("hex");
   const dbConfig = await storage.getLfsConfigurationByApiKey(hashedProvided);
   if (dbConfig) {
-    (req as any).lfsPropertyId = dbConfig.propertyId;
-    (req as any).lfsConfigId = dbConfig.id;
+    (req as LfsAuthenticatedRequest).lfsPropertyId = dbConfig.propertyId;
+    (req as LfsAuthenticatedRequest).lfsConfigId = dbConfig.id;
+    if (propertyIdHeader && propertyIdHeader !== dbConfig.propertyId) {
+      return res.status(403).json({ error: "API key does not match the specified property" });
+    }
     return next();
   }
 
@@ -39,7 +51,8 @@ async function requireLfsApiKey(req: Request, res: Response, next: NextFunction)
 }
 
 function enforceLfsPropertyScope(req: Request, res: Response): string | null {
-  const lfsPropertyId = (req as any).lfsPropertyId as string | undefined;
+  const lfsReq = req as LfsAuthenticatedRequest;
+  const lfsPropertyId = lfsReq.lfsPropertyId;
   const queryPropertyId = req.query.propertyId as string || req.body?.propertyId as string;
   if (lfsPropertyId && queryPropertyId && queryPropertyId !== lfsPropertyId) {
     res.status(403).json({ error: "API key is not authorized for this property" });
@@ -549,7 +562,7 @@ const ALLOWED_CONFIG_TABLES = new Set([
 
 async function recordLfsSyncActivity(req: Request, syncType: string, direction: string, recordCount: number, status: string, errorMessage?: string) {
   try {
-    const propertyId = (req as any).lfsPropertyId || req.query.propertyId as string || req.body?.propertyId;
+    const propertyId = (req as LfsAuthenticatedRequest).lfsPropertyId || req.query.propertyId as string || req.body?.propertyId;
     if (!propertyId) return;
 
     const lfsIp = req.headers["x-forwarded-for"] as string || req.socket.remoteAddress || "";
@@ -587,7 +600,7 @@ function registerLfsCloudRoutes(app: Express) {
         return res.status(400).json({ error: `Table '${tableName}' is not allowed for config sync` });
       }
       const propertyId = enforceLfsPropertyScope(req, res);
-      if (propertyId === null && (req as any).lfsPropertyId) return;
+      if (propertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
       const since = req.query.since as string | undefined;
 
       const colsResult = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name = ${tableName}`);
@@ -626,7 +639,7 @@ function registerLfsCloudRoutes(app: Express) {
   app.post("/api/lfs/sync/transaction-up", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
       const scopedPropertyId = enforceLfsPropertyScope(req, res);
-      if (scopedPropertyId === null && (req as any).lfsPropertyId) return;
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
 
       const entry = req.body;
       if (!entry || !(entry.entity_type || entry.entityType) || !entry.payload) {
@@ -666,7 +679,7 @@ function registerLfsCloudRoutes(app: Express) {
   app.post("/api/lfs/sync/batch-up", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
       const scopedPropertyId = enforceLfsPropertyScope(req, res);
-      if (scopedPropertyId === null && (req as any).lfsPropertyId) return;
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
 
       const { entries } = req.body;
       if (!Array.isArray(entries)) {
@@ -741,7 +754,7 @@ function registerLfsCloudRoutes(app: Express) {
   app.get("/api/lfs/sync/pending-settlements", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
       const scopedPropertyId = enforceLfsPropertyScope(req, res);
-      if (scopedPropertyId === null && (req as any).lfsPropertyId) return;
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
       const propertyId = scopedPropertyId;
       let pendingPayments;
       if (propertyId) {
@@ -905,7 +918,7 @@ function registerLfsCloudRoutes(app: Express) {
   app.get("/api/lfs/sync/failed-settlements", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
       const scopedPropertyId = enforceLfsPropertyScope(req, res);
-      if (scopedPropertyId === null && (req as any).lfsPropertyId) return;
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
       const propertyId = scopedPropertyId;
       let failedPayments;
       if (propertyId) {
@@ -936,7 +949,7 @@ function registerLfsCloudRoutes(app: Express) {
   app.post("/api/lfs/sync/reconcile-saf-batch", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
       const scopedPropertyId = enforceLfsPropertyScope(req, res);
-      if (scopedPropertyId === null && (req as any).lfsPropertyId) return;
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
       const { settlements } = req.body;
       const propertyId = scopedPropertyId || req.body.propertyId;
 

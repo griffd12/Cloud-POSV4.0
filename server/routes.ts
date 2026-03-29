@@ -22830,41 +22830,44 @@ connect();
   // LFS CONFIGURATION MANAGEMENT (EMC → per-property API keys + status)
   // ============================================================================
 
-  async function requireEmcSession(req: Request, res: Response, next: Function) {
-    const sessionToken = req.headers["x-emc-session"] as string;
-    if (!sessionToken) {
-      return res.status(401).json({ message: "EMC session required" });
-    }
-    const sessionTokenHash = crypto.createHash("sha256").update(sessionToken).digest("hex");
-    const session = await storage.getEmcSessionByToken(sessionTokenHash);
-    if (!session) {
-      return res.status(401).json({ message: "Invalid or expired session" });
-    }
-    const user = await storage.getEmcUser(session.userId);
-    if (!user || !user.active) {
-      return res.status(401).json({ message: "User account is disabled" });
-    }
+  async function requireEmcLfsSession(req: Request, res: Response, next: () => void) {
+    try {
+      const sessionToken = req.headers["x-emc-session"] as string;
+      if (!sessionToken) {
+        return res.status(401).json({ message: "EMC session required" });
+      }
+      const sessionTokenHash = crypto.createHash("sha256").update(sessionToken).digest("hex");
+      const session = await storage.getEmcSessionByToken(sessionTokenHash);
+      if (!session) {
+        return res.status(401).json({ message: "Invalid or expired session" });
+      }
+      const user = await storage.getEmcUser(session.userId);
+      if (!user || !user.active) {
+        return res.status(401).json({ message: "User account is disabled" });
+      }
 
-    const { propertyId } = req.params;
-    if (propertyId) {
-      const property = await storage.getProperty(propertyId);
-      if (!property) {
-        return res.status(404).json({ message: "Property not found" });
-      }
-      if (!isSystemLevel(user.accessLevel)) {
-        if (user.enterpriseId && property.enterpriseId !== user.enterpriseId) {
-          return res.status(403).json({ message: "Access denied to this property" });
+      const { propertyId } = req.params;
+      if (propertyId) {
+        const property = await storage.getProperty(propertyId);
+        if (!property) {
+          return res.status(404).json({ message: "Property not found" });
         }
-        if (user.accessLevel === "property_admin" && user.propertyId !== propertyId) {
-          return res.status(403).json({ message: "Access denied to this property" });
+        if (!isSystemLevel(user.accessLevel)) {
+          if (user.enterpriseId && property.enterpriseId !== user.enterpriseId) {
+            return res.status(403).json({ message: "Access denied to this property" });
+          }
+          if (user.accessLevel === "property_admin" && user.propertyId !== propertyId) {
+            return res.status(403).json({ message: "Access denied to this property" });
+          }
         }
       }
+      next();
+    } catch (error) {
+      res.status(500).json({ message: "Authentication error" });
     }
-    (req as any).emcUser = user;
-    next();
   }
 
-  app.get("/api/emc/lfs-config/:propertyId", requireEmcSession as any, async (req: Request, res: Response) => {
+  app.get("/api/emc/lfs-config/:propertyId", requireEmcLfsSession, async (req: Request, res: Response) => {
     try {
       const config = await storage.getLfsConfiguration(req.params.propertyId);
       if (!config) {
@@ -22877,7 +22880,7 @@ connect();
     }
   });
 
-  app.post("/api/emc/lfs-config/:propertyId/generate-key", requireEmcSession as any, async (req: Request, res: Response) => {
+  app.post("/api/emc/lfs-config/:propertyId/generate-key", requireEmcLfsSession, async (req: Request, res: Response) => {
     try {
       const { propertyId } = req.params;
 
@@ -22907,17 +22910,76 @@ connect();
     }
   });
 
-  app.post("/api/emc/lfs-config/:propertyId/revoke-key", requireEmcSession as any, async (req: Request, res: Response) => {
+  app.post("/api/emc/lfs-config/:propertyId/rotate-key", requireEmcLfsSession, async (req: Request, res: Response) => {
     try {
-      const deleted = await storage.deleteLfsConfiguration(req.params.propertyId);
-      res.json({ deleted });
-    } catch (error: any) {
-      console.error("Error revoking LFS API key:", error);
-      res.status(500).json({ message: error.message || "Failed to revoke API key" });
+      const { propertyId } = req.params;
+      const existing = await storage.getLfsConfiguration(propertyId);
+      if (!existing) {
+        return res.status(404).json({ message: "No LFS configuration found for this property" });
+      }
+
+      const rawKey = `lfs_${crypto.randomBytes(32).toString("hex")}`;
+      const masked = rawKey.substring(0, 8) + "..." + rawKey.substring(rawKey.length - 4);
+      const hashedKey = crypto.createHash("sha256").update(rawKey).digest("hex");
+
+      const config = await storage.updateLfsConfiguration(propertyId, {
+        apiKey: hashedKey,
+        apiKeyMasked: masked,
+      });
+
+      res.json({ config: { ...config, apiKey: masked }, rawKey });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to rotate API key";
+      console.error("Error rotating LFS API key:", msg);
+      res.status(500).json({ message: msg });
     }
   });
 
-  app.get("/api/emc/lfs-sync-logs/:propertyId", requireEmcSession as any, async (req: Request, res: Response) => {
+  app.put("/api/emc/lfs-config/:propertyId", requireEmcLfsSession, async (req: Request, res: Response) => {
+    try {
+      const { propertyId } = req.params;
+      const existing = await storage.getLfsConfiguration(propertyId);
+      if (!existing) {
+        return res.status(404).json({ message: "No LFS configuration found for this property" });
+      }
+
+      const { syncStatus, lfsVersion } = req.body;
+      const updateData: Record<string, unknown> = {};
+      if (syncStatus !== undefined) updateData.syncStatus = syncStatus;
+      if (lfsVersion !== undefined) updateData.lfsVersion = lfsVersion;
+
+      const config = await storage.updateLfsConfiguration(propertyId, updateData);
+      res.json(config ? { ...config, apiKey: config.apiKeyMasked } : null);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to update LFS config";
+      console.error("Error updating LFS config:", msg);
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  app.delete("/api/emc/lfs-config/:propertyId", requireEmcLfsSession, async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deleteLfsConfiguration(req.params.propertyId);
+      res.json({ deleted });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to delete LFS config";
+      console.error("Error deleting LFS config:", msg);
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  app.post("/api/emc/lfs-config/:propertyId/revoke-key", requireEmcLfsSession, async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deleteLfsConfiguration(req.params.propertyId);
+      res.json({ deleted });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to revoke API key";
+      console.error("Error revoking LFS API key:", msg);
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  app.get("/api/emc/lfs-sync-logs/:propertyId", requireEmcLfsSession, async (req: Request, res: Response) => {
     try {
       const limit = parseInt(req.query.limit as string) || 50;
       const logs = await storage.getLfsSyncLogs(req.params.propertyId, limit);

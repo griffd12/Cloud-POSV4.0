@@ -15,10 +15,10 @@ export default function LfsManagementPage() {
   const { toast } = useToast();
   const [newRawKey, setNewRawKey] = useState<string | null>(null);
 
-  const { data: properties } = useQuery({
+  const { data: properties } = useQuery<Array<{ id: string; name: string }>>({
     queryKey: ["/api/properties"],
   });
-  const selectedProperty = (properties as any[])?.find((p: any) => p.id === selectedPropertyId);
+  const selectedProperty = properties?.find((p) => p.id === selectedPropertyId);
 
   const { data: lfsConfig, isLoading: configLoading } = useQuery({
     queryKey: ["/api/emc/lfs-config", selectedPropertyId],
@@ -39,8 +39,20 @@ export default function LfsManagementPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/emc/lfs-config", selectedPropertyId] });
       toast({ title: "API Key Generated", description: "Copy the key now — it will not be shown again." });
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast({ title: "Error", description: error.message || "Failed to generate key", variant: "destructive" });
+    },
+  });
+
+  const rotateKeyMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/emc/lfs-config/${selectedPropertyId}/rotate-key`).then(r => r.json()),
+    onSuccess: (data: { rawKey: string }) => {
+      setNewRawKey(data.rawKey);
+      queryClient.invalidateQueries({ queryKey: ["/api/emc/lfs-config", selectedPropertyId] });
+      toast({ title: "API Key Rotated", description: "Copy the new key now — it will not be shown again." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to rotate key", variant: "destructive" });
     },
   });
 
@@ -51,7 +63,7 @@ export default function LfsManagementPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/emc/lfs-config", selectedPropertyId] });
       toast({ title: "API Key Revoked", description: "The LFS for this property will no longer be able to sync." });
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast({ title: "Error", description: error.message || "Failed to revoke key", variant: "destructive" });
     },
   });
@@ -205,6 +217,12 @@ export default function LfsManagementPage() {
               <p className="text-sm text-muted-foreground">Last Updated</p>
               <p className="text-sm font-medium" data-testid="text-config-updated">{formatTimestamp(lfsConfig?.updatedAt)}</p>
             </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Sync Interval</p>
+              <p className="text-sm font-medium" data-testid="text-config-sync-interval">
+                {lfsConfig ? "30 seconds (automatic)" : "—"}
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -250,11 +268,11 @@ export default function LfsManagementPage() {
               <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  onClick={() => generateKeyMutation.mutate()}
-                  disabled={generateKeyMutation.isPending}
+                  onClick={() => rotateKeyMutation.mutate()}
+                  disabled={rotateKeyMutation.isPending}
                   data-testid="button-rotate-key"
                 >
-                  {generateKeyMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                  {rotateKeyMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
                   Rotate Key
                 </Button>
 
