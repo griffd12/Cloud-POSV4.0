@@ -9,7 +9,7 @@ import fs from "fs";
 import path from "path";
 import archiver from "archiver";
 import { storage } from "./storage";
-import { db } from "./db";
+import { db, isLocalMode } from "./db";
 import { eq, ne, sql, inArray, and, desc } from "drizzle-orm";
 import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkPayments, checkServiceCharges, privileges, rolePrivileges, printClassRouting as printClassRoutingTable, workstationOrderDevices, posLayoutCells, posLayoutRvcAssignments, menuItemSlus, terminalDevices, printAgents, descriptorSets, descriptorLogoAssets, paymentGatewayConfig, employeeJobCodes, tipRuleJobPercentages, overtimeRules, breakRules, minorLaborRules, fiscalPeriods, cashDrawers, itemAvailability, emcOptionFlags, giftCards, loyaltyRewards, majorGroups, familyGroups, loyaltyMemberEnrollments, tenders } from "@shared/schema";
 import { uberEatsIntegration } from "./integrations/uber-eats";
@@ -1075,7 +1075,7 @@ async function finalizePreviewTicket(
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   registerReportingRoutes(app, storage);
 
-  if (db) {
+  if (db && !isLocalMode) {
     try {
       await db.execute(sql`ALTER TABLE emc_users ADD COLUMN IF NOT EXISTS employee_id VARCHAR REFERENCES employees(id)`);
     } catch (e) {
