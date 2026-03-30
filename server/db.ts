@@ -1,4 +1,5 @@
 import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3";
 import pg from "pg";
 import { createRequire } from "node:module";
 import path from "path";
@@ -25,8 +26,7 @@ if (isLocalMode) {
   _sqliteDb.pragma("foreign_keys = ON");
   _sqliteDb.pragma("busy_timeout = 5000");
 
-  const drizzleSqliteModule = _require("drizzle-orm/better-sqlite3");
-  _sqliteDrizzle = drizzleSqliteModule.drizzle(_sqliteDb);
+  _sqliteDrizzle = drizzleSqlite(_sqliteDb);
 }
 
 if (!isLocalMode && !process.env.DATABASE_URL) {
