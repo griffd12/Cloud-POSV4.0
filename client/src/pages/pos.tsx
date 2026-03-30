@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePosWebSocket } from "@/hooks/use-pos-websocket";
 import { formatDateTimeInTimezone } from "@/lib/timezone";
+import { generateUUID } from "@/lib/utils";
 import { useInactivityLogout } from "@/hooks/use-inactivity-logout";
 import { useWorkstationHeartbeat } from "@/hooks/use-workstation-heartbeat";
 import { useDeviceHeartbeat } from "@/hooks/use-device-heartbeat";
@@ -604,7 +605,7 @@ export default function PosPage() {
         rvcId: currentRvc?.id,
         employeeId: currentEmployee?.id,
         orderType,
-      }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
+      }, wsHeaders({ "Idempotency-Key": generateUUID() }));
       return response.json();
     },
     onSuccess: (check: Check) => {
@@ -657,7 +658,7 @@ export default function PosPage() {
       if (currentRvc?.domSendMode === "fire_on_fly" && currentCheck?.id) {
         apiRequest("POST", "/api/checks/" + currentCheck.id + "/send", {
           employeeId: currentEmployee?.id,
-        }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() })).then(() => {
+        }, wsHeaders({ "Idempotency-Key": generateUUID() })).then(() => {
           queryClient.invalidateQueries({ queryKey: ["/api/kds-tickets"] });
         }).catch((err: any) => {
           console.warn("[POS] fire_on_fly auto-send failed:", err?.message);
@@ -683,7 +684,7 @@ export default function PosPage() {
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/checks/" + currentCheck?.id + "/send", {
         employeeId: currentEmployee?.id,
-      }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
+      }, wsHeaders({ "Idempotency-Key": generateUUID() }));
       return response.json();
     },
     onSuccess: (data: { round: any; updatedItems: CheckItem[] }) => {
@@ -928,7 +929,7 @@ export default function PosPage() {
         employeeId: currentEmployee?.id,
         paymentTransactionId: data.paymentTransactionId,
         ...(data.storeAndForward ? { storeAndForward: true } : {}),
-      }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
+      }, wsHeaders({ "Idempotency-Key": generateUUID() }));
       const result = await response.json();
       return { ...result, isCashOverTender: data.isCashOverTender, tenderedAmount: data.amount, appliedTenderId: data.tenderId };
     },
@@ -1255,7 +1256,7 @@ export default function PosPage() {
       if (unsentItems.length > 0) {
         await apiRequest("POST", `/api/checks/${checkId}/send`, {
           employeeId: currentEmployee?.id,
-        }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
+        }, wsHeaders({ "Idempotency-Key": generateUUID() }));
       }
 
       const response = await apiRequest("POST", `/api/checks/${checkId}/print`, {
@@ -2669,7 +2670,7 @@ export default function PosPage() {
                 rvcId: currentRvc?.id,
                 employeeId: currentEmployee?.id,
                 orderType: "dine_in",
-              }, wsHeaders({ "Idempotency-Key": crypto.randomUUID() }));
+              }, wsHeaders({ "Idempotency-Key": generateUUID() }));
               const newCheck = await newCheckRes.json();
               checkToUse = newCheck;
               setCurrentCheck(newCheck);

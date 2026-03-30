@@ -70,12 +70,9 @@ function buildCookieHeader(token: string): string {
     `lfs_admin_session=${token}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Strict",
+    "SameSite=Lax",
     "Max-Age=86400",
   ];
-  if (process.env.NODE_ENV === "production") {
-    parts.push("Secure");
-  }
   return parts.join("; ");
 }
 
@@ -694,10 +691,14 @@ export function startLfsAdminServer(_mainApp: Express) {
   adminApp.use(express.json());
 
   adminApp.use((_req, res, next) => {
-    res.setHeader("Access-Control-Allow-Origin", `http://localhost:${adminPort}`);
+    const origin = _req.headers.origin || "";
+    const isLocal = !origin || /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/i.test(origin);
+    const allowedOrigin = isLocal ? (origin || `http://localhost:${adminPort}`) : `http://localhost:${adminPort}`;
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-lfs-admin-key");
     res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Vary", "Origin");
     if (_req.method === "OPTIONS") return res.sendStatus(204);
     next();
   });

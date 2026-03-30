@@ -5,6 +5,7 @@ import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { Activity, Play, Square, Trash2, X, Zap, Timer, CheckCircle2, XCircle, TrendingUp } from "lucide-react";
 import { apiRequest, getAuthHeaders, fetchWithTimeout, queryClient } from "@/lib/queryClient";
+import { generateUUID } from "@/lib/utils";
 import type { Check, CheckItem, MenuItem, Tender } from "@shared/schema";
 
 interface StressTestOverlayProps {
@@ -142,7 +143,7 @@ export function StressTestOverlay({
         employeeId,
         orderType: "dine_in",
         testMode: true,
-      }, { "Idempotency-Key": crypto.randomUUID() });
+      }, { "Idempotency-Key": generateUUID() });
       const check = await createRes.json();
       checkId = check.id;
       checkNumber = check.checkNumber;
@@ -187,7 +188,7 @@ export function StressTestOverlay({
 
       await apiRequest("POST", `/api/checks/${checkId}/send`, {
         employeeId,
-      }, { "Idempotency-Key": crypto.randomUUID() });
+      }, { "Idempotency-Key": generateUUID() });
 
       const checkRes = await fetchWithTimeout(`/api/checks/${checkId}`, {
         credentials: "include",
@@ -210,7 +211,7 @@ export function StressTestOverlay({
         tenderId: selectedTenderId,
         amount: total.toFixed(2),
         employeeId,
-      }, { "Idempotency-Key": crypto.randomUUID() });
+      }, { "Idempotency-Key": generateUUID() });
 
       setPhase("complete");
       triggerFlash("rgba(34, 197, 94, 0.4)");
