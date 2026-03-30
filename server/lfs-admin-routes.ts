@@ -243,37 +243,37 @@ export function registerLfsAdminRoutes(app: Express) {
       res.status(400).json({ error: "cloudUrl and propertyId are required" });
       return;
     }
+    if (!sessionToken) {
+      res.status(400).json({ error: "sessionToken is required. Please re-authenticate with the cloud." });
+      return;
+    }
     try {
-      let apiKey: string;
-
-      if (sessionToken) {
-        const keyRes = await fetch(`${cloudUrl}/api/emc/lfs-config/${propertyId}/generate-key`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-emc-session": sessionToken,
-          },
-          signal: AbortSignal.timeout(10000),
-        });
-        if (!keyRes.ok) {
-          const errData = await keyRes.json().catch(() => ({}));
-          const errMsg = (errData as { message?: string }).message || `Cloud returned ${keyRes.status}`;
-          captureLog(`[admin] Failed to register API key with cloud: ${errMsg}`);
+      const keyRes = await fetch(`${cloudUrl}/api/emc/lfs-config/${propertyId}/generate-key`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-emc-session": sessionToken,
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!keyRes.ok) {
+        const errData = await keyRes.json().catch(() => ({}));
+        const errMsg = (errData as { message?: string }).message || `Cloud returned ${keyRes.status}`;
+        captureLog(`[admin] Failed to register API key with cloud: ${errMsg}`);
+        if (keyRes.status === 401) {
+          res.status(401).json({ error: "Session expired. Please go back and re-authenticate." });
+        } else {
           res.status(500).json({ error: `Failed to register API key with cloud: ${errMsg}` });
-          return;
         }
-        const keyData = await keyRes.json() as { rawKey?: string };
-        if (!keyData.rawKey) {
-          res.status(500).json({ error: "Cloud did not return an API key" });
-          return;
-        }
-        apiKey = keyData.rawKey;
-        captureLog(`[admin] API key registered with cloud for property ${propertyId}`);
-      } else {
-        const crypto = require("crypto");
-        apiKey = "lfs_" + crypto.randomBytes(24).toString("base64url");
-        captureLog(`[admin] WARNING: No session token provided, API key generated locally only (sync may fail)`);
+        return;
       }
+      const keyData = await keyRes.json() as { rawKey?: string };
+      if (!keyData.rawKey) {
+        res.status(500).json({ error: "Cloud did not return an API key" });
+        return;
+      }
+      const apiKey = keyData.rawKey;
+      captureLog(`[admin] API key registered with cloud for property ${propertyId}`);
 
       const envPath = path.join(LFS_BASE_DIR, ".env");
       let envContent = "";
