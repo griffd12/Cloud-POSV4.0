@@ -5,6 +5,8 @@ import { getConfigSyncService } from "./config-sync";
 import path from "path";
 import fs from "fs";
 
+const LFS_BASE_DIR = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
+
 function getLfsVersion(): string {
   try {
     const pkgPath = require.resolve("../package.json");
