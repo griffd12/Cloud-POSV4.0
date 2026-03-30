@@ -398,20 +398,39 @@ export function registerLfsAdminRoutes(app: Express) {
             const userEnterpriseId = data.user?.enterpriseId || "";
             const userPropertyId = data.user?.propertyId || "";
 
+            if (!lfsPropertyId) {
+              res.status(403).json({ error: "LFS property not configured. Cannot verify scope." });
+              return;
+            }
+
             if (level === "enterprise_admin") {
+              if (!userEnterpriseId) {
+                res.status(403).json({ error: "Your account has no enterprise assignment." });
+                return;
+              }
               let lfsEnterpriseId = "";
               try {
                 const { storage } = await import("./storage");
                 const props = await storage.getProperties();
                 const lfsProp = props.find((p: { id: string }) => p.id === lfsPropertyId);
                 lfsEnterpriseId = (lfsProp as { enterpriseId?: string })?.enterpriseId || "";
-              } catch {}
-              if (lfsEnterpriseId && userEnterpriseId && userEnterpriseId !== lfsEnterpriseId) {
+              } catch (lookupErr: unknown) {
+                captureLog(`[admin] Enterprise lookup failed: ${lookupErr instanceof Error ? lookupErr.message : "unknown"}`);
+              }
+              if (!lfsEnterpriseId) {
+                res.status(403).json({ error: "Cannot verify enterprise scope. Data not yet synced." });
+                return;
+              }
+              if (userEnterpriseId !== lfsEnterpriseId) {
                 res.status(403).json({ error: "Your enterprise does not match this LFS property." });
                 return;
               }
             } else {
-              if (lfsPropertyId && userPropertyId && userPropertyId !== lfsPropertyId) {
+              if (!userPropertyId) {
+                res.status(403).json({ error: "Your account has no property assignment." });
+                return;
+              }
+              if (userPropertyId !== lfsPropertyId) {
                 res.status(403).json({ error: "Your property assignment does not match this LFS." });
                 return;
               }
