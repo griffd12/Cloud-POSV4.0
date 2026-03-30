@@ -152,9 +152,26 @@ export default function LfsFirstRunPage() {
         if (data.apiKey) setGeneratedApiKey(data.apiKey);
         setStep("complete");
         setServerConfig(resolvedBaseUrl, enterprise.code, enterprise.id);
-        setTimeout(() => {
+
+        const pollSync = async () => {
+          for (let i = 0; i < 60; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+              const syncRes = await fetch("/api/lfs/admin/setup-status");
+              const syncData = await syncRes.json();
+              if (syncData.configured) {
+                const wsRes = await fetch("/api/workstations");
+                const wsList = await wsRes.json();
+                if (Array.isArray(wsList) && wsList.length > 0) {
+                  window.location.href = "/";
+                  return;
+                }
+              }
+            } catch {}
+          }
           window.location.href = "/";
-        }, 3000);
+        };
+        pollSync();
       } else {
         setError(data.error || "Failed to save configuration");
       }
@@ -322,7 +339,7 @@ export default function LfsFirstRunPage() {
               <div>
                 <h3 className="text-lg font-semibold">Setup Complete</h3>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Configuration saved. The LFS will now sync data from the cloud and redirect you to the POS login.
+                  Configuration saved. Syncing workstations, employees, and menu data from the cloud...
                 </p>
               </div>
               {generatedApiKey && (
@@ -333,7 +350,7 @@ export default function LfsFirstRunPage() {
               )}
               <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Redirecting...
+                Syncing data from cloud — this may take a moment...
               </div>
             </div>
           )}

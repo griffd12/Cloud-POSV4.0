@@ -1,11 +1,22 @@
 import type { Express, Request, Response } from "express";
 import express from "express";
 import { isLocalMode } from "./db";
-import { getConfigSyncService } from "./config-sync";
+import { getConfigSyncService, restartConfigSync } from "./config-sync";
 import path from "path";
 import fs from "fs";
 
-const LFS_BASE_DIR = typeof __dirname !== 'undefined' ? path.resolve(__dirname, '..') : process.cwd();
+function resolveLfsBaseDir(): string {
+  if (typeof __dirname === 'undefined') return process.cwd();
+  if (fs.existsSync(path.join(__dirname, "lfs-admin")) || fs.existsSync(path.join(__dirname, ".env"))) {
+    return __dirname;
+  }
+  const parent = path.resolve(__dirname, "..");
+  if (fs.existsSync(path.join(parent, "lfs-admin")) || fs.existsSync(path.join(parent, ".env"))) {
+    return parent;
+  }
+  return process.cwd();
+}
+const LFS_BASE_DIR = resolveLfsBaseDir();
 
 function getLfsVersion(): string {
   try {
@@ -248,7 +259,14 @@ export function registerLfsAdminRoutes(app: Express) {
       fs.writeFileSync(envPath, envContent.trim() + "\n", "utf8");
       captureLog(`[admin] First-run setup completed: ${cloudUrl} / property ${propertyId}`);
 
-      res.json({ ok: true, apiKey, message: "Configuration saved. Please restart the LFS." });
+      res.json({ ok: true, apiKey, message: "Configuration saved. Syncing data from cloud..." });
+
+      restartConfigSync().then(() => {
+        captureLog(`[admin] Initial config sync completed after first-run setup`);
+      }).catch((err: unknown) => {
+        const syncErr = err instanceof Error ? err.message : "Unknown sync error";
+        captureLog(`[admin] Config sync failed after first-run: ${syncErr}`);
+      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });
