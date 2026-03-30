@@ -110,9 +110,11 @@ export default function LfsFirstRunPage() {
       });
       const data = await res.json();
       if (data.ok) {
-        if (data.user?.sessionToken) {
-          setSessionToken(data.user.sessionToken);
+        if (!data.user?.sessionToken) {
+          setError("Authentication succeeded but no session token was returned. Please try again.");
+          return;
         }
+        setSessionToken(data.user.sessionToken);
         const propRes = await fetch("/api/lfs/first-run/properties", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
