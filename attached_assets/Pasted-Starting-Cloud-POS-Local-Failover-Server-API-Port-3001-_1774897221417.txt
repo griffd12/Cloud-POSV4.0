@@ -1,0 +1,37 @@
+Starting Cloud POS Local Failover Server...
+  API Port: 3001
+  Admin: http://localhost:3002
+  Data: C:\CloudPOS-LFS\data
+  Logs: C:\CloudPOS-LFS\logs
+[LFS] SQLite schema initialized with 141 tables
+[LFS] Using SQLite storage (local mode)
+11:59:18 AM [lfs] Starting in LOCAL FAILOVER SERVER mode (SQLite)
+Migration error (non-fatal): SqliteError: near "EXISTS": syntax error
+    at Database.prepare (C:\CloudPOS-LFS\node_modules\better-sqlite3\lib\methods\wrappers.js:5:21)
+    at RSe.prepareQuery (C:\CloudPOS-LFS\server.cjs:98:22229)
+    at RSe.prepareOneTimeQuery (C:\CloudPOS-LFS\server.cjs:98:19755)
+    at RSe.all (C:\CloudPOS-LFS\server.cjs:98:20022)
+    at IKe.all (C:\CloudPOS-LFS\server.cjs:98:17168)
+    at Proxy.<anonymous> (C:\CloudPOS-LFS\server.cjs:98:220142)
+    at zBi (C:\CloudPOS-LFS\server.cjs:944:28526)
+    at C:\CloudPOS-LFS\server.cjs:1046:87406
+    at C:\CloudPOS-LFS\server.cjs:1046:87876
+    at C:\CloudPOS-LFS\server.cjs:1:232
+    at Object.<anonymous> (C:\CloudPOS-LFS\server.cjs:1046:87881)
+    at Module._compile (node:internal/modules/cjs/loader:1376:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)
+    at Module.load (node:internal/modules/cjs/loader:1207:32)
+    at Module._load (node:internal/modules/cjs/loader:1023:12)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:135:12) {
+  code: 'SQLITE_ERROR'
+}
+[delivery-platform] Delivery platform routes registered
+[static] Serving frontend from C:\CloudPOS-LFS\public (2 assets, LFS mode)
+11:59:18 AM [lfs-sync] Running blocking initial config sync from https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/...
+11:59:25 AM [lfs-sync] Config sync completed (#1)
+11:59:25 AM [lfs-sync] Initial config sync completed successfully
+11:59:25 AM [lfs-sync] Config sync starting (interval: 60000ms, cloud: https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/)
+11:59:25 AM [express] serving on port 3001
+11:59:25 AM [lfs] Local Failover Server ready
+[lfs-admin] Admin dashboard directory not found, skipping admin server
+[lfs-update] Auto-update checker started (check+apply, interval: 60m)
