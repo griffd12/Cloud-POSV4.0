@@ -623,19 +623,31 @@ function registerLfsCloudRoutes(app: Express) {
       const colsResult = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name = ${tableName}`);
       const allCols = new Set((colsResult.rows || []).map((r: any) => r.column_name as string));
       const hasPropertyId = allCols.has("property_id");
+      const hasEnterpriseId = allCols.has("enterprise_id");
       const hasUpdatedAt = allCols.has("updated_at");
+
+      let enterpriseId: string | null = null;
+      if (propertyId && hasPropertyId && hasEnterpriseId) {
+        const propResult = await db.execute(sql`SELECT "enterprise_id" FROM "properties" WHERE "id" = ${propertyId} LIMIT 1`);
+        const propRow = (propResult.rows || [])[0] as { enterprise_id?: string } | undefined;
+        enterpriseId = propRow?.enterprise_id || null;
+      }
 
       let incremental = false;
       let result;
       if (since && hasUpdatedAt) {
         incremental = true;
-        if (propertyId && hasPropertyId) {
+        if (propertyId && hasPropertyId && enterpriseId) {
+          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE ("property_id" = ${propertyId} OR ("property_id" IS NULL AND "enterprise_id" = ${enterpriseId})) AND "updated_at" > ${since}`);
+        } else if (propertyId && hasPropertyId) {
           result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "property_id" = ${propertyId} AND "updated_at" > ${since}`);
         } else {
           result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "updated_at" > ${since}`);
         }
       } else {
-        if (propertyId && hasPropertyId) {
+        if (propertyId && hasPropertyId && enterpriseId) {
+          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "property_id" = ${propertyId} OR ("property_id" IS NULL AND "enterprise_id" = ${enterpriseId})`);
+        } else if (propertyId && hasPropertyId) {
           result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "property_id" = ${propertyId}`);
         } else {
           result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)}`);

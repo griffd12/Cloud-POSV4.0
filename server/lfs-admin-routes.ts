@@ -362,20 +362,81 @@ export function registerLfsAdminRoutes(app: Express) {
     }
   });
 
-  app.post("/api/lfs/admin/login", (req: Request, res: Response) => {
-    const { apiKey } = req.body;
+  app.post("/api/lfs/admin/login", async (req: Request, res: Response) => {
+    const { apiKey, email, password } = req.body;
     const expected = process.env.LFS_API_KEY;
     if (!expected) {
       res.status(401).json({ error: "LFS_API_KEY not configured. Use /api/lfs/admin/setup first.", needsSetup: true });
       return;
     }
-    if (apiKey === expected) {
+
+    if (apiKey && apiKey === expected) {
       const token = createSessionToken();
       res.setHeader("Set-Cookie", buildCookieHeader(token));
       res.json({ ok: true });
-    } else {
-      res.status(401).json({ error: "Invalid API key" });
+      return;
     }
+
+    if (email && password) {
+      const cloudUrl = process.env.LFS_CLOUD_URL;
+      if (!cloudUrl) {
+        res.status(401).json({ error: "Cloud URL not configured" });
+        return;
+      }
+      try {
+        const authRes = await fetch(`${cloudUrl}/api/emc/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (authRes.ok) {
+          const data = await authRes.json() as { user?: { accessLevel?: string; enterpriseId?: string; propertyId?: string } };
+          const level = data.user?.accessLevel || "";
+          if (level === "enterprise_admin" || level === "property_admin" || level === "property_manager") {
+            const lfsPropertyId = process.env.LFS_PROPERTY_ID || "";
+            const userEnterpriseId = data.user?.enterpriseId || "";
+            const userPropertyId = data.user?.propertyId || "";
+
+            if (level === "enterprise_admin") {
+              let lfsEnterpriseId = "";
+              try {
+                const { storage } = await import("./storage");
+                const props = await storage.getProperties();
+                const lfsProp = props.find((p: { id: string }) => p.id === lfsPropertyId);
+                lfsEnterpriseId = (lfsProp as { enterpriseId?: string })?.enterpriseId || "";
+              } catch {}
+              if (lfsEnterpriseId && userEnterpriseId && userEnterpriseId !== lfsEnterpriseId) {
+                res.status(403).json({ error: "Your enterprise does not match this LFS property." });
+                return;
+              }
+            } else {
+              if (lfsPropertyId && userPropertyId && userPropertyId !== lfsPropertyId) {
+                res.status(403).json({ error: "Your property assignment does not match this LFS." });
+                return;
+              }
+            }
+
+            const token = createSessionToken();
+            res.setHeader("Set-Cookie", buildCookieHeader(token));
+            captureLog(`[admin] EMC credential login by ${email} (${level})`);
+            res.json({ ok: true });
+            return;
+          }
+          res.status(401).json({ error: "Insufficient access level. Admin or manager role required." });
+          return;
+        }
+        const errData = await authRes.json().catch(() => ({}));
+        res.status(401).json({ error: (errData as { message?: string }).message || "Invalid credentials" });
+        return;
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Connection failed";
+        res.status(401).json({ error: `Cloud authentication failed: ${msg}` });
+        return;
+      }
+    }
+
+    res.status(401).json({ error: "Invalid API key" });
   });
 
   app.use("/api/lfs/admin", lfsAdminAuth);

@@ -241,11 +241,27 @@
     <div style="background:var(--card-bg); border-radius:12px; padding:32px; max-width:420px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
       <div id="login-form">
         <h2 style="margin:0 0 8px; color:var(--text-primary);">LFS Admin Login</h2>
-        <p style="margin:0 0 16px; color:var(--text-muted); font-size:14px;">Enter your LFS API key to access the admin dashboard.</p>
-        <input id="login-api-key" type="password" placeholder="LFS API Key" data-testid="input-lfs-api-key"
-          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
-        <button id="login-btn" data-testid="button-login"
-          style="width:100%; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Login</button>
+        <p style="margin:0 0 16px; color:var(--text-muted); font-size:14px;">Sign in with your EMC credentials or LFS API key.</p>
+        <div id="login-emc-section">
+          <input id="login-email" type="email" placeholder="EMC Email" data-testid="input-login-email"
+            style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:8px;" />
+          <input id="login-password" type="password" placeholder="Password" data-testid="input-login-password"
+            style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
+          <button id="login-btn" data-testid="button-login"
+            style="width:100%; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Login</button>
+          <p style="text-align:center; margin:12px 0 0; color:var(--text-muted); font-size:13px;">
+            <a href="#" id="toggle-apikey-login" style="color:var(--accent); text-decoration:none;">Use API Key instead</a>
+          </p>
+        </div>
+        <div id="login-apikey-section" style="display:none;">
+          <input id="login-api-key" type="password" placeholder="LFS API Key" data-testid="input-lfs-api-key"
+            style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
+          <button id="login-apikey-btn" data-testid="button-login-apikey"
+            style="width:100%; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Login with API Key</button>
+          <p style="text-align:center; margin:12px 0 0; color:var(--text-muted); font-size:13px;">
+            <a href="#" id="toggle-emc-login" style="color:var(--accent); text-decoration:none;">Use EMC credentials instead</a>
+          </p>
+        </div>
       </div>
       <div id="setup-form" style="display:none;">
         <h2 style="margin:0 0 8px; color:var(--text-primary);">Initial Setup</h2>
@@ -361,6 +377,43 @@
       });
 
       document.getElementById('login-btn').addEventListener('click', async () => {
+        const email = document.getElementById('login-email').value.trim();
+        const password = document.getElementById('login-password').value.trim();
+        const errorEl = document.getElementById('login-error');
+        errorEl.style.display = 'none';
+
+        if (!email || !password) {
+          errorEl.textContent = 'Enter your email and password';
+          errorEl.style.display = 'block';
+          return;
+        }
+
+        try {
+          const res = await fetch(`${API_BASE}/api/lfs/admin/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+            credentials: 'include',
+          });
+          if (res.ok) {
+            hideLoginOverlay();
+            refreshAll();
+          } else {
+            const data = await res.json().catch(() => ({}));
+            if (data.needsSetup) {
+              document.getElementById('login-form').style.display = 'none';
+              document.getElementById('setup-form').style.display = 'block';
+            }
+            errorEl.textContent = data.error || 'Authentication failed';
+            errorEl.style.display = 'block';
+          }
+        } catch (e) {
+          errorEl.textContent = 'Connection error';
+          errorEl.style.display = 'block';
+        }
+      });
+
+      document.getElementById('login-apikey-btn').addEventListener('click', async () => {
         const key = document.getElementById('login-api-key').value.trim();
         const errorEl = document.getElementById('login-error');
         errorEl.style.display = 'none';
@@ -391,8 +444,26 @@
         }
       });
 
-      document.getElementById('login-api-key').addEventListener('keydown', (e) => {
+      document.getElementById('toggle-apikey-login').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('login-emc-section').style.display = 'none';
+        document.getElementById('login-apikey-section').style.display = 'block';
+        document.getElementById('login-error').style.display = 'none';
+      });
+
+      document.getElementById('toggle-emc-login').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('login-apikey-section').style.display = 'none';
+        document.getElementById('login-emc-section').style.display = 'block';
+        document.getElementById('login-error').style.display = 'none';
+      });
+
+      document.getElementById('login-password').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') document.getElementById('login-btn').click();
+      });
+
+      document.getElementById('login-api-key').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('login-apikey-btn').click();
       });
       document.getElementById('setup-api-key').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') document.getElementById('setup-btn').click();
