@@ -154,22 +154,22 @@ export default function LfsFirstRunPage() {
         setServerConfig(resolvedBaseUrl, enterprise.code, enterprise.id);
 
         const pollSync = async () => {
-          for (let i = 0; i < 60; i++) {
+          for (let i = 0; i < 90; i++) {
             await new Promise(r => setTimeout(r, 2000));
             try {
-              const syncRes = await fetch("/api/lfs/admin/setup-status");
+              const syncRes = await fetch("/api/lfs/sync-status");
               const syncData = await syncRes.json();
-              if (syncData.configured) {
-                const wsRes = await fetch("/api/workstations");
-                const wsList = await wsRes.json();
-                if (Array.isArray(wsList) && wsList.length > 0) {
-                  window.location.href = "/";
-                  return;
-                }
+              if (syncData.ready) {
+                window.location.href = "/";
+                return;
+              }
+              if (syncData.lastSyncError) {
+                setError(`Sync error: ${syncData.lastSyncError}. You may need to restart the LFS.`);
+                return;
               }
             } catch {}
           }
-          window.location.href = "/";
+          setError("Sync is taking longer than expected. Please restart the LFS and try again.");
         };
         pollSync();
       } else {

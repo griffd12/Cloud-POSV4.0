@@ -107,6 +107,22 @@ export function registerLfsAdminRoutes(app: Express) {
     res.json({ configured: hasApiKey, hasCloudUrl, needsSetup: !hasApiKey });
   });
 
+  app.get("/api/lfs/sync-status", (_req: Request, res: Response) => {
+    const syncService = getConfigSyncService();
+    if (!syncService) {
+      res.json({ syncing: false, syncCount: 0, lastSyncAt: null, lastSyncError: null, ready: false });
+      return;
+    }
+    const status = syncService.getStatus();
+    res.json({
+      syncing: status.isSyncing,
+      syncCount: status.syncCount,
+      lastSyncAt: status.lastSyncAt,
+      lastSyncError: status.lastSyncError,
+      ready: status.syncCount > 0 && !status.isSyncing && !status.lastSyncError,
+    });
+  });
+
   app.get("/api/lfs/device-config", async (_req: Request, res: Response) => {
     const cloudUrl = process.env.LFS_CLOUD_URL || "";
     const propertyId = process.env.LFS_PROPERTY_ID || "";
