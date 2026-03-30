@@ -5,7 +5,7 @@ import { getConfigSyncService } from "./config-sync";
 import path from "path";
 import fs from "fs";
 
-const LFS_BASE_DIR = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
+const LFS_BASE_DIR = typeof __dirname !== 'undefined' ? path.resolve(__dirname, '..') : process.cwd();
 
 function getLfsVersion(): string {
   try {
@@ -207,12 +207,19 @@ export function registerLfsAdminRoutes(app: Express) {
   });
 
   app.post("/api/lfs/first-run/save", (req: Request, res: Response) => {
-    const { cloudUrl, enterpriseCode, propertyId, apiKey } = req.body;
-    if (!cloudUrl || !propertyId || !apiKey) {
-      res.status(400).json({ error: "cloudUrl, propertyId, and apiKey are required" });
+    if (process.env.LFS_API_KEY) {
+      res.status(403).json({ error: "Already configured. Use admin dashboard instead." });
+      return;
+    }
+    const { cloudUrl, propertyId } = req.body;
+    if (!cloudUrl || !propertyId) {
+      res.status(400).json({ error: "cloudUrl and propertyId are required" });
       return;
     }
     try {
+      const crypto = require("crypto");
+      const apiKey = "lfs_" + crypto.randomBytes(24).toString("base64url");
+
       const envPath = path.join(LFS_BASE_DIR, ".env");
       let envContent = "";
       if (fs.existsSync(envPath)) {
@@ -241,7 +248,7 @@ export function registerLfsAdminRoutes(app: Express) {
       fs.writeFileSync(envPath, envContent.trim() + "\n", "utf8");
       captureLog(`[admin] First-run setup completed: ${cloudUrl} / property ${propertyId}`);
 
-      res.json({ ok: true, message: "Configuration saved. Please restart the LFS." });
+      res.json({ ok: true, apiKey, message: "Configuration saved. Please restart the LFS." });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });

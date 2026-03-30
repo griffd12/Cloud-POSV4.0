@@ -42,12 +42,7 @@ export default function LfsFirstRunPage() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
 
-  const [apiKey] = useState(() => {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let result = "lfs_";
-    for (let i = 0; i < 28; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
-    return result;
-  });
+  const [generatedApiKey, setGeneratedApiKey] = useState<string | null>(null);
 
   const parseUrl = (input: string): { baseUrl: string; code: string } | null => {
     let cleaned = input.trim();
@@ -149,13 +144,12 @@ export default function LfsFirstRunPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cloudUrl: resolvedBaseUrl,
-          enterpriseCode: enterprise.code,
           propertyId: selectedPropertyId,
-          apiKey,
         }),
       });
       const data = await res.json();
       if (data.ok) {
+        if (data.apiKey) setGeneratedApiKey(data.apiKey);
         setStep("complete");
         setServerConfig(resolvedBaseUrl, enterprise.code, enterprise.id);
         setTimeout(() => {
@@ -331,6 +325,12 @@ export default function LfsFirstRunPage() {
                   Configuration saved. The LFS will now sync data from the cloud and redirect you to the POS login.
                 </p>
               </div>
+              {generatedApiKey && (
+                <div className="bg-muted p-3 rounded-md text-left space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">LFS API Key (save this):</p>
+                  <code className="text-xs break-all select-all" data-testid="text-generated-api-key">{generatedApiKey}</code>
+                </div>
+              )}
               <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Redirecting...
