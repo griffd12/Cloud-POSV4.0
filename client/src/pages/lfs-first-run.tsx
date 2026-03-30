@@ -41,6 +41,7 @@ export default function LfsFirstRunPage() {
 
   const [properties, setProperties] = useState<Property[]>([]);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
 
   const [generatedApiKey, setGeneratedApiKey] = useState<string | null>(null);
 
@@ -109,6 +110,9 @@ export default function LfsFirstRunPage() {
       });
       const data = await res.json();
       if (data.ok) {
+        if (data.user?.sessionToken) {
+          setSessionToken(data.user.sessionToken);
+        }
         const propRes = await fetch("/api/lfs/first-run/properties", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -145,6 +149,7 @@ export default function LfsFirstRunPage() {
         body: JSON.stringify({
           cloudUrl: resolvedBaseUrl,
           propertyId: selectedPropertyId,
+          sessionToken: sessionToken,
         }),
       });
       const data = await res.json();
