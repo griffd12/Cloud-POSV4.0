@@ -14,7 +14,7 @@ function getLfsVersion(): string {
     return pkg.version || "0.0.0";
   } catch {
     try {
-      const localPkg = path.resolve(process.cwd(), "package.json");
+      const localPkg = path.resolve(LFS_BASE_DIR, "package.json");
       if (fs.existsSync(localPkg)) {
         const pkg = JSON.parse(fs.readFileSync(localPkg, "utf8"));
         return pkg.version || "0.0.0";
@@ -96,6 +96,158 @@ export function registerLfsAdminRoutes(app: Express) {
     res.json({ configured: hasApiKey, hasCloudUrl, needsSetup: !hasApiKey });
   });
 
+  app.get("/api/lfs/device-config", async (_req: Request, res: Response) => {
+    const cloudUrl = process.env.LFS_CLOUD_URL || "";
+    const propertyId = process.env.LFS_PROPERTY_ID || "";
+    const configured = !!(process.env.LFS_API_KEY && cloudUrl && propertyId);
+
+    if (!configured) {
+      res.json({ isLfs: true, configured: false });
+      return;
+    }
+
+    try {
+      const { storage } = await import("./storage");
+      const allEnterprises = await storage.getEnterprises();
+      const enterprise = allEnterprises[0];
+      const allProperties = await storage.getProperties();
+      const property = allProperties.find((p: { id: string }) => p.id === propertyId) || allProperties[0];
+
+      res.json({
+        isLfs: true,
+        configured: true,
+        cloudUrl,
+        propertyId,
+        enterpriseId: enterprise?.id || "",
+        enterpriseCode: enterprise?.code || "",
+        enterpriseName: enterprise?.name || "",
+        propertyName: property?.name || "",
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.json({ isLfs: true, configured: true, cloudUrl, propertyId, error: msg });
+    }
+  });
+
+  app.post("/api/lfs/first-run/validate-cloud", async (req: Request, res: Response) => {
+    const { cloudUrl, enterpriseCode } = req.body;
+    if (!cloudUrl || !enterpriseCode) {
+      res.status(400).json({ error: "cloudUrl and enterpriseCode are required" });
+      return;
+    }
+    try {
+      const response = await fetch(`${cloudUrl}/api/enterprises/by-code/${enterpriseCode.toUpperCase()}`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) {
+        if (response.status === 404) {
+          res.json({ ok: false, error: `Enterprise "${enterpriseCode}" not found` });
+        } else {
+          res.json({ ok: false, error: `Server returned ${response.status}` });
+        }
+        return;
+      }
+      const enterprise = await response.json();
+      res.json({ ok: true, enterprise });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Connection failed";
+      res.json({ ok: false, error: msg });
+    }
+  });
+
+  app.post("/api/lfs/first-run/auth", async (req: Request, res: Response) => {
+    const { cloudUrl, email, password } = req.body;
+    if (!cloudUrl || !email || !password) {
+      res.status(400).json({ error: "cloudUrl, email, and password are required" });
+      return;
+    }
+    try {
+      const response = await fetch(`${cloudUrl}/api/emc/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        res.json({ ok: false, error: (data as { message?: string }).message || "Authentication failed" });
+        return;
+      }
+      const data = await response.json();
+      res.json({ ok: true, user: data });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Connection failed";
+      res.json({ ok: false, error: msg });
+    }
+  });
+
+  app.post("/api/lfs/first-run/properties", async (req: Request, res: Response) => {
+    const { cloudUrl, enterpriseId } = req.body;
+    if (!cloudUrl || !enterpriseId) {
+      res.status(400).json({ error: "cloudUrl and enterpriseId are required" });
+      return;
+    }
+    try {
+      const response = await fetch(`${cloudUrl}/api/properties`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) {
+        res.json({ ok: false, error: `Failed to fetch properties: ${response.status}` });
+        return;
+      }
+      const properties = await response.json();
+      const filtered = (properties as Array<{ enterpriseId?: string }>).filter(
+        (p) => p.enterpriseId === enterpriseId
+      );
+      res.json({ ok: true, properties: filtered });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Connection failed";
+      res.json({ ok: false, error: msg });
+    }
+  });
+
+  app.post("/api/lfs/first-run/save", (req: Request, res: Response) => {
+    const { cloudUrl, enterpriseCode, propertyId, apiKey } = req.body;
+    if (!cloudUrl || !propertyId || !apiKey) {
+      res.status(400).json({ error: "cloudUrl, propertyId, and apiKey are required" });
+      return;
+    }
+    try {
+      const envPath = path.join(LFS_BASE_DIR, ".env");
+      let envContent = "";
+      if (fs.existsSync(envPath)) {
+        envContent = fs.readFileSync(envPath, "utf8");
+      }
+
+      const updates: Record<string, string> = {
+        LFS_CLOUD_URL: cloudUrl,
+        LFS_PROPERTY_ID: propertyId,
+        LFS_API_KEY: apiKey,
+        DB_MODE: "local",
+        PORT: process.env.PORT || "3001",
+        LFS_ADMIN_PORT: process.env.LFS_ADMIN_PORT || "3002",
+      };
+
+      for (const [key, value] of Object.entries(updates)) {
+        const regex = new RegExp(`^${key}=.*$`, "m");
+        if (regex.test(envContent)) {
+          envContent = envContent.replace(regex, `${key}=${value}`);
+        } else {
+          envContent += `\n${key}=${value}`;
+        }
+        process.env[key] = value;
+      }
+
+      fs.writeFileSync(envPath, envContent.trim() + "\n", "utf8");
+      captureLog(`[admin] First-run setup completed: ${cloudUrl} / property ${propertyId}`);
+
+      res.json({ ok: true, message: "Configuration saved. Please restart the LFS." });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
   app.post("/api/lfs/admin/setup", (req: Request, res: Response) => {
     if (process.env.LFS_API_KEY) {
       res.status(403).json({ error: "Already configured. Use login instead." });
@@ -109,7 +261,7 @@ export function registerLfsAdminRoutes(app: Express) {
     }
 
     try {
-      const envPath = path.join(process.cwd(), ".env");
+      const envPath = path.join(LFS_BASE_DIR, ".env");
       let envContent = "";
       if (fs.existsSync(envPath)) {
         envContent = fs.readFileSync(envPath, "utf8");
@@ -173,7 +325,7 @@ export function registerLfsAdminRoutes(app: Express) {
     try {
       const { cloudUrl, propertyId, apiKey, syncIntervalMs } = req.body;
 
-      const envPath = path.resolve(process.cwd(), ".env");
+      const envPath = path.resolve(LFS_BASE_DIR, ".env");
       let envContent = "";
       try {
         envContent = fs.readFileSync(envPath, "utf8");
@@ -260,7 +412,7 @@ export function registerLfsAdminRoutes(app: Express) {
   });
 
   app.get("/api/lfs/admin/logs", (_req: Request, res: Response) => {
-    const logDir = path.resolve(process.cwd(), "logs");
+    const logDir = path.resolve(LFS_BASE_DIR, "logs");
     let fileLines: string[] = [];
 
     try {
@@ -371,8 +523,8 @@ export function registerLfsAdminRoutes(app: Express) {
 export function startLfsAdminServer(_mainApp: Express) {
   if (!isLocalMode) return;
 
-  const adminDir = path.resolve(process.cwd(), "lfs", "admin");
-  const distAdminDir = path.resolve(process.cwd(), "lfs-admin");
+  const adminDir = path.resolve(LFS_BASE_DIR, "lfs", "admin");
+  const distAdminDir = path.resolve(LFS_BASE_DIR, "lfs-admin");
 
   let servePath = "";
   if (fs.existsSync(adminDir)) {

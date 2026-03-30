@@ -20,6 +20,7 @@ import KdsDeviceSelectPage from "@/pages/kds-device-select";
 import EmcLoginPage from "@/pages/emc/login";
 import EmcSetupPage from "@/pages/emc/setup";
 import EmcAdminLayout from "@/pages/emc/admin-layout";
+import LfsFirstRunPage from "@/pages/lfs-first-run";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { OfflineBanner } from "@/components/offline-banner";
 
@@ -57,7 +58,7 @@ function DeviceGuardedRoute({
 }
 
 function Router() {
-  const { deviceType, isConfigured, hasExplicitDeviceType, hasServerConfig, linkedDeviceId } = useDeviceContext();
+  const { deviceType, isConfigured, hasExplicitDeviceType, hasServerConfig, linkedDeviceId, isLfsConfigLoading, isLfsUnconfigured } = useDeviceContext();
   const [location] = useLocation();
   
   const autoEnrollRedirect = getAutoEnrollRedirect();
@@ -75,6 +76,25 @@ function Router() {
           <Route path="/emc" component={EmcAdminLayout} />
         </Switch>
       </EmcProvider>
+    );
+  }
+
+  if (isLfsConfigLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-muted-foreground text-sm">Connecting...</div>
+      </div>
+    );
+  }
+
+  if (isLfsUnconfigured) {
+    if (location !== "/lfs-first-run") {
+      return <Redirect to="/lfs-first-run" />;
+    }
+    return (
+      <Switch>
+        <Route path="/lfs-first-run" component={LfsFirstRunPage} />
+      </Switch>
     );
   }
 

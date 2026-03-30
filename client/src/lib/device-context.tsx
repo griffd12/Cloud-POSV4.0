@@ -39,6 +39,8 @@ interface DeviceContextType {
   enterpriseCode: string | null;
   enterpriseId: string | null;
   hasServerConfig: boolean;
+  isLfsConfigLoading: boolean;
+  isLfsUnconfigured: boolean;
   
   setDeviceTypeOnly: (type: "pos" | "kds") => void;
   configureAsPos: (workstationId: string, name: string) => void;
@@ -181,6 +183,45 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
     setServerUrl(url);
     setEnterpriseCode(code);
     setEnterpriseId(id);
+  }, []);
+
+  const [isLfsConfigLoading, setIsLfsConfigLoading] = useState(() => {
+    return !getStoredServerUrl() || !getStoredEnterpriseCode() || !getStoredEnterpriseId();
+  });
+  const [isLfsUnconfigured, setIsLfsUnconfigured] = useState(false);
+
+  useEffect(() => {
+    if (serverUrl && enterpriseCode && enterpriseId) {
+      setIsLfsConfigLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    fetch("/api/lfs/device-config", { signal: controller.signal })
+      .then(r => { if (r.ok) return r.json(); throw new Error("not lfs"); })
+      .then((data: { isLfs?: boolean; configured?: boolean; cloudUrl?: string; enterpriseCode?: string; enterpriseId?: string; propertyId?: string }) => {
+        if (data.isLfs && !data.configured) {
+          setIsLfsUnconfigured(true);
+          return;
+        }
+        if (data.isLfs && data.configured && data.cloudUrl && data.enterpriseCode && data.enterpriseId) {
+          const url = data.cloudUrl;
+          const code = data.enterpriseCode;
+          const id = data.enterpriseId;
+          localStorage.setItem(SERVER_URL_KEY, url);
+          localStorage.setItem(ENTERPRISE_CODE_KEY, code);
+          localStorage.setItem(ENTERPRISE_ID_KEY, id);
+          if (data.propertyId) {
+            localStorage.setItem(DEVICE_PROPERTY_ID_KEY, data.propertyId);
+            setPropertyId(data.propertyId);
+          }
+          setServerUrl(url);
+          setEnterpriseCode(code);
+          setEnterpriseId(id);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIsLfsConfigLoading(false));
+    return () => controller.abort();
   }, []);
 
   const hasServerConfig = Boolean(serverUrl && enterpriseCode && enterpriseId);
@@ -334,6 +375,8 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
         enterpriseCode,
         enterpriseId,
         hasServerConfig,
+        isLfsConfigLoading,
+        isLfsUnconfigured,
         setDeviceTypeOnly,
         configureAsPos,
         configureAsKds,

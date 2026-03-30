@@ -1,0 +1,41 @@
+[Mon 03/30/2026 12:08:08.31] === LFS Starting === 
+2026-03-30 12:08:10 [LFS] SQLite schema initialized with 141 tables
+2026-03-30 12:08:10 [LFS] Using SQLite storage (local mode)
+2026-03-30 12:08:11 12:08:11 PM [lfs] Starting in LOCAL FAILOVER SERVER mode (SQLite)
+2026-03-30 12:08:11 [delivery-platform] Delivery platform routes registered
+2026-03-30 12:08:11 [static] Serving frontend from C:\CloudPOS-LFS\public (2 assets, LFS mode)
+2026-03-30 12:08:11 12:08:11 PM [lfs-sync] Running blocking initial config sync from https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/...
+2026-03-30 12:08:18 12:08:18 PM [lfs-sync] Config sync completed (#1)
+2026-03-30 12:08:18 12:08:18 PM [lfs-sync] Initial config sync completed successfully
+2026-03-30 12:08:18 12:08:18 PM [lfs-sync] Config sync starting (interval: 60000ms, cloud: https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev/)
+2026-03-30 12:08:18 12:08:18 PM [express] serving on port 3001
+2026-03-30 12:08:18 12:08:18 PM [lfs] Local Failover Server ready
+2026-03-30 12:08:18 [lfs-admin] Admin dashboard directory not found, skipping admin server
+2026-03-30 12:08:18 [lfs-update] Auto-update checker started (check+apply, interval: 60m)
+2026-03-30 12:09:24 12:09:24 PM [lfs-sync] Config sync completed (#2)
+2026-03-30 12:10:24 12:10:24 PM [lfs-sync] Config sync completed (#3)
+2026-03-30 12:11:23 12:11:23 PM [lfs-sync] Config sync completed (#4)
+2026-03-30 12:12:23 12:12:23 PM [lfs-sync] Config sync completed (#5)
+2026-03-30 12:13:24 12:13:24 PM [lfs-sync] Config sync completed (#6)
+2026-03-30 12:14:24 12:14:24 PM [lfs-sync] Config sync completed (#7)
+2026-03-30 12:15:23 12:15:23 PM [lfs-sync] Config sync completed (#8)
+2026-03-30 12:16:23 12:16:23 PM [lfs-sync] Config sync completed (#9)
+2026-03-30 12:17:24 12:17:24 PM [lfs-sync] Config sync completed (#10)
+2026-03-30 12:18:23 12:18:23 PM [lfs-sync] Config sync completed (#11)
+2026-03-30 12:19:23 12:19:23 PM [lfs-sync] Config sync completed (#12)
+2026-03-30 12:20:23 12:20:23 PM [lfs-sync] Config sync completed (#13)
+2026-03-30 12:21:25 12:21:25 PM [lfs-sync] Config sync completed (#14)
+2026-03-30 12:22:24 12:22:24 PM [lfs-sync] Config sync completed (#15)
+2026-03-30 12:23:23 12:23:23 PM [lfs-sync] Config sync completed (#16)
+2026-03-30 12:24:23 12:24:23 PM [lfs-sync] Config sync completed (#17)
+2026-03-30 12:25:23 12:25:23 PM [lfs-sync] Config sync completed (#18)
+2026-03-30 12:26:23 12:26:23 PM [lfs-sync] Config sync completed (#19)
+2026-03-30 12:27:23 12:27:23 PM [lfs-sync] Config sync completed (#20)
+2026-03-30 12:28:23 12:28:23 PM [lfs-sync] Config sync completed (#21)
+2026-03-30 12:29:23 12:29:23 PM [lfs-sync] Config sync completed (#22)
+2026-03-30 12:30:23 12:30:23 PM [lfs-sync] Config sync completed (#23)
+2026-03-30 12:31:23 12:31:23 PM [lfs-sync] Config sync completed (#24)
+2026-03-30 12:32:23 12:32:23 PM [lfs-sync] Config sync completed (#25)
+2026-03-30 12:33:23 12:33:23 PM [lfs-sync] Config sync completed (#26)
+2026-03-30 12:34:23 12:34:23 PM [lfs-sync] Config sync completed (#27)
+2026-03-30 12:35:23 12:35:23 PM [lfs-sync] Config sync completed (#28)
