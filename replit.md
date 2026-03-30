@@ -49,7 +49,8 @@ The same Express codebase runs against either PostgreSQL (cloud) or SQLite (loca
 - **PIN Auth Parity**: Both cloud and LFS use direct string equality for PIN verification (NOT bcrypt). PINs are stored as plain text in `pin_hash` column and compared directly.
 - **Connect-to-Server Protocol Detection**: The server setup page auto-detects private IPs (10.x, 172.16-31.x, 192.168.x, 127.x, localhost) and defaults to `http://`. For public URLs without protocol, tries `https://` first, falls back to `http://`.
 - **Offline Payments (Store-and-Forward)**: LFS processes payments locally for SAF-capable terminals, recording them as `pending_settlement`. Payments are later reconciled with the cloud via server-to-server calls.
-- **Transaction Journal Coverage**: Refunds, time punches, and cash transactions are journaled in LFS SQLite for cloud sync on reconnection. Cloud-side `syncEntity()` handles all journaled entity types.
+- **Transaction Journal Coverage**: Refunds, time punches, cash transactions, inventory transactions, and audit logs are journaled in LFS SQLite for cloud sync on reconnection. Cloud-side `syncEntity()` handles all journaled entity types.
+- **LFS Reporting**: In local mode, `server/db.ts` creates a `drizzle-orm/better-sqlite3` instance with a Proxy that provides `execute()` returning `{ rows }` format matching PostgreSQL. This allows all reporting views/routes to work against SQLite without modification.
 - **React Query networkMode**: Set to `'always'` (not `'online'`) so requests to LFS work even when browser detects no internet.
 - **KDS WebSocket Failover**: KDS WebSocket URL uses `connectionManager.getWsUrl()` to route to LFS when offline.
 - **LFS Packaging & Admin**: Includes build scripts for self-contained distributions, Windows installer as a service, system tray indicator, admin dashboard for status/config/logs, and auto-update mechanism.

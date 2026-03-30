@@ -104,6 +104,8 @@ const ENTITY_SYNC_ORDER: Record<string, number> = {
   refund: 6,
   time_punch: 10,
   cash_transaction: 11,
+  inventory_transaction: 12,
+  audit_log: 20,
 };
 
 function sortByDependency(entries: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
@@ -1319,6 +1321,30 @@ async function syncEntity(
         return created;
       }
       throw new Error(`Unsupported operation for cash_transaction: ${operationType}`);
+    }
+    case "inventory_transaction": {
+      if (operationType === "create") {
+        const { id: localId, ...insertData } = dataWithOfflineId;
+        const created = await storage.createInventoryTransaction(insertData as Parameters<typeof storage.createInventoryTransaction>[0]);
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+          await storeDurableRemap(localId, created.id);
+        }
+        return created;
+      }
+      throw new Error(`Unsupported operation for inventory_transaction: ${operationType}`);
+    }
+    case "audit_log": {
+      if (operationType === "create") {
+        const { id: localId, ...insertData } = dataWithOfflineId;
+        const created = await storage.createAuditLog(insertData as Parameters<typeof storage.createAuditLog>[0]);
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+          await storeDurableRemap(localId, created.id);
+        }
+        return created;
+      }
+      throw new Error(`Unsupported operation for audit_log: ${operationType}`);
     }
     default:
       throw new Error(`Unknown entity type for sync: ${entityType}`);

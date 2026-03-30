@@ -8,6 +8,7 @@ import * as schema from "@shared/schema";
 export const isLocalMode = process.env.DB_MODE === "local";
 
 let _sqliteDb: any = null;
+let _sqliteDrizzle: any = null;
 
 if (isLocalMode) {
   const _require = createRequire(typeof __filename !== 'undefined' ? __filename : import.meta.url);
@@ -23,6 +24,9 @@ if (isLocalMode) {
   _sqliteDb.pragma("journal_mode = WAL");
   _sqliteDb.pragma("foreign_keys = ON");
   _sqliteDb.pragma("busy_timeout = 5000");
+
+  const drizzleSqliteModule = _require("drizzle-orm/better-sqlite3");
+  _sqliteDrizzle = drizzleSqliteModule.drizzle(_sqliteDb);
 }
 
 if (!isLocalMode && !process.env.DATABASE_URL) {
@@ -37,8 +41,22 @@ export const pool = isLocalMode
   ? (null as unknown as pg.Pool)
   : new Pool({ connectionString: process.env.DATABASE_URL });
 
+function buildSqliteDbProxy(sqliteDrizzleInstance: any): any {
+  return new Proxy(sqliteDrizzleInstance, {
+    get(target: any, prop: string | symbol) {
+      if (prop === "execute") {
+        return async (query: any) => {
+          const rows = target.all(query);
+          return { rows, rowCount: rows.length };
+        };
+      }
+      return target[prop];
+    },
+  });
+}
+
 export const db = isLocalMode
-  ? (null as unknown as ReturnType<typeof drizzle>)
+  ? buildSqliteDbProxy(_sqliteDrizzle)
   : drizzle(pool, { schema });
 
 export const sqliteDb = _sqliteDb;

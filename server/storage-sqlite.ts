@@ -1246,7 +1246,19 @@ export class SqliteDatabaseStorage implements IStorage {
   // ========================================================================
   // AUDIT LOGS
   // ========================================================================
-  async createAuditLog(data: InsertAuditLog): Promise<AuditLog> { return this.insertOne("audit_logs", { ...data }); }
+  async createAuditLog(data: InsertAuditLog): Promise<AuditLog> {
+    const result = this.insertOne<AuditLog>("audit_logs", { ...data });
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "audit_log",
+      entityId: result.id,
+      httpMethod: "POST",
+      endpoint: "/api/audit-logs",
+      payload: result as unknown as Record<string, unknown>,
+      offlineTransactionId: result.id,
+    });
+    return result;
+  }
   async getAuditLogs(rvcId?: string): Promise<AuditLog[]> {
     if (rvcId) return this.getAll("audit_logs", "rvc_id = ?", [rvcId]);
     return this.getAll("audit_logs");
@@ -2333,6 +2345,35 @@ export class SqliteDatabaseStorage implements IStorage {
   async createInventoryItem(data: InsertInventoryItem): Promise<InventoryItem> { return this.insertOne("inventory_items", { ...data }); }
   async updateInventoryItem(id: string, data: Partial<InsertInventoryItem>): Promise<InventoryItem | undefined> { return this.updateOne("inventory_items", id, data); }
   async deleteInventoryItem(id: string): Promise<boolean> { return this.deleteOne("inventory_items", id); }
+
+  // Inventory Stock
+  async getInventoryStock(propertyId: string): Promise<InventoryStock[]> {
+    return this.getAll("inventory_stock", "property_id = ?", [propertyId]);
+  }
+  async getInventoryStockByItem(inventoryItemId: string, propertyId: string): Promise<InventoryStock | undefined> {
+    const rows = this.getAll<InventoryStock>("inventory_stock", "inventory_item_id = ? AND property_id = ?", [inventoryItemId, propertyId]);
+    return rows[0];
+  }
+  async createInventoryStock(data: InsertInventoryStock): Promise<InventoryStock> { return this.insertOne("inventory_stock", { ...data }); }
+  async updateInventoryStock(id: string, data: Partial<InsertInventoryStock>): Promise<InventoryStock | undefined> { return this.updateOne("inventory_stock", id, data); }
+
+  // Inventory Transactions
+  async createInventoryTransaction(data: InsertInventoryTransaction): Promise<InventoryTransaction> {
+    const result = this.insertOne<InventoryTransaction>("inventory_transactions", { ...data });
+    this.recordTransaction({
+      operationType: "create",
+      entityType: "inventory_transaction",
+      entityId: result.id,
+      httpMethod: "POST",
+      endpoint: "/api/inventory-transactions",
+      payload: result as unknown as Record<string, unknown>,
+      offlineTransactionId: result.id,
+    });
+    return result;
+  }
+  async getInventoryTransactions(propertyId: string): Promise<InventoryTransaction[]> {
+    return this.getAll("inventory_transactions", "property_id = ?", [propertyId]);
+  }
 
   // Item Availability
   async getItemAvailability(propertyId: string): Promise<ItemAvailability[]> { return this.getAll("item_availability", "property_id = ?", [propertyId]); }
