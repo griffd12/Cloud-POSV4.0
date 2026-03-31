@@ -1,0 +1,144 @@
+🔴 CORE PROBLEM (IN CODE TERMS)
+
+Right now the system is behaving like:
+
+PRIMARY = LFS
+FALLBACK = CLOUD
+
+This is WRONG.
+
+It must be:
+
+PRIMARY = CLOUD
+FALLBACK = LFS
+✅ CORRECT ARCHITECTURE (CODE-LEVEL CONTRACT)
+1. SYSTEM ROLES
+CLOUD (PostgreSQL + API)
+= PRIMARY AUTHORITY
+= Source of truth for:
+  - Device registration
+  - Configuration (EMC)
+  - Reporting
+  - Enterprise data
+
+LFS (Local Failover Server - SQLite)
+= SECONDARY AUTHORITY (ONLY DURING FAILURE)
+= Used ONLY when cloud is unreachable
+2. DEVICE REGISTRATION FLOW (MANDATORY)
+❌ NEVER DO THIS:
+User enters: http://192.168.x.x:3001
+→ Device registers to LFS
+→ System becomes dependent on LFS
+✅ ALWAYS DO THIS:
+ON FIRST BOOT:
+
+1. User enters CLOUD URL:
+   https://<cloud>/BOM
+
+2. Device registers with CLOUD:
+   POST /api/devices/register
+
+3. Cloud returns:
+   {
+     deviceId,
+     propertyId,
+     rvcId,
+     serviceHostUrl   // LFS address
+   }
+
+4. Device stores:
+   primaryUrl = cloudUrl
+   fallbackUrl = serviceHostUrl
+3. CONNECTION MANAGER (NON-NEGOTIABLE LOGIC)
+
+This must be enforced exactly like this:
+
+function request(apiCall):
+
+  if (cloud.isHealthy()):
+      return call(cloud)
+
+  else if (lfs.isHealthy()):
+      return call(lfs)
+
+  else:
+      throw SYSTEM_OFFLINE_ERROR
+4. HEALTH CHECK RULES
+cloud.isHealthy():
+    GET /api/health/db-probe
+    return status == 200
+
+lfs.isHealthy():
+    GET http://<lfs>/health/ready
+    return status == 200
+5. CRITICAL FAILURE SCENARIOS (MUST BE SUPPORTED)
+Scenario A — Cloud DOWN, LFS UP
+→ POS continues working
+→ All transactions go to LFS
+→ Sync later to cloud
+Scenario B — LFS DOWN, Cloud UP
+→ POS CONTINUES WORKING (NO INTERRUPTION)
+→ System MUST NOT show "workstation not found"
+→ System MUST NOT depend on LFS
+
+👉 THIS is your current failure.
+
+6. FRONTEND LOADING RULE (THIS IS YOUR BUG)
+❌ CURRENT BAD BEHAVIOR:
+User loads app from:
+http://192.168.1.4:3001
+
+→ Frontend origin = LFS
+→ All API calls tied to LFS
+→ When LFS dies → app dies
+✅ REQUIRED BEHAVIOR:
+Frontend MUST ALWAYS load from CLOUD:
+
+https://<cloud>/BOM
+
+LFS is NEVER used as frontend origin
+LFS is ONLY used as API fallback
+7. LFS ROLE (STRICT DEFINITION)
+LFS is NOT:
+- a gateway
+- a primary API
+- a required runtime dependency
+
+LFS IS:
+- a background sync engine
+- a local API ONLY when cloud fails
+8. EMC CONFIGURATION REQUIREMENT
+EMC (Cloud) MUST define:
+
+property.serviceHostUrl = "http://192.168.1.4:3001"
+
+This value is:
+→ synced to all devices
+→ stored locally
+→ used ONLY for fallback
+9. WHAT MUST BE REMOVED FROM CODE
+
+Tell Replit this directly:
+
+REMOVE:
+- Any logic that sets serverUrl = LFS automatically
+- Any logic that prefers LFS over cloud
+- Any device registration against LFS
+- Any requirement that LFS must be running for POS to work
+10. WHAT MUST BE ADDED
+ADD:
+
+1. Hard rule:
+   primaryUrl = cloudUrl (immutable)
+
+2. Fallback logic:
+   fallbackUrl = serviceHostUrl (from config)
+
+3. Guardrail:
+   IF currentOrigin == LFS → BLOCK + REDIRECT to cloud
+
+4. UI indicator:
+   Show mode:
+     GREEN = cloud
+     YELLOW = LFS fallback
+     RED = no connectivity
