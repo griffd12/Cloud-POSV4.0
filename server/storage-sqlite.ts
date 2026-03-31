@@ -881,21 +881,21 @@ export class SqliteDatabaseStorage implements IStorage {
   // IDEMPOTENCY
   // ========================================================================
   async acquireIdempotencyLock(enterpriseId: string, workstationId: string, operation: string, key: string, requestHash: string): Promise<{ acquired: boolean; status?: string; requestHash?: string; responseStatus?: number; responseBody?: string }> {
-    const existing = this.db.prepare(`SELECT * FROM "idempotency_keys" WHERE enterprise_id = ? AND workstation_id = ? AND operation = ? AND key = ?`).get(enterpriseId, workstationId, operation, key) as any;
+    const existing = this.db.prepare(`SELECT * FROM "idempotency_keys" WHERE enterprise_id = ? AND workstation_id = ? AND operation = ? AND idempotency_key = ?`).get(enterpriseId, workstationId, operation, key) as any;
     if (existing) {
       const row = transformRowFromDb(existing, "idempotency_keys");
       return { acquired: false, status: row.status, requestHash: row.requestHash, responseStatus: row.responseStatus, responseBody: row.responseBody };
     }
-    this.db.prepare(`INSERT INTO "idempotency_keys" (id, enterprise_id, workstation_id, operation, key, request_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'processing', ?)`).run(uuid(), enterpriseId, workstationId, operation, key, requestHash, now());
+    this.db.prepare(`INSERT INTO "idempotency_keys" (id, enterprise_id, workstation_id, operation, idempotency_key, request_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'processing', ?)`).run(uuid(), enterpriseId, workstationId, operation, key, requestHash, now());
     return { acquired: true };
   }
 
   async completeIdempotencyKey(enterpriseId: string, workstationId: string, operation: string, key: string, responseStatus: number, responseBody: string): Promise<void> {
-    this.db.prepare(`UPDATE "idempotency_keys" SET status = 'completed', response_status = ?, response_body = ? WHERE enterprise_id = ? AND workstation_id = ? AND operation = ? AND key = ?`).run(responseStatus, responseBody, enterpriseId, workstationId, operation, key);
+    this.db.prepare(`UPDATE "idempotency_keys" SET status = 'completed', response_status = ?, response_body = ? WHERE enterprise_id = ? AND workstation_id = ? AND operation = ? AND idempotency_key = ?`).run(responseStatus, responseBody, enterpriseId, workstationId, operation, key);
   }
 
   async failIdempotencyKey(enterpriseId: string, workstationId: string, operation: string, key: string): Promise<void> {
-    this.db.prepare(`DELETE FROM "idempotency_keys" WHERE enterprise_id = ? AND workstation_id = ? AND operation = ? AND key = ?`).run(enterpriseId, workstationId, operation, key);
+    this.db.prepare(`DELETE FROM "idempotency_keys" WHERE enterprise_id = ? AND workstation_id = ? AND operation = ? AND idempotency_key = ?`).run(enterpriseId, workstationId, operation, key);
   }
 
   async cleanupExpiredIdempotencyKeys(): Promise<number> {
@@ -1691,11 +1691,11 @@ export class SqliteDatabaseStorage implements IStorage {
   }
   async getTimePunch(id: string): Promise<TimePunch | undefined> { return this.getById("time_punches", id); }
   async getLastPunch(employeeId: string): Promise<TimePunch | undefined> {
-    const row = this.db.prepare(`SELECT * FROM "time_punches" WHERE employee_id = ? ORDER BY clock_in DESC LIMIT 1`).get(employeeId);
+    const row = this.db.prepare(`SELECT * FROM "time_punches" WHERE employee_id = ? ORDER BY actual_timestamp DESC LIMIT 1`).get(employeeId);
     return row ? transformRowFromDb(row, "time_punches") : undefined;
   }
   async getActiveTimePunches(propertyId: string): Promise<TimePunch[]> {
-    return this.getAll("time_punches", "property_id = ? AND clock_out IS NULL AND is_voided = 0", [propertyId]);
+    return this.getAll("time_punches", "property_id = ? AND punch_type = 'clock_in' AND voided = 0", [propertyId]);
   }
   async createTimePunch(data: InsertTimePunch): Promise<TimePunch> {
     const result = this.insertOne<TimePunch>("time_punches", { ...data });
