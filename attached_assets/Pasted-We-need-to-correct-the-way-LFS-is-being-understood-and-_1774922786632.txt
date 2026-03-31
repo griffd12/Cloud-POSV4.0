@@ -1,0 +1,56 @@
+We need to correct the way LFS is being understood and built.
+
+The requirement is NOT:
+“SQLite has some of the same tables as Postgres.”
+
+The requirement IS:
+LFS must behave identically to Cloud for all enabled POS/KDS features during failover.
+
+Important distinction:
+Cloud and LFS do not need to use the same database engine, but they MUST provide the same effective runtime contract for enabled features.
+
+That means for every enabled feature, LFS must have:
+1. required schema
+2. required synced data
+3. required API routes
+4. required business logic
+5. required response contract
+6. required state transitions
+
+If cloud supports a feature for a site and LFS is supposed to be the failover runtime, then the same feature must work on LFS when cloud is unavailable.
+
+Examples:
+- create check
+- add items
+- modifiers
+- send
+- payments
+- close checks
+- clock in/out
+- KDS updates
+- COM / pizza
+- any other enabled feature
+
+If a feature is NOT supported in LFS, that must be explicitly declared and disabled. It cannot silently fail after login.
+
+Current issue:
+The LFS is syncing data, but it is not functionally equivalent to Cloud.
+Examples already found:
+- missing SQLite columns like checks.key
+- missing SQLite columns like time_punches.clock_in
+- login succeeds but create check fails
+This proves LFS is not yet a valid failover runtime.
+
+Also:
+Users should normally operate from the cloud URL.
+localhost:3001 should be for LFS setup/admin/testing or actual failover only.
+If cloud is up, the primary runtime must still be cloud.
+If cloud goes down, failover to LFS must be operationally complete.
+
+I need you to validate LFS by ENABLED FEATURE PARITY, not by partial sync success.
+
+For each enabled feature, return:
+FEATURE | CLOUD WORKS | LFS WORKS | MISSING SCHEMA | MISSING DATA | MISSING API | MISSING LOGIC | STATUS
+
+Do not say LFS is working because login/config sync works.
+LFS is only working if the enabled operational feature path works end-to-end.
