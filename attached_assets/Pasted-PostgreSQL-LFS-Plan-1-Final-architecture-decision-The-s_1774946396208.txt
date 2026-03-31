@@ -1,0 +1,371 @@
+PostgreSQL LFS Plan
+1. Final architecture decision
+
+The system will use:
+
+Cloud PostgreSQL as the central enterprise system of record
+Local PostgreSQL on the LFS host as the offline operational runtime
+Browser clients for POS and KDS
+LFS as the local runtime API, sync engine, and failover controller
+
+SQLite is removed from the failover design.
+
+The goal is simple:
+
+The local failover runtime must execute the same enabled POS/KDS features as cloud, using the same database engine, same schema family, and same API contract.
+
+2. Primary runtime model
+
+The browser should always point to the LFS URL for store runtime.
+
+That means:
+
+POS URL = local LFS URL
+KDS URL = local LFS URL
+The browser does not switch URLs during failover
+LFS decides whether to serve from cloud-connected mode or offline-local mode
+
+This is the only way to make failover seamless.
+
+Online mode
+
+Browser → LFS → Cloud sync/coordination active
+
+Offline mode
+
+Browser → LFS → Local PostgreSQL only
+
+Recovery mode
+
+Browser → LFS → local continues running while LFS syncs local transactions back to cloud
+
+The operator never changes URLs and should not care whether the store is online or offline.
+
+3. Source of truth rules
+
+These rules must be explicit.
+
+During active store runtime
+
+LFS local PostgreSQL is the operational source of truth for that store.
+
+All POS/KDS actions write locally first:
+
+checks
+items
+modifiers
+discounts
+voids
+payments
+KDS tickets
+labor events
+local operational reporting state
+At enterprise/reporting level
+
+Cloud PostgreSQL is the central reporting and coordination source of truth after sync.
+
+That means:
+
+enterprise reporting
+multi-store dashboards
+EMC configuration publishing
+remote admin
+consolidated transaction history
+Important rule
+
+POS terminals must not write to both cloud and local independently.
+
+The runtime write path must be:
+
+POS/KDS → LFS local PostgreSQL
+
+Then LFS syncs to cloud.
+
+4. Why PostgreSQL on LFS is the correct move
+
+This eliminates the worst class of problems you’ve been hitting:
+
+no SQLite/PostgreSQL schema mismatch
+no missing SQLite-only storage methods
+no direct-Postgres-route vs SQLite-route split
+no key / clock_in missing column drift
+no separate behavior caused by engine differences
+much less custom translation logic
+
+The cloud and LFS runtimes can now share:
+
+the same schema model
+the same ORM patterns
+the same route behavior
+the same feature logic
+
+That is the only realistic path if you want enterprise-grade offline support fast.
+
+5. What must change in the codebase
+A. Remove SQLite as the LFS operational database
+
+Remove the SQLite-based failover runtime as the primary offline engine.
+
+That means:
+
+deprecate storage-sqlite.ts for LFS runtime
+stop treating SQLite as the operational failover DB
+remove dual-engine feature maintenance as the main path
+B. Standardize on PostgreSQL storage layer
+
+All runtime routes must go through one storage abstraction backed by PostgreSQL.
+
+No route may:
+
+call cloud-only DB logic directly
+bypass storage abstraction
+use different code paths for cloud vs LFS runtime unless explicitly required for sync/control reasons
+C. Unify schemas
+
+Local PostgreSQL on LFS must use the same effective schema as cloud for all enabled runtime features.
+
+D. Separate sync concerns from runtime concerns
+
+Runtime execution is local.
+Sync is background.
+
+Do not mix them.
+
+6. LFS responsibilities
+
+LFS must do five jobs.
+
+1. Serve the POS/KDS frontend runtime
+
+LFS is the runtime origin for store devices.
+
+2. Execute live POS/KDS APIs locally
+
+Including:
+
+auth
+workstation context
+effective config
+checks
+items
+payments
+KDS
+printing
+labor/timeclock
+reports needed during service
+3. Sync config down from cloud
+
+Cloud publishes config.
+LFS pulls and applies it.
+
+4. Sync transactions up to cloud
+
+LFS journals and syncs local transactions back to cloud.
+
+5. Manage failover state
+
+LFS monitors cloud availability and changes mode internally, without requiring browser URL changes.
+
+7. Cloud responsibilities
+
+Cloud should own:
+
+enterprise hierarchy
+EMC configuration
+device registry
+cross-store visibility
+enterprise reporting
+transaction ingestion from LFS
+remote admin
+optional customer-facing modules like catering, CRM, invoice emails, Stripe webhooks
+
+Cloud should not be in the blocking execution path of local POS operations.
+
+8. Initial setup flow
+
+This needs to be crystal clear.
+
+Step 1. Install and configure LFS host
+
+On the designated store host PC:
+
+install local PostgreSQL
+install LFS service
+configure LFS with:
+cloud URL
+property ID
+auth/API key
+local DB connection
+initialize local PostgreSQL schema
+perform initial config sync from cloud
+Step 2. Configure LFS host in EMC
+
+At the property/store level in EMC, define:
+
+LFS host URL
+property binding
+any device routing/failover metadata
+Step 3. Device setup
+
+Workstations and KDS devices are associated to the store/property in EMC.
+
+The store runtime URL should point to the LFS host.
+
+The browser should use the LFS URL as the operational entry point.
+
+Step 4. LFS serves runtime
+
+Once LFS is ready:
+
+POS/KDS connect to LFS
+LFS either runs online-connected or offline-local mode
+same browser URL in both cases
+9. Runtime mode behavior
+Green mode
+
+Cloud reachable.
+LFS online.
+Store runs normally.
+LFS syncs continuously.
+
+Yellow mode
+
+Cloud unavailable.
+LFS still healthy.
+Store continues locally with no URL change.
+Transactions queue for later sync.
+
+Red mode
+
+LFS unavailable.
+Store runtime unavailable.
+This is a real local outage.
+
+This model is much cleaner than “cloud first in browser, then maybe redirect later.”
+
+10. Sync model
+Config sync: cloud → LFS
+
+Cloud remains the configuration master.
+
+LFS syncs:
+
+enterprise defaults
+property config
+RVC config
+effective device and option settings
+menu/catalog
+taxes
+tenders
+discounts
+employee roles/assignments
+KDS/print/workstation config
+all enabled module data required locally
+Transaction sync: LFS → cloud
+
+LFS journals:
+
+check lifecycle events
+payments
+labor events
+KDS events if needed
+local reporting/event data required centrally
+
+Cloud ingests using:
+
+idempotent event IDs
+acknowledgement model
+replay-safe writes
+Conflict rule
+
+Local runtime wins during outage for that store.
+Cloud accepts and reconciles from LFS journal on recovery.
+
+11. Effective config requirement
+
+This part must be built correctly or you’ll still get broken behavior.
+
+LFS must resolve effective config using:
+
+RVC override > Property override > Enterprise default
+
+This applies to:
+
+tenders
+discounts
+tax groups
+option bits
+roles/privileges
+layouts
+print/KDS routing
+module enablement
+
+Employee role resolution must be based on the active workstation/RVC context, not “first assignment found.”
+
+12. Feature parity requirement
+
+This is the non-negotiable rule for LFS.
+
+A feature is not “offline supported” because the table exists.
+
+A feature is supported only if the full path works:
+
+schema → synced data → local API → business logic → response contract → UI state → user flow
+
+For every enabled feature, LFS must match cloud behavior closely enough that store operation continues.
+
+At minimum, LFS must support:
+
+employee login / privilege resolution
+workstation context
+menu and modifiers
+check create/open/pickup
+send/fire
+payment and close
+KDS routing and bump
+printing/cash drawer
+labor/timeclock if enabled
+reports needed during service
+any enabled COM/pizza features
+
+If a feature is not supported offline, it must be explicitly disabled and declared—not silently broken.
+
+13. What not to do
+
+Do not:
+
+let devices write directly to cloud and local in parallel
+keep a half-finished SQLite runtime in parallel with PostgreSQL LFS
+claim parity based on tables/routes/pages alone
+allow browser origin to switch unpredictably
+mix “setup/admin UI” with “store runtime UI”
+leave system-of-record rules ambiguous
+14. Immediate implementation phases
+Phase 1 — Lock the architecture
+commit to PostgreSQL-based LFS
+freeze SQLite failover runtime path
+define system-of-record rules
+define online/offline/recovery behavior
+Phase 2 — Local PostgreSQL bootstrap
+install/manage local PostgreSQL on LFS host
+initialize schema
+connect LFS service to local Postgres
+prove config sync works
+Phase 3 — Runtime API parity
+make runtime routes execute against local PostgreSQL through one storage layer
+eliminate direct cloud-DB-only route behavior for local runtime
+Phase 4 — Transaction journal and sync
+local journal
+replay-safe cloud ingestion
+recovery sync validation
+Phase 5 — Feature validation matrix
+
+Prove cloud mode and offline mode for:
+
+login
+checks
+payments
+KDS
+printing
+reports
+COM/pizza if enabled
