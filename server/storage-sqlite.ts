@@ -836,11 +836,11 @@ export class SqliteDatabaseStorage implements IStorage {
   async getNextCheckNumber(rvcId: string): Promise<number> {
     const row = this.db.prepare(`SELECT * FROM "rvc_counters" WHERE rvc_id = ?`).get(rvcId) as any;
     if (row) {
-      const next = (row.last_check_number || 0) + 1;
-      this.db.prepare(`UPDATE "rvc_counters" SET last_check_number = ? WHERE rvc_id = ?`).run(next, rvcId);
-      return next;
+      const current = row.next_check_number || 1;
+      this.db.prepare(`UPDATE "rvc_counters" SET next_check_number = ?, updated_at = ? WHERE rvc_id = ?`).run(current + 1, now(), rvcId);
+      return current;
     }
-    this.db.prepare(`INSERT INTO "rvc_counters" (id, rvc_id, last_check_number) VALUES (?, ?, 1)`).run(uuid(), rvcId, 1);
+    this.db.prepare(`INSERT INTO "rvc_counters" (rvc_id, next_check_number, updated_at) VALUES (?, 2, ?)`).run(rvcId, now());
     return 1;
   }
 
