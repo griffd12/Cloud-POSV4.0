@@ -5,10 +5,11 @@ import { createServer } from "http";
 import { startFiscalScheduler } from "./fiscalScheduler";
 import { startAlertEngine } from "./alertEngine";
 import { storage } from "./storage";
-import { isLocalMode, sqliteDb } from "./db";
+import { isLocalMode } from "./db";
 import { startConfigSync, getConfigSyncService } from "./config-sync";
 import { registerLfsAdminRoutes, startLfsAdminServer, captureLog } from "./lfs-admin-routes";
 import { startAutoUpdateChecker } from "./lfs-auto-update";
+import { startCloudSyncProcess } from "./cloud-sync";
 import path from "path";
 import fs from "fs";
 
@@ -23,7 +24,7 @@ declare module "http" {
 
 app.use(
   express.json({
-    limit: '10mb', // Allow larger payloads for image uploads (base64 encoded)
+    limit: '10mb',
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
@@ -79,18 +80,12 @@ function getHealthPayload() {
   const base: Record<string, any> = {
     status: "ok",
     mode: isLocalMode ? "local" : "cloud",
-    database: isLocalMode ? "sqlite" : "postgresql",
+    database: "postgresql",
     uptimeSeconds: Math.floor(uptimeMs / 1000),
     timestamp: new Date().toISOString(),
   };
 
   if (isLocalMode) {
-    const sqlitePath = process.env.SQLITE_PATH || "./data/pos-local.db";
-    try {
-      const stats = fs.statSync(sqlitePath);
-      base.sqliteFileSizeBytes = stats.size;
-    } catch {}
-
     if (syncService) {
       const syncStatus = syncService.getStatus();
       base.sync = syncStatus;
@@ -113,7 +108,7 @@ app.get("/health", async (_req, res) => {
 
 (async () => {
   if (isLocalMode) {
-    log("Starting in LOCAL FAILOVER SERVER mode (SQLite)", "lfs");
+    log("Starting in LOCAL FAILOVER SERVER mode (PostgreSQL)", "lfs");
   } else {
     log("Starting in CLOUD mode (PostgreSQL)", "cloud");
   }
@@ -136,16 +131,13 @@ app.get("/health", async (_req, res) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  if (isLocalMode && sqliteDb) {
-    const syncService = startConfigSync(sqliteDb);
+  if (isLocalMode) {
+    const syncService = startConfigSync();
     if (syncService) {
       await syncService.runInitialSync();
       syncService.start();
     }
+    startCloudSyncProcess();
   }
 
   const port = parseInt(process.env.PORT || "5000", 10);

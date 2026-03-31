@@ -1,10 +1,5 @@
-import { db } from "./db";
-import { eq, and, isNull, or } from "drizzle-orm";
-import {
-  menuItems, printClasses, printClassRouting, orderDevices, kdsDevices,
-  workstationOrderDevices,
-  type MenuItem, type KdsDevice, type OrderDevice
-} from "@shared/schema";
+import { storage } from "./storage";
+import type { KdsDevice } from "@shared/schema";
 
 export interface KdsRoutingTarget {
   kdsDeviceId: string;
@@ -16,39 +11,22 @@ export interface KdsRoutingTarget {
 
 async function getWorkstationAllowedDeviceIds(workstationId?: string): Promise<Set<string> | null> {
   if (!workstationId || workstationId === 'default') return null;
-  const assignments = await db.select().from(workstationOrderDevices)
-    .where(eq(workstationOrderDevices.workstationId, workstationId));
+  const assignments = await storage.getWorkstationOrderDevices(workstationId);
   if (assignments.length === 0) return null;
   return new Set(assignments.map(a => a.orderDeviceId));
 }
 
 async function resolveRoutedOrderDeviceIds(printClassId: string, propertyId: string, rvcId?: string): Promise<string[]> {
-  let routings;
   if (rvcId) {
-    routings = await db.select().from(printClassRouting)
-      .where(and(
-        eq(printClassRouting.printClassId, printClassId),
-        eq(printClassRouting.rvcId, rvcId)
-      ));
+    const rvcRoutings = await storage.getPrintClassRouting(printClassId, propertyId, rvcId);
+    if (rvcRoutings.length > 0) return rvcRoutings.map(r => r.orderDeviceId);
   }
-  if (!routings || routings.length === 0) {
-    routings = await db.select().from(printClassRouting)
-      .where(and(
-        eq(printClassRouting.printClassId, printClassId),
-        eq(printClassRouting.propertyId, propertyId),
-        isNull(printClassRouting.rvcId)
-      ));
-  }
-  if (!routings || routings.length === 0) {
-    routings = await db.select().from(printClassRouting)
-      .where(and(
-        eq(printClassRouting.printClassId, printClassId),
-        isNull(printClassRouting.propertyId),
-        isNull(printClassRouting.rvcId)
-      ));
-  }
-  if (!routings || routings.length === 0) return [];
-  return routings.map(r => r.orderDeviceId);
+
+  const propRoutings = await storage.getPrintClassRouting(printClassId, propertyId);
+  if (propRoutings.length > 0) return propRoutings.map(r => r.orderDeviceId);
+
+  const globalRoutings = await storage.getPrintClassRouting(printClassId);
+  return globalRoutings.map(r => r.orderDeviceId);
 }
 
 async function buildKdsTargetsFromOrderDeviceIds(
@@ -60,14 +38,12 @@ async function buildKdsTargetsFromOrderDeviceIds(
   for (const odId of orderDeviceIds) {
     if (allowedDeviceIds && !allowedDeviceIds.has(odId)) continue;
 
-    const [orderDevice] = await db.select().from(orderDevices)
-      .where(eq(orderDevices.id, odId));
+    const orderDevice = await storage.getOrderDevice(odId);
     if (!orderDevice) continue;
 
     if (!orderDevice.kdsDeviceId) continue;
 
-    const [kdsDevice] = await db.select().from(kdsDevices)
-      .where(eq(kdsDevices.id, orderDevice.kdsDeviceId));
+    const kdsDevice = await storage.getKdsDevice(orderDevice.kdsDeviceId);
     if (kdsDevice && kdsDevice.active) {
       targets.push({
         kdsDeviceId: kdsDevice.id,
@@ -88,7 +64,7 @@ export async function resolveKdsTargetsForMenuItem(
   rvcId?: string,
   workstationId?: string
 ): Promise<KdsRoutingTarget[]> {
-  const [item] = await db.select().from(menuItems).where(eq(menuItems.id, menuItemId));
+  const item = await storage.getMenuItem(menuItemId);
   if (!item || !item.printClassId) {
     console.log(`[KDS-ROUTING] Item ${menuItemId} has no print class, skipping`);
     return [];
@@ -119,11 +95,8 @@ export async function resolveKdsTargetsForPrintClass(
 }
 
 export async function getActiveKdsDevices(propertyId?: string): Promise<KdsDevice[]> {
-  if (propertyId) {
-    return db.select().from(kdsDevices)
-      .where(and(eq(kdsDevices.propertyId, propertyId), eq(kdsDevices.active, true)));
-  }
-  return db.select().from(kdsDevices).where(eq(kdsDevices.active, true));
+  const allDevices = await storage.getKdsDevices(propertyId);
+  return allDevices.filter(d => d.active);
 }
 
 export async function getKdsStationTypes(propertyId?: string): Promise<string[]> {
@@ -136,6 +109,6 @@ export async function getKdsStationTypes(propertyId?: string): Promise<string[]>
 }
 
 export async function getOrderDeviceSendMode(orderDeviceId: string): Promise<"send_button" | "dynamic"> {
-  const [device] = await db.select().from(orderDevices).where(eq(orderDevices.id, orderDeviceId));
+  const device = await storage.getOrderDevice(orderDeviceId);
   return (device?.sendOn as "send_button" | "dynamic") || "send_button";
 }

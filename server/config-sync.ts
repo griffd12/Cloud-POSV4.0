@@ -1,5 +1,9 @@
-import type Database from "better-sqlite3";
+import { db } from "./db";
+import { lfsSyncStatus, lfsOfflineSequence } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
 import { log } from "./index";
+import { getTableConfig } from "drizzle-orm/pg-core";
+import * as schema from "@shared/schema";
 
 interface SyncConfig {
   cloudBaseUrl: string;
@@ -64,7 +68,33 @@ const CONFIG_TABLES = [
   "print_agents",
   "cash_drawers",
   "rvc_counters",
+  "online_order_sources",
 ];
+
+function getSchemaTable(tableName: string): any {
+  for (const [, value] of Object.entries(schema)) {
+    if (value && typeof value === "object") {
+      try {
+        const config = getTableConfig(value as any);
+        if (config && config.name === tableName) {
+          return value;
+        }
+      } catch {}
+    }
+  }
+  return null;
+}
+
+function getTableColumns(tableName: string): string[] {
+  const table = getSchemaTable(tableName);
+  if (!table) return [];
+  try {
+    const config = getTableConfig(table);
+    return config.columns.map((c) => c.name);
+  } catch {
+    return [];
+  }
+}
 
 export class ConfigSyncService {
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
@@ -73,18 +103,16 @@ export class ConfigSyncService {
   private lastSyncError: string | null = null;
   private syncCount = 0;
 
-  constructor(
-    private db: Database.Database,
-    private config: SyncConfig,
-  ) {}
+  constructor(private config: SyncConfig) {}
 
   async runInitialSync(): Promise<void> {
     log(`Running blocking initial config sync from ${this.config.cloudBaseUrl}...`, "lfs-sync");
     try {
       await this.sync();
       log(`Initial config sync completed successfully`, "lfs-sync");
-    } catch (e: any) {
-      log(`Initial config sync failed (will retry on interval): ${e.message}`, "lfs-sync");
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      log(`Initial config sync failed (will retry on interval): ${err.message}`, "lfs-sync");
     }
   }
 
@@ -120,51 +148,65 @@ export class ConfigSyncService {
       for (const table of CONFIG_TABLES) {
         await this.syncTable(table);
       }
-      this.initOfflineCheckRangesFromWorkstations();
+      await this.initOfflineCheckRangesFromWorkstations();
       this.lastSyncAt = new Date().toISOString();
       this.lastSyncError = null;
       this.syncCount++;
       log(`Config sync completed (#${this.syncCount})`, "lfs-sync");
-    } catch (e: any) {
-      this.lastSyncError = e.message;
-      log(`Config sync error: ${e.message}`, "lfs-sync");
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      this.lastSyncError = err.message || "unknown error";
+      log(`Config sync error: ${err.message}`, "lfs-sync");
     } finally {
       this.isSyncing = false;
     }
   }
 
-  private initOfflineCheckRangesFromWorkstations(): void {
+  private async initOfflineCheckRangesFromWorkstations(): Promise<void> {
     try {
-      const workstations = this.db.prepare(`SELECT * FROM "workstations"`).all() as any[];
-      for (const ws of workstations) {
-        const rangeStart = ws.offline_check_number_start;
-        const rangeEnd = ws.offline_check_number_end;
+      const workstations = await db.execute(sql`SELECT * FROM "workstations"`);
+      const rows = workstations.rows || [];
+      for (const ws of rows as Record<string, unknown>[]) {
+        const wsId = ws.id as string;
+        const wsName = ws.name as string | undefined;
+        const rangeStart = ws.offline_check_number_start as number | null;
+        const rangeEnd = ws.offline_check_number_end as number | null;
         if (rangeStart != null && rangeEnd != null && rangeStart < rangeEnd) {
-          const existing = this.db.prepare(`SELECT * FROM "lfs_offline_sequence" WHERE workstation_id = ?`).get(ws.id) as any;
-          if (!existing) {
-            this.db.prepare(
-              `INSERT INTO "lfs_offline_sequence" (workstation_id, current_number, range_start, range_end) VALUES (?, ?, ?, ?)`,
-            ).run(ws.id, rangeStart, rangeStart, rangeEnd);
-            log(`Initialized offline check range for workstation ${ws.name || ws.id}: ${rangeStart}-${rangeEnd}`, "lfs-sync");
-          } else if (existing.range_start !== rangeStart || existing.range_end !== rangeEnd) {
-            this.db.prepare(
-              `UPDATE "lfs_offline_sequence" SET range_start = ?, range_end = ? WHERE workstation_id = ?`,
-            ).run(rangeStart, rangeEnd, ws.id);
+          const existing = await db
+            .select()
+            .from(lfsOfflineSequence)
+            .where(eq(lfsOfflineSequence.workstationId, wsId));
+
+          if (existing.length === 0) {
+            await db.insert(lfsOfflineSequence).values({
+              workstationId: wsId,
+              currentNumber: rangeStart,
+              rangeStart,
+              rangeEnd,
+            });
+            log(`Initialized offline check range for workstation ${wsName || wsId}: ${rangeStart}-${rangeEnd}`, "lfs-sync");
+          } else if (existing[0].rangeStart !== rangeStart || existing[0].rangeEnd !== rangeEnd) {
+            await db
+              .update(lfsOfflineSequence)
+              .set({ rangeStart, rangeEnd })
+              .where(eq(lfsOfflineSequence.workstationId, wsId));
             log(`Updated offline check range for workstation ${ws.name || ws.id}: ${rangeStart}-${rangeEnd}`, "lfs-sync");
           }
         }
       }
-    } catch (e: any) {
-      log(`Failed to initialize offline check ranges: ${e.message}`, "lfs-sync");
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      log(`Failed to initialize offline check ranges: ${err.message}`, "lfs-sync");
     }
   }
 
   private async syncTable(tableName: string): Promise<void> {
-    const syncStatus = this.db.prepare(
-      `SELECT last_synced_at, record_count FROM "lfs_sync_status" WHERE table_name = ?`
-    ).get(tableName) as { last_synced_at: string; record_count: number } | undefined;
+    const syncStatusRows = await db
+      .select()
+      .from(lfsSyncStatus)
+      .where(eq(lfsSyncStatus.tableName, tableName));
 
-    const lastSyncedAt = syncStatus?.last_synced_at || null;
+    const lastSyncedAt = syncStatusRows.length > 0 ? syncStatusRows[0].lastSyncedAt?.toISOString() : null;
 
     let url = `${this.config.cloudBaseUrl}/api/lfs/sync/${tableName}?propertyId=${this.config.propertyId}`;
     if (lastSyncedAt) {
@@ -176,6 +218,7 @@ export class ConfigSyncService {
         "Authorization": `Bearer ${this.config.apiKey}`,
         "Content-Type": "application/json",
       },
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!response.ok) {
@@ -184,74 +227,123 @@ export class ConfigSyncService {
 
     const { rows, columns, incremental } = await response.json() as { rows: any[]; columns: string[]; incremental?: boolean };
 
-    this.db.exec("BEGIN TRANSACTION");
-    try {
+    const validColumns = getTableColumns(tableName);
+    const filteredColumns = columns.filter((c) => validColumns.includes(c));
+
+    if (!rows || !rows.length) {
       if (!incremental) {
-        this.db.prepare(`DELETE FROM "${tableName}"`).run();
+        await db.transaction(async (tx) => {
+          await tx.execute(sql.raw(`DELETE FROM "${tableName}"`));
+        });
       }
-
-      if (!rows || !rows.length) {
-        if (!incremental) {
-          this.db.prepare(
-            `INSERT OR REPLACE INTO "lfs_sync_status" (table_name, last_synced_at, record_count) VALUES (?, ?, ?)`,
-          ).run(tableName, new Date().toISOString(), 0);
-        }
-        this.db.exec("COMMIT");
-        return;
-      }
-
-      const placeholders = columns.map(() => "?").join(", ");
-      const quotedCols = columns.map((c) => `"${c}"`).join(", ");
-
-      if (incremental) {
-        const idCol = columns.includes("id") ? "id" : null;
-        if (idCol) {
-          const upsertConflict = `ON CONFLICT ("${idCol}") DO UPDATE SET ${columns.filter(c => c !== idCol).map(c => `"${c}" = excluded."${c}"`).join(", ")}`;
-          const stmt = this.db.prepare(`INSERT INTO "${tableName}" (${quotedCols}) VALUES (${placeholders}) ${upsertConflict}`);
-          for (const row of rows) {
-            stmt.run(...this.rowToValues(row, columns));
-          }
-        } else {
-          const stmt = this.db.prepare(`INSERT OR REPLACE INTO "${tableName}" (${quotedCols}) VALUES (${placeholders})`);
-          for (const row of rows) {
-            stmt.run(...this.rowToValues(row, columns));
-          }
-        }
-      } else {
-        const stmt = this.db.prepare(`INSERT INTO "${tableName}" (${quotedCols}) VALUES (${placeholders})`);
-        for (const row of rows) {
-          stmt.run(...this.rowToValues(row, columns));
-        }
-      }
-
-      const newCount = incremental
-        ? (this.db.prepare(`SELECT COUNT(*) as cnt FROM "${tableName}"`).get() as any)?.cnt || rows.length
-        : rows.length;
-      this.db.prepare(
-        `INSERT OR REPLACE INTO "lfs_sync_status" (table_name, last_synced_at, record_count) VALUES (?, ?, ?)`,
-      ).run(tableName, new Date().toISOString(), newCount);
-
-      this.db.exec("COMMIT");
-    } catch (e) {
-      this.db.exec("ROLLBACK");
-      throw e;
+      await db
+        .insert(lfsSyncStatus)
+        .values({ tableName, lastSyncedAt: new Date(), recordCount: 0 })
+        .onConflictDoUpdate({
+          target: lfsSyncStatus.tableName,
+          set: { lastSyncedAt: new Date(), recordCount: 0 },
+        });
+      return;
     }
+
+    if (!incremental) {
+      await db.transaction(async (tx) => {
+        await tx.execute(sql.raw(`DELETE FROM "${tableName}"`));
+        for (const row of rows) {
+          const values: Record<string, unknown> = {};
+          for (const col of filteredColumns) {
+            values[col] = row[col] ?? null;
+          }
+          await this.insertRowTx(tx, tableName, filteredColumns, values);
+        }
+      });
+    } else {
+      for (const row of rows) {
+        const values: Record<string, unknown> = {};
+        for (const col of filteredColumns) {
+          values[col] = row[col] ?? null;
+        }
+        try {
+          if (values.id) {
+            await this.upsertRow(tableName, filteredColumns, values);
+          } else {
+            await this.insertRow(tableName, filteredColumns, values);
+          }
+        } catch (e: unknown) {
+          const err = e as { message?: string };
+          log(`Failed to sync row in ${tableName} (id=${values.id}): ${err.message}`, "lfs-sync");
+        }
+      }
+    }
+
+    const countResult = await db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM "${tableName}"`));
+    const newCount = Number((countResult.rows?.[0] as Record<string, unknown>)?.cnt || rows.length);
+
+    await db
+      .insert(lfsSyncStatus)
+      .values({ tableName, lastSyncedAt: new Date(), recordCount: newCount })
+      .onConflictDoUpdate({
+        target: lfsSyncStatus.tableName,
+        set: { lastSyncedAt: new Date(), recordCount: newCount },
+      });
   }
 
-  private rowToValues(row: any, columns: string[]): unknown[] {
-    return columns.map((col) => {
-      const val = row[col];
-      if (val === null || val === undefined) return null;
-      if (typeof val === "boolean") return val ? 1 : 0;
-      if (typeof val === "object") return JSON.stringify(val);
-      return val;
-    });
+  private toSqlValue(v: any): any {
+    if (v === null || v === undefined) return null;
+    if (typeof v === "object") return JSON.stringify(v);
+    return v;
+  }
+
+  private async upsertRow(tableName: string, columns: string[], values: Record<string, unknown>): Promise<void> {
+    const setClauses = columns
+      .filter((c) => c !== "id")
+      .map((c) => `"${c}" = EXCLUDED."${c}"`)
+      .join(", ");
+    const colNames = columns.map((c) => `"${c}"`).join(", ");
+
+    const chunks = [];
+    for (const c of columns) {
+      chunks.push(sql`${this.toSqlValue(values[c])}`);
+    }
+
+    const valueSql = sql.join(chunks, sql`, `);
+    await db.execute(
+      sql`INSERT INTO ${sql.raw(`"${tableName}"`)} (${sql.raw(colNames)}) VALUES (${valueSql}) ON CONFLICT ("id") DO UPDATE SET ${sql.raw(setClauses)}`
+    );
+  }
+
+  private async insertRow(tableName: string, columns: string[], values: Record<string, unknown>): Promise<void> {
+    const colNames = columns.map((c) => `"${c}"`).join(", ");
+
+    const chunks = [];
+    for (const c of columns) {
+      chunks.push(sql`${this.toSqlValue(values[c])}`);
+    }
+
+    const valueSql = sql.join(chunks, sql`, `);
+    await db.execute(
+      sql`INSERT INTO ${sql.raw(`"${tableName}"`)} (${sql.raw(colNames)}) VALUES (${valueSql})`
+    );
+  }
+
+  private async insertRowTx(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], tableName: string, columns: string[], values: Record<string, unknown>): Promise<void> {
+    const colNames = columns.map((c) => `"${c}"`).join(", ");
+
+    const chunks = [];
+    for (const c of columns) {
+      chunks.push(sql`${this.toSqlValue(values[c])}`);
+    }
+
+    const valueSql = sql.join(chunks, sql`, `);
+    await tx.execute(
+      sql`INSERT INTO ${sql.raw(`"${tableName}"`)} (${sql.raw(colNames)}) VALUES (${valueSql})`
+    );
   }
 }
 
 let syncService: ConfigSyncService | null = null;
 
-export function startConfigSync(db: Database.Database): ConfigSyncService | null {
+export function startConfigSync(): ConfigSyncService | null {
   const cloudUrl = process.env.LFS_CLOUD_URL;
   const apiKey = process.env.LFS_API_KEY;
   const propertyId = process.env.LFS_PROPERTY_ID;
@@ -263,7 +355,7 @@ export function startConfigSync(db: Database.Database): ConfigSyncService | null
 
   const intervalMs = parseInt(process.env.LFS_SYNC_INTERVAL_MS || "60000", 10);
 
-  syncService = new ConfigSyncService(db, {
+  syncService = new ConfigSyncService({
     cloudBaseUrl: cloudUrl,
     apiKey,
     propertyId,
@@ -292,15 +384,8 @@ export async function restartConfigSync(): Promise<void> {
     return;
   }
 
-  const { sqliteDb } = require("./db");
-  if (!sqliteDb) {
-    log("Config sync not restarted: no local database available", "lfs-sync");
-    return;
-  }
-  const db = sqliteDb;
-
   const intervalMs = parseInt(process.env.LFS_SYNC_INTERVAL_MS || "60000", 10);
-  syncService = new ConfigSyncService(db, {
+  syncService = new ConfigSyncService({
     cloudBaseUrl: cloudUrl,
     apiKey,
     propertyId,

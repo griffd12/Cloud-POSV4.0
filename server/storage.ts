@@ -179,6 +179,9 @@ import {
 } from "@shared/schema";
 
 export interface IStorage {
+  getDatabaseStatus(): Promise<{ db: string; version: string; serverTime: Date }>;
+  executeReportQuery(query: any): Promise<{ rows: any[] }>;
+
   // Enterprises
   getEnterprises(): Promise<Enterprise[]>;
   getEnterprise(id: string): Promise<Enterprise | undefined>;
@@ -427,7 +430,7 @@ export interface IStorage {
   deleteCheckDiscount(id: string): Promise<boolean>;
 
   // Rounds
-  createRound(data: InsertRound): Promise<Round>;
+  createRound(data: InsertRound & { id?: string }): Promise<Round>;
   getRounds(checkId: string): Promise<Round[]>;
 
   // Check Locks (for multi-workstation operation)
@@ -503,6 +506,19 @@ export interface IStorage {
   deleteEmcUser(id: string): Promise<boolean>;
   getEmcUserCount(): Promise<number>;
 
+  getModifierMapRaw(): Promise<any[]>;
+  getAccessibleEnterprisesAndProperties(user: { accessLevel: string; enterpriseId?: string | null; propertyId?: string | null; employeeId?: string | null }): Promise<{ enterprises: any[]; properties: any[] }>;
+
+  runStartupMigrations(): Promise<void>;
+  getConfigTableData(tableName: string, propertyId?: string, enterpriseId?: string, since?: string): Promise<{ rows: any[]; columns: string[]; incremental: boolean }>;
+  getPaymentsByStatus(status: string, propertyId?: string): Promise<any[]>;
+  getPaymentById(paymentId: string): Promise<any | undefined>;
+  getTenderWithGateway(tenderId: string): Promise<{ tender: any; gatewayConfig: any | null } | null>;
+  storeLfsIdRemap(localId: string, cloudId: string): Promise<void>;
+  loadLfsIdRemap(localId: string): Promise<string | null>;
+  ensureLfsRemapTable(): Promise<void>;
+  findEntityByOfflineTransactionId(entityType: string, offlineTransactionId: string): Promise<string | null>;
+
   // EMC Sessions
   getEmcSession(id: string): Promise<EmcSession | undefined>;
   getEmcSessionByToken(sessionToken: string): Promise<EmcSession | undefined>;
@@ -534,11 +550,16 @@ export interface IStorage {
   getAgentPrintingJobs(agentId: string): Promise<PrintJob[]>;
   getUnassignedPendingPrintJobsForProperty(propertyId: string): Promise<PrintJob[]>;
 
+  getActiveKdsTicketsWithDetails(filters: { kdsDeviceId?: string; rvcId?: string }): Promise<{ tickets: any[]; fetchedAt: string }>;
+  getAllWorkstationOrderDevicesFiltered(propertyId?: string): Promise<any[]>;
+  getAllPosLayoutRvcAssignmentsFiltered(propertyId: string): Promise<any[]>;
+  getOrdersForPickup(rvcId: string, filters?: { orderType?: string; statusFilter?: string }): Promise<any[]>;
+
   // KDS Tickets
   getKdsTickets(filters?: { rvcId?: string; kdsDeviceId?: string; stationType?: string }): Promise<any[]>;
   getAllKdsTicketsForReporting(filters?: { rvcId?: string }): Promise<any[]>;
   getKdsTicket(id: string): Promise<KdsTicket | undefined>;
-  createKdsTicket(data: InsertKdsTicket): Promise<KdsTicket>;
+  createKdsTicket(data: InsertKdsTicket & { id?: string }): Promise<KdsTicket>;
   updateKdsTicket(id: string, data: Partial<KdsTicket>): Promise<KdsTicket | undefined>;
   createKdsTicketItem(kdsTicketId: string, checkItemId: string): Promise<void>;
   getKdsTicketItems(kdsTicketId: string): Promise<KdsTicketItem[]>;
@@ -873,6 +894,9 @@ export interface IStorage {
   attachCustomerToCheck(checkId: string, customerId: string): Promise<Check | undefined>;
   detachCustomerFromCheck(checkId: string): Promise<Check | undefined>;
 
+  updateGiftCard(id: string, data: Partial<InsertGiftCard>): Promise<GiftCard | undefined>;
+  updateOnlineOrder(id: string, data: Partial<InsertOnlineOrder>): Promise<OnlineOrder | undefined>;
+
   // ============================================================================
   // GUEST CHECK DESCRIPTORS
   // ============================================================================
@@ -999,6 +1023,15 @@ export interface IStorage {
   // LFS Sync Logs
   getLfsSyncLogs(propertyId: string, limit?: number): Promise<LfsSyncLog[]>;
   createLfsSyncLog(data: InsertLfsSyncLog): Promise<LfsSyncLog>;
+
+  // Cash Transactions
+  createCashTransaction(data: InsertCashTransaction): Promise<CashTransaction>;
+
+  // Inventory Transactions
+  createInventoryTransaction(data: InsertInventoryTransaction): Promise<InventoryTransaction>;
+
+  // Item Availability
+  restoreItemAvailability(menuItemId: string, propertyId: string, quantity?: number): Promise<ItemAvailability | undefined>;
 }
 
 function sanitizeDates<T extends Record<string, any>>(data: T): T {
@@ -1017,6 +1050,17 @@ function sanitizeDates<T extends Record<string, any>>(data: T): T {
 }
 
 export class DatabaseStorage implements IStorage {
+  async getDatabaseStatus(): Promise<{ db: string; version: string; serverTime: Date }> {
+    const result = await db.execute(sql`SELECT current_database() AS db, version() AS version, now() AS server_time`);
+    const row = result.rows[0] as any;
+    return { db: row.db, version: row.version, serverTime: new Date(row.server_time) };
+  }
+
+  async executeReportQuery(query: any): Promise<{ rows: any[] }> {
+    const result = await db.execute(query);
+    return { rows: result.rows as any[] };
+  }
+
   // Enterprises
   async getEnterprises(): Promise<Enterprise[]> {
     return db.select().from(enterprises);
@@ -2333,7 +2377,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Rounds
-  async createRound(data: InsertRound): Promise<Round> {
+  async createRound(data: InsertRound & { id?: string }): Promise<Round> {
     const [result] = await db.insert(rounds).values(sanitizeDates(data)).returning();
     return result;
   }
@@ -2714,6 +2758,232 @@ export class DatabaseStorage implements IStorage {
     return result?.count ?? 0;
   }
 
+  async getModifierMapRaw(): Promise<any[]> {
+    const result = await db.execute(sql`
+      SELECT
+        mimg.menu_item_id,
+        mg.id AS group_id,
+        mg.name AS group_name,
+        mg.required AS group_required,
+        mg.min_select,
+        mg.max_select,
+        mg.display_order AS group_display_order,
+        mg.enterprise_id AS group_enterprise_id,
+        mg.property_id AS group_property_id,
+        mg.rvc_id AS group_rvc_id,
+        m.id AS mod_id,
+        m.name AS mod_name,
+        m.price_delta AS mod_price_delta,
+        m.active AS mod_active,
+        mgm.is_default AS mod_is_default,
+        mgm.display_order AS mod_display_order
+      FROM menu_item_modifier_groups mimg
+      JOIN modifier_groups mg ON mg.id = mimg.modifier_group_id AND mg.active = true
+      LEFT JOIN modifier_group_modifiers mgm ON mgm.modifier_group_id = mg.id
+      LEFT JOIN modifiers m ON m.id = mgm.modifier_id AND m.active = true
+      ORDER BY mimg.menu_item_id, mg.display_order, mgm.display_order
+    `);
+    return result.rows as any[];
+  }
+
+  async getAccessibleEnterprisesAndProperties(user: { accessLevel: string; enterpriseId?: string | null; propertyId?: string | null; employeeId?: string | null }): Promise<{ enterprises: any[]; properties: any[] }> {
+    const isSystem = user.accessLevel === "system_admin" || user.accessLevel === "super_admin";
+
+    if (isSystem) {
+      const allEnterprises = await db.select().from(enterprises);
+      const allProperties = await db.select().from(properties);
+      return { enterprises: allEnterprises, properties: allProperties };
+    }
+
+    if (user.accessLevel === "enterprise_admin" && user.enterpriseId) {
+      const ents = await db.select().from(enterprises).where(eq(enterprises.id, user.enterpriseId));
+      const props = await db.select().from(properties).where(eq(properties.enterpriseId, user.enterpriseId));
+      return { enterprises: ents, properties: props };
+    }
+
+    let accessibleEnterprises: any[] = [];
+    let accessibleProperties: any[] = [];
+
+    if (user.enterpriseId) {
+      accessibleEnterprises = await db.select().from(enterprises).where(eq(enterprises.id, user.enterpriseId));
+    }
+
+    if (user.employeeId) {
+      const assignments = await db.select().from(employeeAssignments).where(eq(employeeAssignments.employeeId, user.employeeId));
+      const assignedPropertyIds = assignments.map(a => a.propertyId).filter(Boolean) as string[];
+      if (assignedPropertyIds.length > 0) {
+        accessibleProperties = await db.select().from(properties).where(inArray(properties.id, assignedPropertyIds));
+      }
+    }
+
+    if (accessibleProperties.length === 0 && user.propertyId) {
+      accessibleProperties = await db.select().from(properties).where(eq(properties.id, user.propertyId));
+    }
+
+    return { enterprises: accessibleEnterprises, properties: accessibleProperties };
+  }
+
+  async runStartupMigrations(): Promise<void> {
+    try {
+      await db.execute(sql`ALTER TABLE emc_users ADD COLUMN IF NOT EXISTS employee_id VARCHAR REFERENCES employees(id)`);
+    } catch (e) {
+      console.error("Migration error (non-fatal):", e);
+    }
+  }
+
+  async getConfigTableData(tableName: string, propertyId?: string, enterpriseId?: string, since?: string): Promise<{ rows: any[]; columns: string[]; incremental: boolean }> {
+    const colsResult = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name = ${tableName}`);
+    const allCols = new Set((colsResult.rows || []).map((r: any) => r.column_name as string));
+    const hasPropertyId = allCols.has("property_id");
+    const hasRvcId = allCols.has("rvc_id");
+    const hasEnterpriseId = allCols.has("enterprise_id");
+    const hasUpdatedAt = allCols.has("updated_at");
+
+    let resolvedEnterpriseId = enterpriseId || null;
+    let propertyRvcIds: string[] = [];
+    if (propertyId) {
+      if (hasPropertyId && hasEnterpriseId && !resolvedEnterpriseId) {
+        const propResult = await db.execute(sql`SELECT "enterprise_id" FROM "properties" WHERE "id" = ${propertyId} LIMIT 1`);
+        const propRow = (propResult.rows || [])[0] as { enterprise_id?: string } | undefined;
+        resolvedEnterpriseId = propRow?.enterprise_id || null;
+      }
+      if (hasRvcId) {
+        const rvcResult = await db.execute(sql`SELECT "id" FROM "rvcs" WHERE "property_id" = ${propertyId}`);
+        propertyRvcIds = (rvcResult.rows || []).map((r: any) => r.id as string);
+      }
+    }
+
+    let incremental = false;
+    let result;
+
+    const buildScopeFilter = () => {
+      const conditions: any[] = [];
+      if (hasPropertyId) conditions.push(sql`"property_id" = ${propertyId}`);
+      if (hasRvcId && propertyRvcIds.length > 0) {
+        const rvcList = propertyRvcIds.map(id => sql`${id}`);
+        conditions.push(sql`"rvc_id" IN (${sql.join(rvcList, sql`, `)})`);
+      }
+      if (resolvedEnterpriseId && hasEnterpriseId) {
+        if (hasPropertyId) {
+          conditions.push(sql`("property_id" IS NULL AND "enterprise_id" = ${resolvedEnterpriseId})`);
+        } else {
+          conditions.push(sql`"enterprise_id" = ${resolvedEnterpriseId}`);
+        }
+      }
+      if (conditions.length === 0) return null;
+      return conditions.length === 1 ? conditions[0] : sql`(${sql.join(conditions, sql` OR `)})`;
+    };
+
+    if (propertyId && (hasPropertyId || hasRvcId || hasEnterpriseId)) {
+      const scopeFilter = buildScopeFilter();
+      if (scopeFilter) {
+        if (since && hasUpdatedAt) {
+          incremental = true;
+          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE ${scopeFilter} AND "updated_at" > ${since}`);
+        } else {
+          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE ${scopeFilter}`);
+        }
+      } else {
+        if (since && hasUpdatedAt) {
+          incremental = true;
+          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "updated_at" > ${since}`);
+        } else {
+          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)}`);
+        }
+      }
+    } else if (since && hasUpdatedAt) {
+      incremental = true;
+      result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "updated_at" > ${since}`);
+    } else {
+      result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)}`);
+    }
+
+    const rows = result.rows || [];
+    const columns = rows.length > 0 ? Object.keys(rows[0] as Record<string, unknown>) : [];
+    return { rows, columns, incremental };
+  }
+
+  async getPaymentsByStatus(status: string, propertyId?: string): Promise<any[]> {
+    if (propertyId) {
+      const joined = await db.select()
+        .from(checkPayments)
+        .innerJoin(checks, eq(checks.id, checkPayments.checkId))
+        .where(and(
+          eq(checkPayments.paymentStatus, status),
+          sql`EXISTS (SELECT 1 FROM rvcs WHERE rvcs.id = ${checks.rvcId} AND rvcs.property_id = ${propertyId})`
+        ));
+      return joined.map(r => r.check_payments);
+    }
+    return db.select().from(checkPayments).where(eq(checkPayments.paymentStatus, status));
+  }
+
+  async getPaymentById(paymentId: string): Promise<any | undefined> {
+    const [result] = await db.select().from(checkPayments).where(eq(checkPayments.id, paymentId)).limit(1);
+    return result;
+  }
+
+  async getTenderWithGateway(tenderId: string): Promise<{ tender: any; gatewayConfig: any | null } | null> {
+    const [tender] = await db.select().from(tenders).where(eq(tenders.id, tenderId)).limit(1);
+    if (!tender) return null;
+    if (!tender.gatewayType) return { tender, gatewayConfig: null };
+
+    const configConditions = [eq(paymentGatewayConfig.gatewayType, tender.gatewayType)];
+    if (tender.propertyId) {
+      configConditions.push(eq(paymentGatewayConfig.propertyId, tender.propertyId));
+    }
+    const [config] = await db.select().from(paymentGatewayConfig).where(and(...configConditions)).limit(1);
+    if (config) return { tender, gatewayConfig: config };
+
+    if (tender.propertyId) {
+      const [fallback] = await db.select().from(paymentGatewayConfig)
+        .where(eq(paymentGatewayConfig.gatewayType, tender.gatewayType)).limit(1);
+      return { tender, gatewayConfig: fallback || null };
+    }
+    return { tender, gatewayConfig: null };
+  }
+
+  async storeLfsIdRemap(localId: string, cloudId: string): Promise<void> {
+    await db.execute(sql`INSERT INTO "lfs_id_remap" (local_id, cloud_id, created_at) VALUES (${localId}, ${cloudId}, NOW()) ON CONFLICT (local_id) DO UPDATE SET cloud_id = EXCLUDED.cloud_id`);
+  }
+
+  async loadLfsIdRemap(localId: string): Promise<string | null> {
+    const rows = await db.execute(sql`SELECT cloud_id FROM "lfs_id_remap" WHERE local_id = ${localId}`);
+    if (rows.rows && rows.rows.length > 0) {
+      return (rows.rows[0] as Record<string, unknown>).cloud_id as string;
+    }
+    return null;
+  }
+
+  async ensureLfsRemapTable(): Promise<void> {
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS "lfs_id_remap" (
+      "local_id" VARCHAR PRIMARY KEY,
+      "cloud_id" VARCHAR NOT NULL,
+      "created_at" TIMESTAMP DEFAULT NOW()
+    )`);
+  }
+
+  async findEntityByOfflineTransactionId(entityType: string, offlineTransactionId: string): Promise<string | null> {
+    switch (entityType) {
+      case "check": {
+        const rows = await db.select({ id: checks.id }).from(checks)
+          .where(eq(checks.offlineTransactionId, offlineTransactionId)).limit(1);
+        return rows.length > 0 ? rows[0].id : null;
+      }
+      case "check_item": {
+        const rows = await db.select({ id: checkItems.id }).from(checkItems)
+          .where(eq(checkItems.offlineTransactionId, offlineTransactionId)).limit(1);
+        return rows.length > 0 ? rows[0].id : null;
+      }
+      case "check_payment": {
+        const rows = await db.select({ id: checkPayments.id }).from(checkPayments)
+          .where(eq(checkPayments.offlineTransactionId, offlineTransactionId)).limit(1);
+        return rows.length > 0 ? rows[0].id : null;
+      }
+      default:
+        return null;
+    }
+  }
+
   // EMC Sessions
   async getEmcSession(id: string): Promise<EmcSession | undefined> {
     const [result] = await db.select().from(emcSessions).where(eq(emcSessions.id, id));
@@ -2885,6 +3155,116 @@ export class DatabaseStorage implements IStorage {
       .orderBy(printJobs.priority, printJobs.createdAt);
   }
 
+  async getActiveKdsTicketsWithDetails(filters: { kdsDeviceId?: string; rvcId?: string }): Promise<{ tickets: any[]; fetchedAt: string }> {
+    const conditions: any[] = [inArray(kdsTickets.status, ['active', 'draft'])];
+    if (filters.kdsDeviceId) {
+      conditions.push(eq(kdsTickets.kdsDeviceId, filters.kdsDeviceId));
+    } else if (filters.rvcId) {
+      conditions.push(eq(kdsTickets.rvcId, filters.rvcId));
+    }
+
+    const tickets = await db.select().from(kdsTickets)
+      .where(and(...conditions))
+      .orderBy(kdsTickets.createdAt);
+
+    const ticketIds = tickets.map(t => t.id);
+    let ticketItemsData: any[] = [];
+    if (ticketIds.length > 0) {
+      ticketItemsData = await db.select().from(kdsTicketItems)
+        .where(inArray(kdsTicketItems.kdsTicketId, ticketIds));
+    }
+
+    const checkIds = [...new Set(tickets.map(t => t.checkId))];
+    let checksData: any[] = [];
+    if (checkIds.length > 0) {
+      checksData = await db.select().from(checks)
+        .where(inArray(checks.id, checkIds));
+    }
+
+    const checkItemIds = ticketItemsData.map(ti => ti.checkItemId);
+    let checkItemsData: any[] = [];
+    if (checkItemIds.length > 0) {
+      checkItemsData = await db.select().from(checkItems)
+        .where(inArray(checkItems.id, checkItemIds));
+    }
+
+    const fullState = tickets.map(ticket => ({
+      ...ticket,
+      items: ticketItemsData
+        .filter(ti => ti.kdsTicketId === ticket.id)
+        .map(ti => ({
+          ...ti,
+          checkItem: checkItemsData.find(ci => ci.id === ti.checkItemId),
+        })),
+      check: checksData.find(c => c.id === ticket.checkId),
+    }));
+
+    return { tickets: fullState, fetchedAt: new Date().toISOString() };
+  }
+
+  async getAllWorkstationOrderDevicesFiltered(propertyId?: string): Promise<any[]> {
+    let data = await db.select().from(workstationOrderDevices);
+    if (propertyId) {
+      const ws = (await this.getWorkstations()).filter((w: any) => w.propertyId === propertyId);
+      const wsIds = new Set(ws.map((w: any) => w.id));
+      data = data.filter((d: any) => wsIds.has(d.workstationId));
+    }
+    return data;
+  }
+
+  async getAllPosLayoutRvcAssignmentsFiltered(propertyId: string): Promise<any[]> {
+    const data = await db.select().from(posLayoutRvcAssignments);
+    return data.filter((a: any) => a.propertyId === propertyId);
+  }
+
+  async getOrdersForPickup(rvcId: string, filters?: { orderType?: string; statusFilter?: string }): Promise<any[]> {
+    const ne = (col: any, val: any) => sql`${col} != ${val}`;
+    const conditions: any[] = [eq(checks.rvcId, rvcId), ne(checks.testMode, true)];
+
+    if (filters?.orderType && filters.orderType !== "all") {
+      conditions.push(eq(checks.orderType, filters.orderType));
+    }
+
+    if (filters?.statusFilter === "completed") {
+      conditions.push(eq(checks.status, "closed"));
+    } else {
+      conditions.push(inArray(checks.status, ["open", "voided"]));
+    }
+
+    const allChecks = await db
+      .select()
+      .from(checks)
+      .where(and(...conditions))
+      .orderBy(filters?.statusFilter === "completed" ? desc(checks.closedAt) : desc(checks.openedAt))
+      .limit(filters?.statusFilter === "completed" ? 50 : 500);
+
+    const enrichedChecks = await Promise.all(
+      allChecks.map(async (check) => {
+        const items = await this.getCheckItems(check.id);
+        const activeItems = items.filter((i: any) => !i.voided);
+        const rounds = await this.getRounds(check.id);
+        const lastRound = rounds.length > 0 ? rounds[rounds.length - 1] : null;
+        let employeeName: string | null = null;
+        if (check.employeeId) {
+          const employee = await this.getEmployee(check.employeeId);
+          if (employee) {
+            employeeName = `${employee.firstName} ${employee.lastName}`.trim();
+          }
+        }
+        return {
+          ...check,
+          employeeName,
+          itemCount: activeItems.length,
+          unsentCount: activeItems.filter((i: any) => !i.sent).length,
+          roundCount: rounds.length,
+          lastRoundAt: lastRound?.sentAt || null,
+        };
+      })
+    );
+
+    return enrichedChecks;
+  }
+
   // KDS Tickets
   async getKdsTickets(filters?: { rvcId?: string; kdsDeviceId?: string; stationType?: string; propertyId?: string }): Promise<any[]> {
     // Filter out bumped AND voided tickets - voided means cancelled/auto-bumped
@@ -3016,7 +3396,7 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async createKdsTicket(data: InsertKdsTicket): Promise<KdsTicket> {
+  async createKdsTicket(data: InsertKdsTicket & { id?: string }): Promise<KdsTicket> {
     const [result] = await db.insert(kdsTickets).values(sanitizeDates(data)).returning();
     return result;
   }
@@ -6973,17 +7353,14 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-import { isLocalMode, sqliteDb } from "./db";
-import { SqliteDatabaseStorage } from "./storage-sqlite";
-import { initSqliteSchema } from "./sqlite-init";
+import { isLocalMode } from "./db";
 
 function createStorage(): IStorage {
-  if (isLocalMode && sqliteDb) {
-    initSqliteSchema(sqliteDb);
-    console.log("[LFS] Using SQLite storage (local mode)");
-    return new SqliteDatabaseStorage(sqliteDb);
+  if (isLocalMode) {
+    console.log("[LFS] Using PostgreSQL storage (local mode)");
+  } else {
+    console.log("[Cloud] Using PostgreSQL storage");
   }
-  console.log("[Cloud] Using PostgreSQL storage");
   return new DatabaseStorage();
 }
 

@@ -65,10 +65,10 @@ class ConnectionManager {
   }
 
   getBaseUrl(): string {
-    if (this.isOffline && this.localServerUrl) {
+    if (this.localServerUrl) {
       return this.localServerUrl;
     }
-    return this.cloudServerUrl;
+    return window.location.origin;
   }
 
   getWsUrl(): string {

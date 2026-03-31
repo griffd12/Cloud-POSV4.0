@@ -3,10 +3,9 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { db } from "./db";
-import { checks, checkItems, checkPayments, tenders, paymentGatewayConfig } from "@shared/schema";
-import { and, eq, sql } from "drizzle-orm";
 import { getConfigSyncService } from "./config-sync";
+import { getPendingJournalEntries, getPendingJournalCount, markJournalEntrySynced, recordJournalEntry, getJournalStats, atomicJournalWrite } from "./transaction-journal";
+import { getCloudSyncStatus } from "./cloud-sync";
 
 const isLocalMode = process.env.DB_MODE === "local";
 
@@ -81,31 +80,24 @@ export function registerLfsSyncRoutes(app: Express) {
   }
 }
 
-interface JournalCapableStorage {
-  getPendingTransactions(): unknown[];
-  getPendingTransactionCount(): number;
-  markTransactionSynced(id: string): void;
-}
-
-function hasJournalMethods(s: unknown): s is JournalCapableStorage {
-  const obj = s as Record<string, unknown>;
-  return typeof obj.getPendingTransactions === "function"
-    && typeof obj.getPendingTransactionCount === "function"
-    && typeof obj.markTransactionSynced === "function";
-}
 
 const ENTITY_SYNC_ORDER: Record<string, number> = {
   check: 0,
   check_item: 1,
   round: 2,
-  check_payment: 3,
-  check_discount: 4,
-  check_service_charge: 5,
-  refund: 6,
-  time_punch: 10,
-  cash_transaction: 11,
-  inventory_transaction: 12,
-  audit_log: 20,
+  kds_ticket: 3,
+  kds_ticket_item: 4,
+  kds_item: 5,
+  check_payment: 6,
+  check_discount: 7,
+  check_service_charge: 8,
+  check_lock: 9,
+  refund: 10,
+  payment_transaction: 11,
+  item_availability: 12,
+  time_punch: 15,
+  cash_transaction: 16,
+  inventory_transaction: 17,
 };
 
 function sortByDependency(entries: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
@@ -152,12 +144,31 @@ function requireLfsLocalAuth(req: Request, res: Response, next: Function) {
 }
 
 function registerLfsLocalRoutes(app: Express) {
-  if (!hasJournalMethods(storage)) {
-    console.error("[LFS Sync] Storage does not support journal methods");
-    return;
-  }
-  const journalStorage = storage;
-  const sqliteDb = (storage as Record<string, unknown>).db as import("better-sqlite3").Database | undefined;
+
+  app.get("/api/lfs/db-status", async (_req: Request, res: Response) => {
+    try {
+      const dbStatus = await storage.getDatabaseStatus();
+      res.json({
+        status: "connected",
+        database: dbStatus.db,
+        version: dbStatus.version,
+        serverTime: dbStatus.serverTime,
+        lfsMode: true,
+        databaseUrl: process.env.LFS_DATABASE_URL ? "[configured]" : "[missing]",
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(503).json({
+        status: "error",
+        message: `LFS database connection failed: ${msg}`,
+        databaseUrl: process.env.LFS_DATABASE_URL ? "[configured]" : "[missing]",
+        setupRequired: !process.env.LFS_DATABASE_URL,
+        instructions: !process.env.LFS_DATABASE_URL
+          ? "Set LFS_DATABASE_URL environment variable to your local PostgreSQL connection string"
+          : "Verify PostgreSQL is running and accessible at the configured LFS_DATABASE_URL",
+      });
+    }
+  });
 
   app.get("/api/lfs/capabilities", async (_req: Request, res: Response) => {
     try {
@@ -261,28 +272,25 @@ function registerLfsLocalRoutes(app: Express) {
         return res.status(400).json({ error: "checkId, tenderId, tenderName, and amount are required" });
       }
 
-      const payment = await storage.createPayment({
-        checkId,
-        tenderId,
-        tenderName,
-        amount: amount.toString(),
-        paymentStatus: "pending_settlement",
-        paymentTransactionId: paymentTransactionId || undefined,
-        employeeId: employeeId || undefined,
-        businessDate: businessDate || undefined,
-      } as Parameters<typeof storage.createPayment>[0]);
+      const paymentId = crypto.randomUUID();
 
-      if (typeof (storage as Record<string, unknown>).recordTransaction === "function") {
-        (storage as Record<string, Function>).recordTransaction({
+      const { result: payment } = await atomicJournalWrite(
+        {
           operationType: "create",
           entityType: "check_payment",
-          entityId: payment.id,
+          entityId: paymentId,
           httpMethod: "POST",
-          endpoint: "/api/check-payments",
-          payload: payment,
-          offlineTransactionId: payment.offlineTransactionId || undefined,
-        });
-      }
+          endpoint: "/api/lfs/record-saf-payment",
+          payload: { checkId, tenderId, tenderName, amount, employeeId, businessDate, paymentTransactionId },
+          idempotencyKey: paymentTransactionId || `saf-payment:${checkId}:${tenderId}:${amount}`,
+        },
+        () => storage.createPayment({
+          id: paymentId, checkId, tenderId, tenderName,
+          amount: amount.toString(), paymentStatus: "pending_settlement",
+          paymentTransactionId: paymentTransactionId || undefined,
+          employeeId: employeeId || undefined, businessDate: businessDate || undefined,
+        } as Parameters<typeof storage.createPayment>[0])
+      );
 
       res.json({ ok: true, payment });
     } catch (e: unknown) {
@@ -441,8 +449,19 @@ function registerLfsLocalRoutes(app: Express) {
 
   app.get("/api/lfs/journal/count", async (_req: Request, res: Response) => {
     try {
-      const count = journalStorage.getPendingTransactionCount();
+      const count = await getPendingJournalCount();
       res.json({ count });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.get("/api/lfs/journal/stats", async (_req: Request, res: Response) => {
+    try {
+      const stats = await getJournalStats();
+      const cloudSync = getCloudSyncStatus();
+      res.json({ ...stats, cloudSync });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });
@@ -477,12 +496,24 @@ function registerLfsLocalRoutes(app: Express) {
     const apiKey = process.env.LFS_API_KEY || "";
 
     try {
-      const entries = journalStorage.getPendingTransactions() as Array<Record<string, unknown>>;
+      const entries = await getPendingJournalEntries(100);
       if (!entries.length) {
         return res.json({ ok: true, synced: 0, remaining: 0 });
       }
 
-      const sorted = sortByDependency(entries);
+      const sorted = sortByDependency(entries.map(e => ({
+        id: e.id,
+        operation_type: e.operationType,
+        entity_type: e.entityType,
+        entity_id: e.entityId,
+        http_method: e.httpMethod,
+        endpoint: e.endpoint,
+        payload: e.payload,
+        offline_transaction_id: e.offlineTransactionId,
+        workstation_id: e.workstationId,
+        created_at: e.createdAt,
+      })));
+
       let synced = 0;
       let lastError: string | null = null;
 
@@ -499,11 +530,7 @@ function registerLfsLocalRoutes(app: Express) {
           });
 
           if (uploadRes.ok) {
-            const result = await uploadRes.json();
-            if (result.remapId && entry.entity_id) {
-              storeLocalRemap(sqliteDb, entry.entity_id as string, result.remapId);
-            }
-            journalStorage.markTransactionSynced(entry.id as string);
+            await markJournalEntrySynced(entry.id as string);
             synced++;
           } else {
             const errBody = await uploadRes.text().catch(() => "");
@@ -516,8 +543,56 @@ function registerLfsLocalRoutes(app: Express) {
         }
       }
 
-      const remaining = journalStorage.getPendingTransactionCount();
+      const remaining = await getPendingJournalCount();
       res.json({ ok: synced > 0, synced, remaining, lastError });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.get("/api/lfs/mode", async (_req: Request, res: Response) => {
+    try {
+      const cloudUrl = process.env.LFS_CLOUD_URL || "";
+      let internetAvailable = false;
+      let cloudReachable = false;
+
+      const [internetCheck, cloudCheck] = await Promise.allSettled([
+        fetch("https://dns.google/resolve?name=example.com", { signal: AbortSignal.timeout(3000) }).then(() => true).catch(() => false),
+        cloudUrl ? fetch(`${cloudUrl}/api/health`, { signal: AbortSignal.timeout(3000) }).then(r => r.ok).catch(() => false) : Promise.resolve(false),
+      ]);
+
+      internetAvailable = internetCheck.status === "fulfilled" && internetCheck.value === true;
+      cloudReachable = cloudCheck.status === "fulfilled" && cloudCheck.value === true;
+
+      const syncService = getConfigSyncService();
+      const syncStatus = syncService?.getStatus();
+      const cloudSync = getCloudSyncStatus();
+      const pendingCount = await getPendingJournalCount();
+
+      let mode: "green" | "yellow" | "red";
+      let meaning: string;
+
+      if (!internetAvailable) {
+        mode = "red";
+        meaning = "No internet — cash only, all operations local, journal accumulating";
+      } else if (!cloudReachable || pendingCount > 0 || cloudSync.lastSyncError) {
+        mode = "yellow";
+        meaning = "Internet available (credit cards work) but cloud sync is delayed or cloud unreachable";
+      } else {
+        mode = "green";
+        meaning = "Everything healthy — config synced, transactions flowing to cloud, credit cards work";
+      }
+
+      res.json({
+        mode,
+        meaning,
+        internetAvailable,
+        cloudReachable,
+        pendingJournalEntries: pendingCount,
+        configSync: syncStatus || null,
+        cloudSync,
+      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });
@@ -525,35 +600,11 @@ function registerLfsLocalRoutes(app: Express) {
   });
 }
 
-function storeLocalRemap(sqliteDb: import("better-sqlite3").Database | undefined, localId: string, cloudId: string): void {
-  if (!sqliteDb) return;
-  try {
-    sqliteDb.prepare(
-      `INSERT OR REPLACE INTO "lfs_id_remap" (local_id, cloud_id, created_at) VALUES (?, ?, ?)`
-    ).run(localId, cloudId, new Date().toISOString());
-  } catch { /* table may not exist yet */ }
-}
-
-function getLocalRemap(sqliteDb: import("better-sqlite3").Database | undefined, localId: string): string | null {
-  if (!sqliteDb) return null;
-  try {
-    const row = sqliteDb.prepare(
-      `SELECT cloud_id FROM "lfs_id_remap" WHERE local_id = ?`
-    ).get(localId) as { cloud_id: string } | undefined;
-    return row?.cloud_id || null;
-  } catch { return null; }
-}
-
 const idRemapCache = new Map<string, string>();
 
 async function ensureCloudRemapTable(): Promise<void> {
-  if (!db) return;
   try {
-    await db.execute(`CREATE TABLE IF NOT EXISTS "lfs_id_remap" (
-      "local_id" VARCHAR PRIMARY KEY,
-      "cloud_id" VARCHAR NOT NULL,
-      "created_at" TIMESTAMP DEFAULT NOW()
-    )`);
+    await storage.ensureLfsRemapTable();
   } catch (e: unknown) {
     console.error("[LFS Sync] Failed to create remap table:", e instanceof Error ? e.message : e);
   }
@@ -575,6 +626,7 @@ const ALLOWED_CONFIG_TABLES = new Set([
   "minor_labor_rules", "tip_pool_policies", "tip_rules", "tip_rule_job_percentages",
   "loyalty_programs", "loyalty_rewards", "emc_option_flags",
   "terminal_devices", "print_agents", "cash_drawers", "rvc_counters",
+  "online_order_sources",
 ]);
 
 async function recordLfsSyncActivity(req: Request, syncType: string, direction: string, recordCount: number, status: string, errorMessage?: string) {
@@ -620,43 +672,9 @@ function registerLfsCloudRoutes(app: Express) {
       if (propertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
       const since = req.query.since as string | undefined;
 
-      const colsResult = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name = ${tableName}`);
-      const allCols = new Set((colsResult.rows || []).map((r: any) => r.column_name as string));
-      const hasPropertyId = allCols.has("property_id");
-      const hasEnterpriseId = allCols.has("enterprise_id");
-      const hasUpdatedAt = allCols.has("updated_at");
-
-      let enterpriseId: string | null = null;
-      if (propertyId && hasPropertyId && hasEnterpriseId) {
-        const propResult = await db.execute(sql`SELECT "enterprise_id" FROM "properties" WHERE "id" = ${propertyId} LIMIT 1`);
-        const propRow = (propResult.rows || [])[0] as { enterprise_id?: string } | undefined;
-        enterpriseId = propRow?.enterprise_id || null;
-      }
-
-      let incremental = false;
-      let result;
-      if (since && hasUpdatedAt) {
-        incremental = true;
-        if (propertyId && hasPropertyId && enterpriseId) {
-          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE ("property_id" = ${propertyId} OR ("property_id" IS NULL AND "enterprise_id" = ${enterpriseId})) AND "updated_at" > ${since}`);
-        } else if (propertyId && hasPropertyId) {
-          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "property_id" = ${propertyId} AND "updated_at" > ${since}`);
-        } else {
-          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "updated_at" > ${since}`);
-        }
-      } else {
-        if (propertyId && hasPropertyId && enterpriseId) {
-          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "property_id" = ${propertyId} OR ("property_id" IS NULL AND "enterprise_id" = ${enterpriseId})`);
-        } else if (propertyId && hasPropertyId) {
-          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)} WHERE "property_id" = ${propertyId}`);
-        } else {
-          result = await db.execute(sql`SELECT * FROM ${sql.identifier(tableName)}`);
-        }
-      }
-      const rows = result.rows || [];
-      const columns = rows.length > 0 ? Object.keys(rows[0] as Record<string, unknown>) : [];
-      res.json({ rows, columns, incremental });
-      recordLfsSyncActivity(req, `config-download:${tableName}`, "down", rows.length, "success");
+      const data = await storage.getConfigTableData(tableName, propertyId || undefined, undefined, since);
+      res.json(data);
+      recordLfsSyncActivity(req, `config-download:${tableName}`, "down", data.rows.length, "success");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       console.error(`[LFS Sync] Config export error:`, msg);
@@ -785,23 +803,8 @@ function registerLfsCloudRoutes(app: Express) {
       const scopedPropertyId = enforceLfsPropertyScope(req, res);
       if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
       const propertyId = scopedPropertyId;
-      let pendingPayments;
-      if (propertyId) {
-        pendingPayments = await db.select()
-          .from(checkPayments)
-          .innerJoin(checks, eq(checks.id, checkPayments.checkId))
-          .where(and(
-            eq(checkPayments.paymentStatus, "pending_settlement"),
-            sql`EXISTS (SELECT 1 FROM rvcs WHERE rvcs.id = ${checks.rvcId} AND rvcs.property_id = ${propertyId})`
-          ));
-        const payments = pendingPayments.map(r => r.check_payments);
-        res.json({ count: payments.length, payments });
-      } else {
-        pendingPayments = await db.select()
-          .from(checkPayments)
-          .where(eq(checkPayments.paymentStatus, "pending_settlement"));
-        res.json({ count: pendingPayments.length, payments: pendingPayments });
-      }
+      const payments = await storage.getPaymentsByStatus("pending_settlement", propertyId || undefined);
+      res.json({ count: payments.length, payments });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });
@@ -821,22 +824,10 @@ function registerLfsCloudRoutes(app: Express) {
       try {
         const { createPaymentAdapter, resolveCredentials, getRequiredCredentialKeys } = await import("./payments/registry");
 
-        if (tenderId && db) {
-          const tenderRows = await db.select().from(tenders).where(eq(tenders.id, tenderId)).limit(1);
-          const tender = tenderRows[0];
-          if (tender?.gatewayType) {
-            const configConditions = [eq(paymentGatewayConfig.gatewayType, tender.gatewayType)];
-            if (tender.propertyId) {
-              configConditions.push(eq(paymentGatewayConfig.propertyId, tender.propertyId));
-            }
-            const configRows = await db.select().from(paymentGatewayConfig)
-              .where(and(...configConditions)).limit(1);
-            let config = configRows[0];
-            if (!config && tender.propertyId) {
-              const fallbackRows = await db.select().from(paymentGatewayConfig)
-                .where(eq(paymentGatewayConfig.gatewayType, tender.gatewayType)).limit(1);
-              config = fallbackRows[0];
-            }
+        if (tenderId) {
+          const tenderData = await storage.getTenderWithGateway(tenderId);
+          if (tenderData?.tender?.gatewayType) {
+            const { tender, gatewayConfig: config } = tenderData;
 
             const requiredKeys = getRequiredCredentialKeys(tender.gatewayType);
             const prefix = config?.envKeyPrefix || tender.gatewayType.toUpperCase();
@@ -845,7 +836,7 @@ function registerLfsCloudRoutes(app: Express) {
             const environment = config?.environment === "production" ? "production" : "sandbox";
 
             const adapter = createPaymentAdapter(tender.gatewayType, credentials, {}, environment);
-            if (adapter && typeof (adapter as Record<string, unknown>).verifyTransaction === "function") {
+            if (adapter && typeof (adapter as unknown as Record<string, unknown>).verifyTransaction === "function") {
               const verification = await (adapter as unknown as { verifyTransaction: (id: string, amt: string) => Promise<{ settled?: boolean; declined?: boolean; transactionId?: string; message?: string }> }).verifyTransaction(transactionId, amount);
               return res.json({
                 verified: verification.settled === true,
@@ -884,14 +875,11 @@ function registerLfsCloudRoutes(app: Express) {
 
       let payment;
       if (offlineTransactionId) {
-        const results = await db.select().from(checkPayments)
-          .where(eq(checkPayments.offlineTransactionId, offlineTransactionId)).limit(1);
-        payment = results[0];
+        const foundId = await storage.findEntityByOfflineTransactionId("check_payment", offlineTransactionId);
+        if (foundId) payment = await storage.getPaymentById(foundId);
       }
       if (!payment && paymentId) {
-        const results = await db.select().from(checkPayments)
-          .where(eq(checkPayments.id, paymentId)).limit(1);
-        payment = results[0];
+        payment = await storage.getPaymentById(paymentId);
       }
       if (!payment) {
         return res.status(404).json({ error: "Payment not found" });
@@ -955,21 +943,7 @@ function registerLfsCloudRoutes(app: Express) {
       const scopedPropertyId = enforceLfsPropertyScope(req, res);
       if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
       const propertyId = scopedPropertyId;
-      let failedPayments;
-      if (propertyId) {
-        const joined = await db.select()
-          .from(checkPayments)
-          .innerJoin(checks, eq(checks.id, checkPayments.checkId))
-          .where(and(
-            eq(checkPayments.paymentStatus, "settlement_failed"),
-            sql`EXISTS (SELECT 1 FROM rvcs WHERE rvcs.id = ${checks.rvcId} AND rvcs.property_id = ${propertyId})`
-          ));
-        failedPayments = joined.map(r => r.check_payments);
-      } else {
-        failedPayments = await db.select()
-          .from(checkPayments)
-          .where(eq(checkPayments.paymentStatus, "settlement_failed"));
-      }
+      const failedPayments = await storage.getPaymentsByStatus("settlement_failed", propertyId || undefined);
       res.json({
         count: failedPayments.length,
         payments: failedPayments,
@@ -1002,8 +976,7 @@ function registerLfsCloudRoutes(app: Express) {
         }
 
         try {
-          const [payment] = await db.select().from(checkPayments)
-            .where(eq(checkPayments.id, paymentId)).limit(1);
+          const payment = await storage.getPaymentById(paymentId);
 
           if (!payment) {
             results.push({ paymentId, status: "skipped", error: "Payment not found" });
@@ -1045,19 +1018,16 @@ function registerLfsCloudRoutes(app: Express) {
 }
 
 async function storeDurableRemap(localId: string, cloudId: string): Promise<void> {
-  if (!db || !remapTableReady) return;
+  if (!remapTableReady) return;
   try {
-    await db.execute(sql`INSERT INTO "lfs_id_remap" (local_id, cloud_id, created_at) VALUES (${localId}, ${cloudId}, NOW()) ON CONFLICT (local_id) DO UPDATE SET cloud_id = EXCLUDED.cloud_id`);
+    await storage.storeLfsIdRemap(localId, cloudId);
   } catch { /* table may not exist, non-critical */ }
 }
 
 async function loadDurableRemap(localId: string): Promise<string | null> {
-  if (!db || !remapTableReady) return null;
+  if (!remapTableReady) return null;
   try {
-    const rows = await db.execute(sql`SELECT cloud_id FROM "lfs_id_remap" WHERE local_id = ${localId}`);
-    if (rows.rows && rows.rows.length > 0) {
-      return (rows.rows[0] as Record<string, unknown>).cloud_id as string;
-    }
+    return await storage.loadLfsIdRemap(localId);
   } catch { /* table may not exist */ }
   return null;
 }
@@ -1075,34 +1045,8 @@ async function resolveCloudId(localId: string): Promise<string> {
 }
 
 async function checkDuplicate(entityType: string, offlineTransactionId: string): Promise<string | null> {
-  if (!db) return null;
-
   try {
-    switch (entityType) {
-      case "check": {
-        const rows = await db.select({ id: checks.id })
-          .from(checks)
-          .where(eq(checks.offlineTransactionId, offlineTransactionId))
-          .limit(1);
-        return rows.length > 0 ? rows[0].id : null;
-      }
-      case "check_item": {
-        const rows = await db.select({ id: checkItems.id })
-          .from(checkItems)
-          .where(eq(checkItems.offlineTransactionId, offlineTransactionId))
-          .limit(1);
-        return rows.length > 0 ? rows[0].id : null;
-      }
-      case "check_payment": {
-        const rows = await db.select({ id: checkPayments.id })
-          .from(checkPayments)
-          .where(eq(checkPayments.offlineTransactionId, offlineTransactionId))
-          .limit(1);
-        return rows.length > 0 ? rows[0].id : null;
-      }
-      default:
-        return null;
-    }
+    return await storage.findEntityByOfflineTransactionId(entityType, offlineTransactionId);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     console.error(`[LFS Sync] Dedup check failed for ${entityType}/${offlineTransactionId}: ${msg}`);
@@ -1152,8 +1096,8 @@ async function syncEntity(
       if (operationType === "create") {
         const { id: localId, checkNumber: _offlineCheckNum, ...insertData } = dataWithOfflineId;
         const rvcId = insertData.rvcId as string;
-        const createFn = typeof (storage as Record<string, unknown>).createCheckAtomic === "function"
-          ? (storage as Record<string, Function>).createCheckAtomic.bind(storage)
+        const createFn = typeof (storage as unknown as Record<string, unknown>).createCheckAtomic === "function"
+          ? (storage as unknown as Record<string, Function>).createCheckAtomic.bind(storage)
           : null;
         const created = createFn && rvcId
           ? await createFn(rvcId, insertData)
@@ -1346,17 +1290,133 @@ async function syncEntity(
       }
       throw new Error(`Unsupported operation for inventory_transaction: ${operationType}`);
     }
-    case "audit_log": {
+    case "kds_ticket": {
+      const remapped = await remapCheckIdAsync(dataWithOfflineId);
       if (operationType === "create") {
-        const { id: localId, ...insertData } = dataWithOfflineId;
-        const created = await storage.createAuditLog(insertData as Parameters<typeof storage.createAuditLog>[0]);
+        const { id: localId, ...insertData } = remapped;
+        const created = await storage.createKdsTicket(insertData as Parameters<typeof storage.createKdsTicket>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
           await storeDurableRemap(localId, created.id);
         }
         return created;
+      } else if (operationType === "update") {
+        const rawId = remapped.id as string;
+        const cloudId = await resolveCloudId(rawId);
+        const { id: _id, offlineTransactionId: _otxn, ...updateData } = remapped;
+        return await storage.updateKdsTicket(cloudId, updateData as Parameters<typeof storage.updateKdsTicket>[1]);
       }
-      throw new Error(`Unsupported operation for audit_log: ${operationType}`);
+      throw new Error(`Unsupported operation for kds_ticket: ${operationType}`);
+    }
+    case "kds_ticket_item": {
+      const kdsTicketId = await resolveCloudId(dataWithOfflineId.kdsTicketId as string);
+      const checkItemId = await resolveCloudId(dataWithOfflineId.checkItemId as string);
+      if (operationType === "create") {
+        await storage.createKdsTicketItem(kdsTicketId, checkItemId);
+        return { kdsTicketId, checkItemId };
+      } else if (operationType === "delete") {
+        await storage.removeKdsTicketItem(kdsTicketId, checkItemId);
+        return { kdsTicketId, checkItemId, deleted: true };
+      }
+      throw new Error(`Unsupported operation for kds_ticket_item: ${operationType}`);
+    }
+    case "kds_item": {
+      if (operationType === "update") {
+        const rawId = dataWithOfflineId.id as string;
+        const cloudId = await resolveCloudId(rawId);
+        const action = dataWithOfflineId.action as string;
+        if (action === "ready") {
+          await storage.markKdsItemReady(cloudId);
+        } else if (action === "unready") {
+          await storage.unmarkKdsItemReady(cloudId);
+        }
+        return { id: cloudId, action };
+      }
+      throw new Error(`Unsupported operation for kds_item: ${operationType}`);
+    }
+    case "check_lock": {
+      if (operationType === "create") {
+        return { skipped: true, reason: "check_lock is local-only state" };
+      } else if (operationType === "delete") {
+        return { skipped: true, reason: "check_lock is local-only state" };
+      }
+      return { skipped: true, reason: "check_lock is local-only state" };
+    }
+    case "payment_transaction": {
+      if (operationType === "create") {
+        const { id: localId, ...insertData } = dataWithOfflineId;
+        const created = await storage.createPaymentTransaction(insertData as Parameters<typeof storage.createPaymentTransaction>[0]);
+        if (typeof localId === "string") {
+          idRemapCache.set(localId, created.id);
+          await storeDurableRemap(localId, created.id);
+        }
+        return created;
+      } else if (operationType === "update") {
+        const rawId = dataWithOfflineId.id as string;
+        const cloudId = await resolveCloudId(rawId);
+        const { id: _id, offlineTransactionId: _otxn, ...updateData } = dataWithOfflineId;
+        return await storage.updatePaymentTransaction(cloudId, updateData as Parameters<typeof storage.updatePaymentTransaction>[1]);
+      }
+      throw new Error(`Unsupported operation for payment_transaction: ${operationType}`);
+    }
+    case "item_availability": {
+      if (operationType === "update") {
+        const menuItemId = dataWithOfflineId.menuItemId as string;
+        const propId = dataWithOfflineId.propertyId as string;
+        const quantity = (dataWithOfflineId.quantity as number) || 1;
+        const action = dataWithOfflineId.action as string;
+        if (action === "restore") {
+          await storage.restoreItemAvailability(menuItemId, propId, quantity);
+        }
+        return { menuItemId, propertyId: propId, action, quantity };
+      }
+      throw new Error(`Unsupported operation for item_availability: ${operationType}`);
+    }
+    case "gift_card": {
+      if (operationType === "update") {
+        const rawId = dataWithOfflineId.id as string;
+        const cloudId = await resolveCloudId(rawId);
+        const { id: _id, ...updateData } = dataWithOfflineId;
+        return await storage.updateGiftCard(cloudId, updateData);
+      }
+      throw new Error(`Unsupported operation for gift_card: ${operationType}`);
+    }
+    case "loyalty_member": {
+      if (operationType === "update") {
+        const rawId = dataWithOfflineId.id as string;
+        const cloudId = await resolveCloudId(rawId);
+        const { id: _id, ...updateData } = dataWithOfflineId;
+        return await storage.updateLoyaltyMember(cloudId, updateData);
+      }
+      throw new Error(`Unsupported operation for loyalty_member: ${operationType}`);
+    }
+    case "loyalty_enrollment": {
+      if (operationType === "update") {
+        const rawId = dataWithOfflineId.id as string;
+        const cloudId = await resolveCloudId(rawId);
+        const { id: _id, ...updateData } = dataWithOfflineId;
+        return await storage.updateLoyaltyMember(cloudId, updateData);
+      }
+      throw new Error(`Unsupported operation for loyalty_enrollment: ${operationType}`);
+    }
+    case "online_order": {
+      if (operationType === "update") {
+        const rawId = dataWithOfflineId.id as string;
+        const cloudId = await resolveCloudId(rawId);
+        const { id: _id, ...updateData } = dataWithOfflineId;
+        return await storage.updateOnlineOrder(cloudId, updateData);
+      }
+      throw new Error(`Unsupported operation for online_order: ${operationType}`);
+    }
+    case "offline_order_queue": {
+      if (operationType === "create") {
+        return { skipped: true, reason: "offline_order_queue synced via dedicated mechanism" };
+      }
+      return { skipped: true, reason: "offline_order_queue synced via dedicated mechanism" };
+    }
+    case "check_merge":
+    case "check_split": {
+      return { skipped: true, reason: "compound container - child entries carry actual mutations" };
     }
     default:
       throw new Error(`Unknown entity type for sync: ${entityType}`);

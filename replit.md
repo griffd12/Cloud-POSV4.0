@@ -37,20 +37,26 @@ All POS operations go directly to the cloud Express server and commit to Postgre
 ### Technical Stack
 - **Frontend**: React 18, TypeScript, Vite, Wouter, TanStack React Query, React Context, shadcn/ui, Tailwind CSS.
 - **Backend**: Node.js, Express, TypeScript, RESTful JSON API with WebSocket.
-- **Database**: PostgreSQL with Drizzle ORM (cloud), SQLite via better-sqlite3 (local failover).
+- **Database**: PostgreSQL with Drizzle ORM (both cloud and local failover — unified store).
 
 ### Local Failover Server (LFS) Architecture
-The same Express codebase runs against either PostgreSQL (cloud) or SQLite (local) based on `DB_MODE`. LFS handles offline operations, syncing configuration and transactions between local SQLite and the cloud PostgreSQL.
+The same Express codebase runs against local PostgreSQL (LFS) or cloud PostgreSQL based on `DB_MODE`. SQLite has been eliminated — both modes use PostgreSQL as a unified store. LFS handles offline operations, syncing configuration and transactions between local PostgreSQL and the cloud PostgreSQL.
 
-- **DB Modes**: `DB_MODE=local` uses SQLite; unset/cloud uses PostgreSQL.
-- **Schema Management**: `sqlite-init.ts` auto-generates SQLite schema from PostgreSQL Drizzle definitions.
-- **Config Sync**: Background service pulls config from cloud to local SQLite and pushes transactions up.
-- **Auto-Failover**: Browser-side `ConnectionManager` detects cloud connectivity and transparently routes API/WebSocket traffic to LFS URL on failure, and back to cloud upon recovery. The LFS URL is configured per-device via the "Service Host URL" field in EMC on both Workstation and KDS Device edit forms (Network Settings section). For workstations, `ConnectionManager.initFromWorkstation()` reads it at login; for KDS, it's set during KDS device selection.
+- **DB Modes**: `DB_MODE=local` uses local PostgreSQL via `LFS_DATABASE_URL` (falls back to `DATABASE_URL`); unset/cloud uses cloud PostgreSQL.
+- **Unified Storage**: `DatabaseStorage` is always used (no SQLite branch). `server/storage-sqlite.ts` and `server/sqlite-init.ts` are deprecated dead code.
+- **Config Sync**: Background service (`server/config-sync.ts`) pulls config from cloud to local PostgreSQL (all 56 tables at Enterprise/Property/RVC levels) and pushes transactions up. Uses Drizzle ORM and `lfs_sync_status`/`lfs_offline_sequence` tables.
+- **Transaction Journal**: All LFS writes use write-through journaling: journal entry is persisted first (via `journalWrite()` which throws on failure), then business write executes. For creates, entity IDs are pre-generated (`crypto.randomUUID()`) so the journal can reference them before the entity exists. Entries are idempotent (deduped by `event_id`). Journal failures abort the request — no silent swallowing.
+- **Cloud Sync**: `server/cloud-sync.ts` runs an async background process that pushes pending journal entries to the cloud endpoint in dependency order.
+- **EffectiveConfig**: `server/effective-config.ts` provides centralized config resolution with RVC override → Property override → Enterprise default priority. Integrated into runtime paths (tax group lookup during item creation) and exposed via `/api/effective-config/{tax-groups,tenders,service-charges,option-flag}` endpoints.
+- **Storage Enforcement**: All route handlers use the `IStorage` interface — no direct `db.select()`/`db.insert()` in route files.
+- **Mode Indicator**: `GET /api/lfs/mode` returns Green/Yellow/Red status reflecting internet availability, cloud reachability, and journal sync state. Client component `LfsModeBar` displays this in the offline banner.
+- **EMC Access**: EMC user management routes are disabled on LFS (cloud-only feature, returns 403).
+- **LFS-Only Runtime Model**: When deployed as LFS, the local server is the sole runtime endpoint for POS/KDS devices. There is no proxy mode — all reads and writes go through LFS → Local PostgreSQL. The LFS URL is configured per-device via the "Service Host URL" field in EMC on both Workstation and KDS Device edit forms (Network Settings section). For workstations, it's read at login; for KDS, it's set during KDS device selection.
 - **PIN Auth Parity**: Both cloud and LFS use direct string equality for PIN verification (NOT bcrypt). PINs are stored as plain text in `pin_hash` column and compared directly.
 - **Connect-to-Server Protocol Detection**: The server setup page auto-detects private IPs (10.x, 172.16-31.x, 192.168.x, 127.x, localhost) and defaults to `http://`. For public URLs without protocol, tries `https://` first, falls back to `http://`.
 - **Offline Payments (Store-and-Forward)**: LFS processes payments locally for SAF-capable terminals, recording them as `pending_settlement`. Payments are later reconciled with the cloud via server-to-server calls.
-- **Transaction Journal Coverage**: Refunds, time punches, cash transactions, inventory transactions, and audit logs are journaled in LFS SQLite for cloud sync on reconnection. Cloud-side `syncEntity()` handles all journaled entity types.
-- **LFS Reporting**: In local mode, `server/db.ts` creates a `drizzle-orm/better-sqlite3` instance with a Proxy that provides `execute()` returning `{ rows }` format matching PostgreSQL. This allows all reporting views/routes to work against SQLite without modification.
+- **Transaction Journal Coverage**: Refunds, time punches, cash transactions, inventory transactions, and audit logs are journaled in the `transaction_journal` PostgreSQL table for cloud sync on reconnection. Cloud-side `syncEntity()` handles all journaled entity types.
+- **LFS Reporting**: In local mode, all reporting queries run against the local PostgreSQL database using standard Drizzle ORM — no compatibility layer needed.
 - **React Query networkMode**: Set to `'always'` (not `'online'`) so requests to LFS work even when browser detects no internet.
 - **KDS WebSocket Failover**: KDS WebSocket URL uses `connectionManager.getWsUrl()` to route to LFS when offline.
 - **LFS Packaging & Admin**: Includes build scripts for self-contained distributions, Windows installer as a service, system tray indicator, admin dashboard for status/config/logs, and auto-update mechanism. Admin dashboard path resolution uses `path.resolve(__dirname, '..')` as `LFS_BASE_DIR` for correct path lookup in bundled builds.

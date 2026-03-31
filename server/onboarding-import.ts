@@ -1,7 +1,13 @@
 import { Express, Request, Response } from "express";
-import { db } from "./db";
-import * as schema from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { storage } from "./storage";
+import type {
+  InsertEnterprise, InsertProperty, InsertRvc, InsertTaxGroup,
+  InsertTender, InsertDiscount, InsertServiceCharge, InsertRole,
+  InsertJobCode, InsertPrinter, InsertKdsDevice, InsertOrderDevice,
+  InsertPrintClass, InsertMajorGroup, InsertFamilyGroup, InsertSlu,
+  InsertModifierGroup, InsertModifier, InsertMenuItem,
+  InsertEmployee, InsertModifierGroupModifier, InsertMenuItemModifierGroup,
+} from "@shared/schema";
 import ExcelJS from "exceljs";
 import crypto from "crypto";
 
@@ -760,57 +766,68 @@ async function generateExcelTemplate(): Promise<Buffer> {
 }
 
 async function lookupEnterpriseByCode(code: string): Promise<string | null> {
-  const [ent] = await db.select().from(schema.enterprises).where(eq(schema.enterprises.code, code)).limit(1);
+  const all = await storage.getEnterprises();
+  const ent = all.find(e => e.code === code);
   return ent?.id || null;
 }
 
 async function lookupPropertyByCode(code: string): Promise<{ id: string; enterpriseId: string } | null> {
-  const [prop] = await db.select().from(schema.properties).where(eq(schema.properties.code, code)).limit(1);
+  const all = await storage.getProperties();
+  const prop = all.find(p => p.code === code);
   return prop ? { id: prop.id, enterpriseId: prop.enterpriseId } : null;
 }
 
 async function lookupRoleByCode(code: string, enterpriseId: string): Promise<string | null> {
-  const [role] = await db.select().from(schema.roles).where(and(eq(schema.roles.code, code), eq(schema.roles.enterpriseId, enterpriseId))).limit(1);
+  const all = await storage.getRoles();
+  const role = all.find(r => r.code === code && r.enterpriseId === enterpriseId);
   return role?.id || null;
 }
 
 async function lookupTaxGroupByName(name: string, enterpriseId: string): Promise<string | null> {
-  const [tg] = await db.select().from(schema.taxGroups).where(and(eq(schema.taxGroups.name, name), eq(schema.taxGroups.enterpriseId, enterpriseId))).limit(1);
+  const all = await storage.getTaxGroups();
+  const tg = all.find(t => t.name === name && t.enterpriseId === enterpriseId);
   return tg?.id || null;
 }
 
 async function lookupPrintClassByCode(code: string, enterpriseId: string): Promise<string | null> {
-  const [pc] = await db.select().from(schema.printClasses).where(and(eq(schema.printClasses.code, code), eq(schema.printClasses.enterpriseId, enterpriseId))).limit(1);
+  const all = await storage.getPrintClasses();
+  const pc = all.find(p => p.code === code && p.enterpriseId === enterpriseId);
   return pc?.id || null;
 }
 
 async function lookupMajorGroupByCode(code: string, enterpriseId: string): Promise<string | null> {
-  const [mg] = await db.select().from(schema.majorGroups).where(and(eq(schema.majorGroups.code, code), eq(schema.majorGroups.enterpriseId, enterpriseId))).limit(1);
+  const all = await storage.getMajorGroups();
+  const mg = all.find(m => m.code === code && m.enterpriseId === enterpriseId);
   return mg?.id || null;
 }
 
 async function lookupFamilyGroupByCode(code: string, enterpriseId: string): Promise<string | null> {
-  const [fg] = await db.select().from(schema.familyGroups).where(and(eq(schema.familyGroups.code, code), eq(schema.familyGroups.enterpriseId, enterpriseId))).limit(1);
+  const all = await storage.getFamilyGroups();
+  const fg = all.find(f => f.code === code && f.enterpriseId === enterpriseId);
   return fg?.id || null;
 }
 
 async function lookupSluByName(name: string, enterpriseId: string): Promise<string | null> {
-  const [slu] = await db.select().from(schema.slus).where(and(eq(schema.slus.name, name), eq(schema.slus.enterpriseId, enterpriseId))).limit(1);
+  const all = await storage.getSlus();
+  const slu = all.find(s => s.name === name && s.enterpriseId === enterpriseId);
   return slu?.id || null;
 }
 
 async function lookupModifierGroupByName(name: string, enterpriseId: string): Promise<string | null> {
-  const [mg] = await db.select().from(schema.modifierGroups).where(and(eq(schema.modifierGroups.name, name), eq(schema.modifierGroups.enterpriseId, enterpriseId))).limit(1);
+  const all = await storage.getModifierGroups();
+  const mg = all.find(m => m.name === name && m.enterpriseId === enterpriseId);
   return mg?.id || null;
 }
 
 async function lookupKdsDeviceByName(name: string, propertyId: string): Promise<string | null> {
-  const [kds] = await db.select().from(schema.kdsDevices).where(and(eq(schema.kdsDevices.name, name), eq(schema.kdsDevices.propertyId, propertyId))).limit(1);
+  const all = await storage.getKdsDevices(propertyId);
+  const kds = all.find(k => k.name === name);
   return kds?.id || null;
 }
 
 async function lookupJobCodeByCode(code: string, enterpriseId: string): Promise<string | null> {
-  const [jc] = await db.select().from(schema.jobCodes).where(and(eq(schema.jobCodes.code, code), eq(schema.jobCodes.enterpriseId, enterpriseId))).limit(1);
+  const all = await storage.getJobCodes();
+  const jc = all.find(j => j.code === code && j.enterpriseId === enterpriseId);
   return jc?.id || null;
 }
 
@@ -829,7 +846,7 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
       switch (phase) {
         case 1: {
           if (!row.name || !row.code) { errors.push(`Row ${rowNum}: name and code are required`); break; }
-          await db.insert(schema.enterprises).values({ name: row.name, code: row.code });
+          await storage.createEnterprise({ name: row.name, code: row.code } as InsertEnterprise);
           inserted++;
           break;
         }
@@ -837,14 +854,14 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.code || !row.enterprise_code) { errors.push(`Row ${rowNum}: name, code, and enterprise_code are required`); break; }
           const entId = await lookupEnterpriseByCode(row.enterprise_code);
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
-          await db.insert(schema.properties).values({
+          await storage.createProperty({
             name: row.name, code: row.code, enterpriseId: entId,
             address: row.address || null,
             timezone: row.timezone || "America/New_York",
             businessDateRolloverTime: row.business_date_rollover_time || "04:00",
             businessDateMode: row.business_date_mode || "auto",
             autoClockOutEnabled: toBool(row.auto_clock_out_enabled),
-          });
+          } as InsertProperty);
           inserted++;
           break;
         }
@@ -852,14 +869,14 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.code || !row.property_code) { errors.push(`Row ${rowNum}: name, code, and property_code are required`); break; }
           const prop = await lookupPropertyByCode(row.property_code);
           if (!prop) { errors.push(`Row ${rowNum}: Property code '${row.property_code}' not found`); break; }
-          await db.insert(schema.rvcs).values({
+          await storage.createRvc({
             name: row.name, code: row.code, propertyId: prop.id,
             defaultOrderType: row.default_order_type || "dine_in",
             fastTransactionDefault: toBool(row.fast_transaction_default),
             dynamicOrderMode: toBool(row.dynamic_order_mode),
             domSendMode: row.dom_send_mode || "fire_on_fly",
             conversationalOrderingEnabled: toBool(row.conversational_ordering_enabled),
-          });
+          } as InsertRvc);
           inserted++;
           break;
         }
@@ -867,11 +884,11 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.rate || !row.enterprise_code) { errors.push(`Row ${rowNum}: name, rate, and enterprise_code are required`); break; }
           const entId = await lookupEnterpriseByCode(row.enterprise_code);
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
-          await db.insert(schema.taxGroups).values({
+          await storage.createTaxGroup({
             name: row.name, rate: row.rate,
             taxMode: row.tax_mode || "add_on",
             enterpriseId: entId,
-          });
+          } as InsertTaxGroup);
           inserted++;
           break;
         }
@@ -879,10 +896,10 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.code || !row.type || !row.enterprise_code) { errors.push(`Row ${rowNum}: name, code, type, and enterprise_code are required`); break; }
           const entId = await lookupEnterpriseByCode(row.enterprise_code);
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
-          await db.insert(schema.tenders).values({
+          await storage.createTender({
             name: row.name, code: row.code, type: row.type,
             enterpriseId: entId,
-          });
+          } as InsertTender);
           inserted++;
           break;
         }
@@ -890,11 +907,11 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.code || !row.type || !row.value || !row.enterprise_code) { errors.push(`Row ${rowNum}: name, code, type, value, and enterprise_code are required`); break; }
           const entId = await lookupEnterpriseByCode(row.enterprise_code);
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
-          await db.insert(schema.discounts).values({
+          await storage.createDiscount({
             name: row.name, code: row.code, type: row.type, value: row.value,
             requiresManagerApproval: toBool(row.requires_manager_approval),
             enterpriseId: entId,
-          });
+          } as InsertDiscount);
           inserted++;
           break;
         }
@@ -902,11 +919,11 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.code || !row.type || !row.value || !row.enterprise_code) { errors.push(`Row ${rowNum}: name, code, type, value, and enterprise_code are required`); break; }
           const entId = await lookupEnterpriseByCode(row.enterprise_code);
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
-          await db.insert(schema.serviceCharges).values({
+          await storage.createServiceCharge({
             name: row.name, code: row.code, type: row.type, value: row.value,
             autoApply: toBool(row.auto_apply),
             enterpriseId: entId,
-          });
+          } as InsertServiceCharge);
           inserted++;
           break;
         }
@@ -914,9 +931,9 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.code || !row.enterprise_code) { errors.push(`Row ${rowNum}: name, code, and enterprise_code are required`); break; }
           const entId = await lookupEnterpriseByCode(row.enterprise_code);
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
-          await db.insert(schema.roles).values({
+          await storage.createRole({
             name: row.name, code: row.code, enterpriseId: entId,
-          });
+          } as InsertRole);
           inserted++;
           break;
         }
@@ -929,13 +946,13 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
             roleId = await lookupRoleByCode(row.role_code, entId);
             if (!roleId) { errors.push(`Row ${rowNum}: Role code '${row.role_code}' not found`); break; }
           }
-          await db.insert(schema.jobCodes).values({
+          await storage.createJobCode({
             name: row.name, code: row.code, enterpriseId: entId,
             roleId,
             compensationType: row.compensation_type || "hourly",
             hourlyRate: row.hourly_rate || null,
             tipMode: row.tip_mode || "not_eligible",
-          });
+          } as InsertJobCode);
           inserted++;
           break;
         }
@@ -943,7 +960,7 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.printer_type || !row.property_code) { errors.push(`Row ${rowNum}: name, printer_type, and property_code are required`); break; }
           const prop = await lookupPropertyByCode(row.property_code);
           if (!prop) { errors.push(`Row ${rowNum}: Property code '${row.property_code}' not found`); break; }
-          await db.insert(schema.printers).values({
+          await storage.createPrinter({
             name: row.name, printerType: row.printer_type,
             connectionType: row.connection_type || "network",
             ipAddress: row.ip_address || null,
@@ -952,7 +969,7 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
             model: row.model || null,
             characterWidth: row.character_width ? parseInt(row.character_width) : 42,
             propertyId: prop.id,
-          });
+          } as InsertPrinter);
           inserted++;
           break;
         }
@@ -960,10 +977,10 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.station_type || !row.property_code) { errors.push(`Row ${rowNum}: name, station_type, and property_code are required`); break; }
           const prop = await lookupPropertyByCode(row.property_code);
           if (!prop) { errors.push(`Row ${rowNum}: Property code '${row.property_code}' not found`); break; }
-          await db.insert(schema.kdsDevices).values({
+          await storage.createKdsDevice({
             name: row.name, stationType: row.station_type,
             propertyId: prop.id,
-          });
+          } as InsertKdsDevice);
           inserted++;
           break;
         }
@@ -976,13 +993,13 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
             kdsDeviceId = await lookupKdsDeviceByName(row.kds_device_name, prop.id);
             if (!kdsDeviceId) { errors.push(`Row ${rowNum}: KDS Device '${row.kds_device_name}' not found for property '${row.property_code}'`); break; }
           }
-          await db.insert(schema.orderDevices).values({
+          await storage.createOrderDevice({
             name: row.name, code: row.code, propertyId: prop.id,
             kdsDeviceId,
             sendOn: row.send_on || "send_button",
             sendVoids: row.send_voids ? toBool(row.send_voids) : true,
             sendReprints: row.send_reprints ? toBool(row.send_reprints) : true,
-          });
+          } as InsertOrderDevice);
           inserted++;
           break;
         }
@@ -990,9 +1007,9 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.code || !row.enterprise_code) { errors.push(`Row ${rowNum}: name, code, and enterprise_code are required`); break; }
           const entId = await lookupEnterpriseByCode(row.enterprise_code);
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
-          await db.insert(schema.printClasses).values({
+          await storage.createPrintClass({
             name: row.name, code: row.code, enterpriseId: entId,
-          });
+          } as InsertPrintClass);
           inserted++;
           break;
         }
@@ -1000,11 +1017,11 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.code || !row.enterprise_code) { errors.push(`Row ${rowNum}: name, code, and enterprise_code are required`); break; }
           const entId = await lookupEnterpriseByCode(row.enterprise_code);
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
-          await db.insert(schema.majorGroups).values({
+          await storage.createMajorGroup({
             name: row.name, code: row.code,
             displayOrder: row.display_order ? parseInt(row.display_order) : 0,
             enterpriseId: entId,
-          });
+          } as InsertMajorGroup);
           inserted++;
           break;
         }
@@ -1014,11 +1031,11 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
           const mgId = await lookupMajorGroupByCode(row.major_group_code, entId);
           if (!mgId) { errors.push(`Row ${rowNum}: Major Group code '${row.major_group_code}' not found`); break; }
-          await db.insert(schema.familyGroups).values({
+          await storage.createFamilyGroup({
             name: row.name, code: row.code, majorGroupId: mgId,
             displayOrder: row.display_order ? parseInt(row.display_order) : 0,
             enterpriseId: entId,
-          });
+          } as InsertFamilyGroup);
           inserted++;
           break;
         }
@@ -1026,12 +1043,12 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.button_label || !row.enterprise_code) { errors.push(`Row ${rowNum}: name, button_label, and enterprise_code are required`); break; }
           const entId = await lookupEnterpriseByCode(row.enterprise_code);
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
-          await db.insert(schema.slus).values({
+          await storage.createSlu({
             name: row.name, buttonLabel: row.button_label,
             displayOrder: row.display_order ? parseInt(row.display_order) : 0,
             color: row.color || "#3B82F6",
             enterpriseId: entId,
-          });
+          } as InsertSlu);
           inserted++;
           break;
         }
@@ -1039,14 +1056,14 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!row.name || !row.enterprise_code) { errors.push(`Row ${rowNum}: name and enterprise_code are required`); break; }
           const entId = await lookupEnterpriseByCode(row.enterprise_code);
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
-          await db.insert(schema.modifierGroups).values({
+          await storage.createModifierGroup({
             name: row.name,
             required: toBool(row.required),
             minSelect: row.min_select ? parseInt(row.min_select) : 0,
             maxSelect: row.max_select ? parseInt(row.max_select) : 99,
             displayOrder: row.display_order ? parseInt(row.display_order) : 0,
             enterpriseId: entId,
-          });
+          } as InsertModifierGroup);
           inserted++;
           break;
         }
@@ -1056,16 +1073,16 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
           const mgId = await lookupModifierGroupByName(row.modifier_group_name, entId);
           if (!mgId) { errors.push(`Row ${rowNum}: Modifier Group '${row.modifier_group_name}' not found`); break; }
-          const [mod] = await db.insert(schema.modifiers).values({
+          const mod = await storage.createModifier({
             name: row.name,
             priceDelta: row.price_delta || "0",
             enterpriseId: entId,
-          }).returning();
-          await db.insert(schema.modifierGroupModifiers).values({
+          } as InsertModifier);
+          await storage.linkModifierToGroup({
             modifierGroupId: mgId, modifierId: mod.id,
             isDefault: toBool(row.is_default),
             displayOrder: row.display_order ? parseInt(row.display_order) : 0,
-          });
+          } as InsertModifierGroupModifier);
           inserted++;
           break;
         }
@@ -1093,16 +1110,16 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
             familyGroupId = await lookupFamilyGroupByCode(row.family_group_code, entId);
             if (!familyGroupId) { errors.push(`Row ${rowNum}: Family Group '${row.family_group_code}' not found`); break; }
           }
-          const [menuItem] = await db.insert(schema.menuItems).values({
+          const menuItem = await storage.createMenuItem({
             name: row.name, shortName: row.short_name || null,
             price: row.price, taxGroupId, printClassId, majorGroupId, familyGroupId,
             color: row.color || "#3B82F6",
             enterpriseId: entId,
-          }).returning();
+          } as InsertMenuItem);
           if (row.slu_name) {
             const sluId = await lookupSluByName(row.slu_name, entId);
             if (sluId) {
-              await db.insert(schema.menuItemSlus).values({ menuItemId: menuItem.id, sluId });
+              await storage.setMenuItemSlus(menuItem.id, [sluId]);
             } else {
               errors.push(`Row ${rowNum}: SLU '${row.slu_name}' not found (menu item was created but SLU not linked)`);
             }
@@ -1112,9 +1129,9 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
             for (let g = 0; g < groupNames.length; g++) {
               const modGroupId = await lookupModifierGroupByName(groupNames[g], entId);
               if (modGroupId) {
-                await db.insert(schema.menuItemModifierGroups).values({
+                await storage.linkModifierGroupToMenuItem({
                   menuItemId: menuItem.id, modifierGroupId: modGroupId, displayOrder: g,
-                });
+                } as InsertMenuItemModifierGroup);
               } else {
                 errors.push(`Row ${rowNum}: Modifier Group '${groupNames[g]}' not found (menu item was created but modifier group not linked)`);
               }
@@ -1131,28 +1148,24 @@ async function importPhase(phase: number, rows: Record<string, string>[]): Promi
           if (!entId) { errors.push(`Row ${rowNum}: Enterprise code '${row.enterprise_code}' not found`); break; }
           const roleId = await lookupRoleByCode(row.role_code, entId);
           if (!roleId) { errors.push(`Row ${rowNum}: Role code '${row.role_code}' not found`); break; }
-          const [emp] = await db.insert(schema.employees).values({
+          const emp = await storage.createEmployee({
             employeeNumber: row.employee_number,
             firstName: row.first_name,
             lastName: row.last_name,
             pinHash: hashPin(row.pin),
             roleId,
             enterpriseId: entId,
-          }).returning();
+          } as InsertEmployee);
           if (row.property_code) {
             const prop = await lookupPropertyByCode(row.property_code);
             if (prop) {
-              await db.insert(schema.employeeAssignments).values({
-                employeeId: emp.id, enterpriseId: entId, propertyId: prop.id, isPrimary: true,
-              });
+              await storage.setEmployeeAssignments(emp.id, [prop.id]);
             }
           }
           if (row.job_code) {
             const jcId = await lookupJobCodeByCode(row.job_code, entId);
             if (jcId) {
-              await db.insert(schema.employeeJobCodes).values({
-                employeeId: emp.id, jobCodeId: jcId, isPrimary: true,
-              });
+              await storage.setEmployeeJobCodes(emp.id, [{ jobCodeId: jcId, isPrimary: true }]);
             }
           }
           inserted++;

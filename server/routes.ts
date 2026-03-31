@@ -9,15 +9,15 @@ import fs from "fs";
 import path from "path";
 import archiver from "archiver";
 import { storage } from "./storage";
-import { db, isLocalMode } from "./db";
-import { eq, ne, sql, inArray, and, desc } from "drizzle-orm";
-import { emcUsers, enterprises, properties, employeeAssignments, configOverrides, checks, onlineOrders, onlineOrderSources, kdsTickets, kdsTicketItems, checkItems, checkPayments, checkServiceCharges, privileges, rolePrivileges, printClassRouting as printClassRoutingTable, workstationOrderDevices, posLayoutCells, posLayoutRvcAssignments, menuItemSlus, terminalDevices, printAgents, descriptorSets, descriptorLogoAssets, paymentGatewayConfig, employeeJobCodes, tipRuleJobPercentages, overtimeRules, breakRules, minorLaborRules, fiscalPeriods, cashDrawers, itemAvailability, emcOptionFlags, giftCards, loyaltyRewards, majorGroups, familyGroups, loyaltyMemberEnrollments, tenders } from "@shared/schema";
+import { isLocalMode } from "./db";
 import { uberEatsIntegration } from "./integrations/uber-eats";
 import { grubhubIntegration } from "./integrations/grubhub";
 import { doorDashIntegration } from "./integrations/doordash";
 import { resolveKdsTargetsForMenuItem, getActiveKdsDevices, getKdsStationTypes, getOrderDeviceSendMode } from "./kds-routing";
 import { registerStressTestRoutes } from "./stressTest";
 import { registerOnboardingRoutes } from "./onboarding-import";
+import { recordJournalEntry, atomicJournalWrite, recordCompoundJournalEntry } from "./transaction-journal";
+import { effectiveConfig } from "./effective-config";
 import { registerDeliveryPlatformRoutes } from "./delivery-platform-routes";
 import { resolveBusinessDate, calculateBusinessDateFromTime, getLocalDate, isValidBusinessDateFormat, incrementDate } from "./businessDate";
 import {
@@ -52,6 +52,8 @@ import {
   DESCRIPTOR_SCOPE_TYPES,
   // CAL Package schemas
   insertCalPackageVersionSchema,
+  type EmcUser,
+  type InsertEmcUser,
 } from "@shared/schema";
 import { z } from "zod";
 import {
@@ -366,7 +368,7 @@ async function calculateTaxSnapshot(
   quantity: number
 ): Promise<TaxSnapshot> {
   const menuItem = await storage.getMenuItem(menuItemId);
-  const taxGroups = await storage.getTaxGroups();
+  const taxGroups = await effectiveConfig.getAllTaxGroups();
   const taxGroup = taxGroups.find((tg) => tg.id === menuItem?.taxGroupId);
   
   const taxGroupIdAtSale = taxGroup?.id || null;
@@ -517,24 +519,13 @@ async function getEnterpriseFilterSets(enterpriseId: string): Promise<{
   return { propertyIds, rvcIds };
 }
 
-// Filter entities by enterprise - checks enterpriseId, propertyId, and rvcId fields
 function filterByEnterprise<T extends { enterpriseId?: string | null; propertyId?: string | null; rvcId?: string | null }>(
   data: T[],
   enterpriseId: string,
   propertyIds: Set<string>,
   rvcIds: Set<string>
 ): T[] {
-  return data.filter(item => {
-    // Direct enterprise match
-    if (item.enterpriseId === enterpriseId) return true;
-    // Property belongs to enterprise
-    if (item.propertyId && propertyIds.has(item.propertyId)) return true;
-    // RVC belongs to enterprise's properties
-    if (item.rvcId && rvcIds.has(item.rvcId)) return true;
-    // Include global items (no enterprise/property/rvc assignment) if enterprise is specified
-    // Global items (null/undefined at all levels) are excluded when filtering by enterprise
-    return false;
-  });
+  return effectiveConfig.filterByEnterpriseScope(data, enterpriseId, propertyIds, rvcIds);
 }
 
 // Filter entities by specific property - narrows results from enterprise filter
@@ -545,31 +536,13 @@ async function filterByPropertyScope<T extends { enterpriseId?: string | null; p
   propertyId: string,
   rvcId?: string
 ): T[] {
-  // Get RVCs belonging to this property
-  const propertyRvcs = await storage.getRvcs(propertyId);
-  const propertyRvcIds = new Set(propertyRvcs.map(r => r.id));
+  const property = await storage.getProperty(propertyId);
+  const enterpriseId = property?.enterpriseId || "";
+  const opts = { enterpriseId, propertyId, rvcId };
 
-  let filtered = data.filter(item => {
-    // Item directly assigned to this property
-    if (item.propertyId === propertyId) return true;
-    // Enterprise-level item (no property/rvc restriction) - visible to all properties
-    if (item.enterpriseId && !item.propertyId && !item.rvcId) return true;
-    // Item assigned to an RVC under this property
-    if (item.rvcId && propertyRvcIds.has(item.rvcId)) return true;
-    return false;
-  });
-
-  // Further filter by specific RVC if provided
-  if (rvcId) {
-    filtered = filtered.filter(item => {
-      if (item.rvcId === rvcId) return true;
-      // Keep items visible at higher levels (enterprise-level or property-level without rvc restriction)
-      if (!item.rvcId) return true;
-      return false;
-    });
-  }
-
-  return filtered;
+  return effectiveConfig.filterVisibleConfig(opts, data, (item: T) => ({
+    rvcId: item.rvcId, propertyId: item.propertyId
+  }));
 }
 
 function getItemScopeLevel(item: { enterpriseId?: string | null; propertyId?: string | null; rvcId?: string | null }): "enterprise" | "property" | "rvc" {
@@ -633,19 +606,20 @@ async function sendItemsToKds(
   const existingRounds = await storage.getRounds(checkId);
   const roundNumber = existingRounds.length + 1;
 
-  const round = await storage.createRound({
-    checkId,
-    roundNumber,
-    sentByEmployeeId: employeeId,
-  });
+  const roundId = crypto.randomUUID();
+  const { result: round } = await journalWriteAtomic(
+    "create", "round", roundId, "POST", `/api/checks/${checkId}/send`,
+    () => storage.createRound({ id: roundId, checkId, roundNumber, sentByEmployeeId: employeeId }),
+    { checkId, roundNumber, sentByEmployeeId: employeeId }
+  );
 
-  // Mark items as sent with round ID
   const updatedItems = [];
   for (const item of itemsToSend) {
-    const updated = await storage.updateCheckItem(item.id, {
-      sent: true,
-      roundId: round.id,
-    });
+    const { result: updated } = await journalWriteAtomic(
+      "update", "check_item", item.id, "POST", `/api/checks/${checkId}/send`,
+      () => storage.updateCheckItem(item.id, { sent: true, roundId: round.id }),
+      { sent: true, roundId: round.id }
+    );
     if (updated) updatedItems.push(updated);
   }
 
@@ -676,32 +650,40 @@ async function sendItemsToKds(
     }
   }
 
-  // Create KDS tickets for routed items
   for (const [kdsDeviceId, data] of Array.from(itemsByKdsDevice.entries())) {
-    const kdsTicket = await storage.createKdsTicket({
-      checkId,
-      roundId: round.id,
-      kdsDeviceId: data.kdsDeviceId,
-      orderDeviceId: data.orderDeviceId,
-      stationType: data.stationType,
-      rvcId: check.rvcId,
-      status: "active",
-    });
+    const ticketId = crypto.randomUUID();
+    const { result: kdsTicket } = await journalWriteAtomic(
+      "create", "kds_ticket", ticketId, "POST", `/api/checks/${checkId}/send`,
+      () => storage.createKdsTicket({
+        id: ticketId, checkId, roundId: round.id, kdsDeviceId: data.kdsDeviceId,
+        orderDeviceId: data.orderDeviceId, stationType: data.stationType, rvcId: check.rvcId, status: "active",
+      }),
+      { checkId, roundId: round.id, kdsDeviceId: data.kdsDeviceId, stationType: data.stationType }
+    );
     for (const item of data.items) {
-      await storage.createKdsTicketItem(kdsTicket.id, item.id);
+      await journalWriteAtomic(
+        "create", "kds_ticket_item", `${kdsTicket.id}:${item.id}`, "POST", `/api/checks/${checkId}/send`,
+        () => storage.createKdsTicketItem(kdsTicket.id, item.id),
+        { kdsTicketId: kdsTicket.id, checkItemId: item.id }
+      );
     }
   }
 
-  // Create fallback ticket for unrouted items
   if (unroutedItems.length > 0) {
-    const fallbackTicket = await storage.createKdsTicket({
-      checkId,
-      roundId: round.id,
-      rvcId: check.rvcId,
-      status: "active",
-    });
+    const fallbackTicketId = crypto.randomUUID();
+    const { result: fallbackTicket } = await journalWriteAtomic(
+      "create", "kds_ticket", fallbackTicketId, "POST", `/api/checks/${checkId}/send`,
+      () => storage.createKdsTicket({
+        id: fallbackTicketId, checkId, roundId: round.id, rvcId: check.rvcId, status: "active",
+      }),
+      { checkId, roundId: round.id, rvcId: check.rvcId }
+    );
     for (const item of unroutedItems) {
-      await storage.createKdsTicketItem(fallbackTicket.id, item.id);
+      await journalWriteAtomic(
+        "create", "kds_ticket_item", `${fallbackTicket.id}:${item.id}`, "POST", `/api/checks/${checkId}/send`,
+        () => storage.createKdsTicketItem(fallbackTicket.id, item.id),
+        { kdsTicketId: fallbackTicket.id, checkItemId: item.id }
+      );
     }
   }
 
@@ -740,7 +722,7 @@ async function recalculateCheckTotals(checkId: string): Promise<void> {
   if (hasLegacyItems) {
     [menuItemsCache, taxGroupsCache] = await Promise.all([
       storage.getMenuItems(),
-      storage.getTaxGroups(),
+      effectiveConfig.getAllTaxGroups(),
     ]);
   }
 
@@ -807,13 +789,14 @@ async function recalculateCheckTotals(checkId: string): Promise<void> {
   const scTotal = Math.round(serviceChargeTotal * 100) / 100;
   const total = Math.max(0, Math.round((netSubtotal + tax + scTotal) * 100) / 100);
 
-  await storage.updateCheck(checkId, {
-    subtotal: subtotal.toFixed(2),
-    taxTotal: tax.toFixed(2),
-    discountTotal: totalDiscounts.toFixed(2),
-    serviceChargeTotal: scTotal.toFixed(2),
-    total: total.toFixed(2),
-  });
+  await journalWriteAtomic(
+    "update", "check", checkId, "POST", `/api/checks/${checkId}/recalculate`,
+    () => storage.updateCheck(checkId, {
+      subtotal: subtotal.toFixed(2), taxTotal: tax.toFixed(2), discountTotal: totalDiscounts.toFixed(2),
+      serviceChargeTotal: scTotal.toFixed(2), total: total.toFixed(2),
+    }),
+    { subtotal: subtotal.toFixed(2), taxTotal: tax.toFixed(2), discountTotal: totalDiscounts.toFixed(2), serviceChargeTotal: scTotal.toFixed(2), total: total.toFixed(2) }
+  );
 }
 
 // Helper for dynamic order mode - adds item to a preview ticket for real-time KDS display
@@ -890,15 +873,21 @@ async function addItemToRoutedPreviewTicket(
   }
 
   if (targets.length > 0) {
-    // Route item to each target KDS device's preview ticket
     for (const target of targets) {
       const previewTicket = await getOrCreateRoutedPreviewTicket(checkId, check.rvcId, target.kdsDeviceId, target.stationType, target.orderDeviceId);
-      await storage.createKdsTicketItem(previewTicket.id, item.id);
+      await journalWriteAtomic(
+        "create", "kds_ticket_item", `${previewTicket.id}:${item.id}`, "POST", `/api/checks/${checkId}/preview-item`,
+        () => storage.createKdsTicketItem(previewTicket.id, item.id),
+        { kdsTicketId: previewTicket.id, checkItemId: item.id }
+      );
     }
   } else {
-    // Unrouted item - put in a fallback preview ticket (no kdsDeviceId)
     const previewTicket = await getOrCreateRoutedPreviewTicket(checkId, check.rvcId, null, null, null);
-    await storage.createKdsTicketItem(previewTicket.id, item.id);
+    await journalWriteAtomic(
+      "create", "kds_ticket_item", `${previewTicket.id}:${item.id}`, "POST", `/api/checks/${checkId}/preview-item`,
+      () => storage.createKdsTicketItem(previewTicket.id, item.id),
+      { kdsTicketId: previewTicket.id, checkItemId: item.id }
+    );
   }
 }
 
@@ -909,7 +898,7 @@ async function getOrCreateRoutedPreviewTicket(
   kdsDeviceId: string | null,
   stationType: string | null,
   orderDeviceId: string | null
-): Promise<any> {
+) {
   // Find existing preview ticket for this check + KDS device combo
   const previewTickets = await storage.getPreviewTickets(checkId);
   const existing = previewTickets.find(t => 
@@ -917,17 +906,17 @@ async function getOrCreateRoutedPreviewTicket(
   );
   if (existing) return existing;
 
-  // Create new routed preview ticket
-  return storage.createKdsTicket({
-    checkId,
-    rvcId,
-    kdsDeviceId: kdsDeviceId,
-    orderDeviceId: orderDeviceId,
-    stationType: stationType,
-    status: "active",
-    isPreview: true,
-    paid: false,
-  });
+  const previewTicketId = crypto.randomUUID();
+  const { result: ticket } = await journalWriteAtomic(
+    "create", "kds_ticket", previewTicketId, "POST", `/api/checks/${checkId}/preview-ticket`,
+    () => storage.createKdsTicket({
+      id: previewTicketId, checkId, rvcId, kdsDeviceId: kdsDeviceId,
+      orderDeviceId: orderDeviceId, stationType: stationType, status: "active", isPreview: true,
+      paid: false,
+    }),
+    { checkId, rvcId, kdsDeviceId, stationType, isPreview: true }
+  );
+  return ticket;
 }
 
 // Helper to send any pending Fire on Next items when check is finalized
@@ -972,7 +961,11 @@ async function recallBumpedTicketsOnModification(checkId: string): Promise<boole
   
   for (const ticket of tickets) {
     if (ticket.status === "bumped") {
-      await storage.recallKdsTicket(ticket.id);
+      await journalWriteAtomic(
+        "update", "kds_ticket", ticket.id, "POST", `/api/kds-tickets/${ticket.id}/auto-recall`,
+        () => storage.recallKdsTicket(ticket.id),
+        { status: "active" }
+      );
       recalled = true;
     }
   }
@@ -1022,42 +1015,44 @@ async function finalizePreviewTicket(
   const unsentItems = items.filter(i => !i.sent && !i.voided);
   
   if (unsentItems.length === 0) {
-    // No items to send, just remove preview status
     for (const pt of previewTickets) {
-      await storage.updateKdsTicket(pt.id, { isPreview: false });
+      await journalWriteAtomic(
+        "update", "kds_ticket", pt.id, "POST", `/api/checks/${checkId}/confirm-preview`,
+        () => storage.updateKdsTicket(pt.id, { isPreview: false }),
+        { isPreview: false }
+      );
     }
     return null;
   }
 
-  // Create round for this send
   const existingRounds = await storage.getRounds(checkId);
   const roundNumber = existingRounds.length + 1;
 
-  const round = await storage.createRound({
-    checkId,
-    roundNumber,
-    sentByEmployeeId: employeeId,
-  });
+  const confirmRoundId = crypto.randomUUID();
+  const { result: round } = await journalWriteAtomic(
+    "create", "round", confirmRoundId, "POST", `/api/checks/${checkId}/confirm-preview`,
+    () => storage.createRound({ id: confirmRoundId, checkId, roundNumber, sentByEmployeeId: employeeId }),
+    { checkId, roundNumber, sentByEmployeeId: employeeId }
+  );
 
-  // Mark items as sent with round ID
   const updatedItems = [];
   for (const item of unsentItems) {
-    const updated = await storage.updateCheckItem(item.id, {
-      sent: true,
-      roundId: round.id,
-    });
+    const { result: updated } = await journalWriteAtomic(
+      "update", "check_item", item.id, "POST", `/api/checks/${checkId}/confirm-preview`,
+      () => storage.updateCheckItem(item.id, { sent: true, roundId: round.id }),
+      { sent: true, roundId: round.id }
+    );
     if (updated) updatedItems.push(updated);
   }
 
-  // Update all preview tickets to be regular tickets with round linkage
   for (const pt of previewTickets) {
-    await storage.updateKdsTicket(pt.id, {
-      isPreview: false,
-      roundId: round.id,
-    });
+    await journalWriteAtomic(
+      "update", "kds_ticket", pt.id, "POST", `/api/checks/${checkId}/confirm-preview`,
+      () => storage.updateKdsTicket(pt.id, { isPreview: false, roundId: round.id }),
+      { isPreview: false, roundId: round.id }
+    );
   }
 
-  // Create audit log
   await storage.createAuditLog({
     rvcId: check.rvcId,
     employeeId,
@@ -1072,15 +1067,33 @@ async function finalizePreviewTicket(
   return { round, updatedItems };
 }
 
+async function journalWrite(operationType: string, entityType: string, entityId: string, httpMethod: string, endpoint: string, payload?: Record<string, unknown>, offlineTransactionId?: string, workstationId?: string, propertyId?: string): Promise<string | undefined> {
+  if (!isLocalMode) return undefined;
+  return recordJournalEntry({ operationType, entityType, entityId, httpMethod, endpoint, payload, offlineTransactionId, workstationId, propertyId });
+}
+
+async function journalWriteAtomic<T>(
+  operationType: string, entityType: string, entityId: string,
+  httpMethod: string, endpoint: string,
+  businessWrite: () => Promise<T>,
+  payload?: Record<string, unknown>,
+  offlineTransactionId?: string, workstationId?: string, propertyId?: string
+): Promise<{ eventId?: string; result: T | null; replayed: boolean }> {
+  if (!isLocalMode) {
+    const result = await businessWrite();
+    return { result, replayed: false };
+  }
+  return atomicJournalWrite(
+    { operationType, entityType, entityId, httpMethod, endpoint, payload, offlineTransactionId, workstationId, propertyId },
+    businessWrite,
+  );
+}
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   registerReportingRoutes(app, storage);
 
-  if (db && !isLocalMode) {
-    try {
-      await db.execute(sql`ALTER TABLE emc_users ADD COLUMN IF NOT EXISTS employee_id VARCHAR REFERENCES employees(id)`);
-    } catch (e) {
-      console.error("Migration error (non-fatal):", e);
-    }
+  if (!isLocalMode) {
+    await storage.runStartupMigrations();
   }
 
   // Use noServer: true for all WebSocket servers and handle upgrade manually
@@ -1593,14 +1606,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/health/db-probe", async (req, res) => {
     try {
-      const result = await db.execute(sql`SELECT id FROM enterprises LIMIT 1`);
-      if (result.rows && result.rows.length > 0) {
+      const enterprises = await storage.getEnterprises();
+      if (enterprises.length > 0) {
         res.json({ status: "ok", dbHealthy: true, timestamp: new Date().toISOString() });
       } else {
         res.json({ status: "ok", dbHealthy: true, timestamp: new Date().toISOString(), note: "no enterprises yet" });
       }
-    } catch (e: any) {
-      res.status(503).json({ status: "error", dbHealthy: false, error: e.message, timestamp: new Date().toISOString() });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(503).json({ status: "error", dbHealthy: false, error: msg, timestamp: new Date().toISOString() });
     }
   });
 
@@ -2224,9 +2238,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       { code: "BYPASS_WINDOWS", name: "Bypass time windows", domain: "admin_flags" },
     ];
 
-    for (const p of auditPrivileges) {
-      await db.insert(privileges).values({ id: crypto.randomUUID(), ...p }).onConflictDoNothing();
-    }
+    await storage.upsertPrivileges(auditPrivileges.map(p => ({ id: crypto.randomUUID(), ...p })));
 
     const legacyPrivileges = [
       "open_check", "close_check", "split_check", "merge_checks", "transfer_check", "reopen_check",
@@ -2916,7 +2928,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (propertyId) {
         const property = await storage.getProperty(propertyId);
         if (!property) return res.status(404).json({ message: "Property not found" });
-        const groups = (await storage.getModifierGroups()).filter((g: any) => g.enterpriseId === property.enterpriseId);
+        const allGroups = await storage.getModifierGroups();
+        const { propertyIds, rvcIds } = await getEnterpriseFilterSets(property.enterpriseId);
+        const groups = effectiveConfig.filterByEnterpriseScope(allGroups, property.enterpriseId, propertyIds, rvcIds);
         const groupIds = new Set(groups.map((g: any) => g.id));
         data = data.filter((m: any) => groupIds.has(m.modifierGroupId));
       }
@@ -2933,7 +2947,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (propertyId) {
         const property = await storage.getProperty(propertyId);
         if (!property) return res.status(404).json({ message: "Property not found" });
-        const items = (await storage.getMenuItems()).filter((i: any) => i.enterpriseId === property.enterpriseId);
+        const allItems = await storage.getMenuItems();
+        const { propertyIds, rvcIds } = await getEnterpriseFilterSets(property.enterpriseId);
+        const items = effectiveConfig.filterByEnterpriseScope(allItems, property.enterpriseId, propertyIds, rvcIds);
         const itemIds = new Set(items.map((i: any) => i.id));
         data = data.filter((m: any) => itemIds.has(m.menuItemId));
       }
@@ -2948,9 +2964,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const propertyId = req.query.propertyId as string | undefined;
       let data = await storage.getOrderDevicePrinters();
       if (propertyId) {
-        const devices = (await storage.getOrderDevices()).filter((o: any) => o.propertyId === propertyId);
-        const deviceIds = new Set(devices.map((o: any) => o.id));
-        data = data.filter((o: any) => deviceIds.has(o.orderDeviceId));
+        const property = await storage.getProperty(propertyId);
+        if (property) {
+          const allDevices = await storage.getOrderDevices();
+          const { propertyIds: pIds, rvcIds: rIds } = await getEnterpriseFilterSets(property.enterpriseId);
+          const devices = effectiveConfig.filterByEnterpriseScope(allDevices, property.enterpriseId, pIds, rIds)
+            .filter((o: any) => o.propertyId === propertyId);
+          const deviceIds = new Set(devices.map((o: any) => o.id));
+          data = data.filter((o: any) => deviceIds.has(o.orderDeviceId));
+        }
       }
       res.json(data);
     } catch (error) {
@@ -2963,9 +2985,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const propertyId = req.query.propertyId as string | undefined;
       let data = await storage.getOrderDeviceKdsList();
       if (propertyId) {
-        const devices = (await storage.getOrderDevices()).filter((o: any) => o.propertyId === propertyId);
-        const deviceIds = new Set(devices.map((o: any) => o.id));
-        data = data.filter((o: any) => deviceIds.has(o.orderDeviceId));
+        const property = await storage.getProperty(propertyId);
+        if (property) {
+          const allDevices = await storage.getOrderDevices();
+          const { propertyIds: pIds, rvcIds: rIds } = await getEnterpriseFilterSets(property.enterpriseId);
+          const devices = effectiveConfig.filterByEnterpriseScope(allDevices, property.enterpriseId, pIds, rIds)
+            .filter((o: any) => o.propertyId === propertyId);
+          const deviceIds = new Set(devices.map((o: any) => o.id));
+          data = data.filter((o: any) => deviceIds.has(o.orderDeviceId));
+        }
       }
       res.json(data);
     } catch (error) {
@@ -2980,7 +3008,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (propertyId) {
         const property = await storage.getProperty(propertyId);
         if (!property) return res.status(404).json({ message: "Property not found" });
-        const items = (await storage.getMenuItems()).filter((i: any) => i.enterpriseId === property.enterpriseId);
+        const allItems = await storage.getMenuItems();
+        const { propertyIds, rvcIds } = await getEnterpriseFilterSets(property.enterpriseId);
+        const items = effectiveConfig.filterByEnterpriseScope(allItems, property.enterpriseId, propertyIds, rvcIds);
         const itemIds = new Set(items.map((i: any) => i.id));
         data = data.filter((r: any) => itemIds.has(r.menuItemId));
       }
@@ -2994,7 +3024,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const enterpriseId = await getEnforcedEnterpriseId(req);
       const allData = await storage.getAllEmployeeAssignments();
-      const data = enterpriseId ? allData.filter((a: any) => a.enterpriseId === enterpriseId) : allData;
+      let data = allData;
+      if (enterpriseId) {
+        const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
+        data = effectiveConfig.filterByEnterpriseScope(allData, enterpriseId, propertyIds, rvcIds);
+      }
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch employee assignments" });
@@ -3005,7 +3039,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const enterpriseId = await getEnforcedEnterpriseId(req);
       const allData = await storage.getAllWorkstationServiceBindings();
-      const data = enterpriseId ? allData.filter((b: any) => b.enterpriseId === enterpriseId) : allData;
+      let data = allData;
+      if (enterpriseId) {
+        const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
+        data = effectiveConfig.filterByEnterpriseScope(allData, enterpriseId, propertyIds, rvcIds);
+      }
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch workstation service bindings" });
@@ -3015,12 +3053,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/sync/workstation-order-devices", async (req, res) => {
     try {
       const propertyId = req.query.propertyId as string | undefined;
-      let data = await db.select().from(workstationOrderDevices);
-      if (propertyId) {
-        const ws = (await storage.getWorkstations()).filter((w: any) => w.propertyId === propertyId);
-        const wsIds = new Set(ws.map((w: any) => w.id));
-        data = data.filter((d: any) => wsIds.has(d.workstationId));
-      }
+      const data = await storage.getAllWorkstationOrderDevicesFiltered(propertyId);
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch workstation order devices" });
@@ -3033,8 +3066,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!propertyId) {
         return res.status(400).json({ message: "propertyId query parameter is required" });
       }
-      let data = await db.select().from(posLayoutRvcAssignments);
-      data = data.filter((a: any) => a.propertyId === propertyId);
+      const data = await storage.getAllPosLayoutRvcAssignmentsFiltered(propertyId);
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch pos layout rvc assignments" });
@@ -3066,35 +3098,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         enterpriseId = await getEnterpriseIdFromContext({ rvcId, propertyId }) || undefined;
       }
 
-      const rows = await db.execute(sql`
-        SELECT
-          mimg.menu_item_id,
-          mg.id AS group_id,
-          mg.name AS group_name,
-          mg.required AS group_required,
-          mg.min_select,
-          mg.max_select,
-          mg.display_order AS group_display_order,
-          mg.enterprise_id AS group_enterprise_id,
-          mg.property_id AS group_property_id,
-          mg.rvc_id AS group_rvc_id,
-          m.id AS mod_id,
-          m.name AS mod_name,
-          m.price_delta AS mod_price_delta,
-          m.active AS mod_active,
-          mgm.is_default AS mod_is_default,
-          mgm.display_order AS mod_display_order
-        FROM menu_item_modifier_groups mimg
-        JOIN modifier_groups mg ON mg.id = mimg.modifier_group_id AND mg.active = true
-        LEFT JOIN modifier_group_modifiers mgm ON mgm.modifier_group_id = mg.id
-        LEFT JOIN modifiers m ON m.id = mgm.modifier_id AND m.active = true
-        ORDER BY mimg.menu_item_id, mg.display_order, mgm.display_order
-      `);
+      const modifierRows = await storage.getModifierMapRaw();
 
       const result: Record<string, any[]> = {};
       const groupCache = new Map<string, Map<string, any>>();
 
-      for (const row of rows.rows) {
+      for (const row of modifierRows) {
         const menuItemId = row.menu_item_id as string;
         const groupId = row.group_id as string;
 
@@ -3159,6 +3168,71 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error building modifier map:", error);
       res.status(500).json({ message: "Failed to build modifier map" });
+    }
+  });
+
+  app.get("/api/effective-config/tax-groups", async (req, res) => {
+    try {
+      const enterpriseId = req.query.enterpriseId as string;
+      const propertyId = req.query.propertyId as string | undefined;
+      const rvcId = req.query.rvcId as string | undefined;
+      if (!enterpriseId) return res.status(400).json({ message: "enterpriseId required" });
+
+      const result = await effectiveConfig.resolveTaxGroups({ enterpriseId, propertyId, rvcId });
+      res.json(result);
+    } catch (error) {
+      console.error("Error resolving effective tax groups:", error);
+      res.status(500).json({ message: "Failed to resolve effective config" });
+    }
+  });
+
+  app.get("/api/effective-config/tenders", async (req, res) => {
+    try {
+      const enterpriseId = req.query.enterpriseId as string;
+      const propertyId = req.query.propertyId as string | undefined;
+      const rvcId = req.query.rvcId as string | undefined;
+      if (!enterpriseId) return res.status(400).json({ message: "enterpriseId required" });
+
+      const result = await effectiveConfig.resolveTenders({ enterpriseId, propertyId, rvcId });
+      res.json(result);
+    } catch (error) {
+      console.error("Error resolving effective tenders:", error);
+      res.status(500).json({ message: "Failed to resolve effective config" });
+    }
+  });
+
+  app.get("/api/effective-config/service-charges", async (req, res) => {
+    try {
+      const enterpriseId = req.query.enterpriseId as string;
+      const propertyId = req.query.propertyId as string | undefined;
+      const rvcId = req.query.rvcId as string | undefined;
+      if (!enterpriseId) return res.status(400).json({ message: "enterpriseId required" });
+
+      const result = await effectiveConfig.resolveServiceCharges({ enterpriseId, propertyId, rvcId });
+      res.json(result);
+    } catch (error) {
+      console.error("Error resolving effective service charges:", error);
+      res.status(500).json({ message: "Failed to resolve effective config" });
+    }
+  });
+
+  app.get("/api/effective-config/option-flag", async (req, res) => {
+    try {
+      const { enterpriseId, propertyId, rvcId, entityType, entityId, optionKey } = req.query;
+      if (!enterpriseId || !entityType || !entityId || !optionKey) {
+        return res.status(400).json({ message: "enterpriseId, entityType, entityId, and optionKey are required" });
+      }
+
+      const result = await effectiveConfig.resolveOptionFlag(
+        { enterpriseId: enterpriseId as string, propertyId: propertyId as string | undefined, rvcId: rvcId as string | undefined },
+        entityType as string,
+        entityId as string,
+        optionKey as string
+      );
+      res.json(result);
+    } catch (error) {
+      console.error("Error resolving effective option flag:", error);
+      res.status(500).json({ message: "Failed to resolve effective config" });
     }
   });
 
@@ -3378,23 +3452,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const rvcId = req.query.rvcId as string | undefined;
     const propertyId = req.query.propertyId as string | undefined;
     
-    // Auto-derive enterpriseId from rvcId or propertyId if not explicitly provided
     if (!enterpriseId && (rvcId || propertyId)) {
       enterpriseId = await getEnterpriseIdFromContext({ rvcId, propertyId }) || undefined;
     }
     
-    let data = await storage.getTaxGroups();
-    
-    // Filter by enterprise if available (multi-tenancy)
     if (enterpriseId) {
-      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
-      data = filterByEnterprise(data, enterpriseId, propertyIds, rvcIds);
+      const resolved = await effectiveConfig.resolveTaxGroups({ enterpriseId, propertyId, rvcId });
+      return res.json(resolved.taxGroups);
     }
     
-    if (propertyId) {
-      data = await filterByPropertyScope(data, propertyId, rvcId);
-    }
-    
+    const data = await effectiveConfig.getAllTaxGroups();
     res.json(data);
   });
 
@@ -3508,10 +3575,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const enterpriseId = await getEnforcedEnterpriseId(req);
     let data = await storage.getOrderDevices(propertyId);
     
-    // Filter by enterprise if specified (multi-tenancy)
     if (enterpriseId) {
-      const { propertyIds } = await getEnterpriseFilterSets(enterpriseId);
-      data = data.filter(item => item.propertyId && propertyIds.has(item.propertyId));
+      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
+      data = effectiveConfig.filterByEnterpriseScope(data, enterpriseId, propertyIds, rvcIds);
     }
     
     res.json(data);
@@ -3605,11 +3671,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     
     let data = await storage.getWorkstations(propertyId);
     
-    // Filter by enterprise if specified (multi-tenancy)
     if (enterpriseId && !propertyId) {
-      const properties = await storage.getProperties(enterpriseId);
-      const propertyIds = new Set(properties.map(p => p.id));
-      data = data.filter(ws => propertyIds.has(ws.propertyId));
+      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
+      data = effectiveConfig.filterByEnterpriseScope(data, enterpriseId, propertyIds, rvcIds);
     }
     
     res.json(data);
@@ -3747,11 +3811,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     
     let data = await storage.getPrinters(propertyId);
     
-    // Filter by enterprise if specified (multi-tenancy)
     if (enterpriseId && !propertyId) {
-      const properties = await storage.getProperties(enterpriseId);
-      const propertyIds = new Set(properties.map(p => p.id));
-      data = data.filter(printer => printer.propertyId && propertyIds.has(printer.propertyId));
+      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
+      data = effectiveConfig.filterByEnterpriseScope(data, enterpriseId, propertyIds, rvcIds);
     }
     
     res.json(data);
@@ -3862,11 +3924,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     
     let data = await storage.getKdsDevices(propertyId);
     
-    // Filter by enterprise if specified (multi-tenancy)
     if (enterpriseId && !propertyId) {
-      const properties = await storage.getProperties(enterpriseId);
-      const propertyIds = new Set(properties.map(p => p.id));
-      data = data.filter(d => d.propertyId && propertyIds.has(d.propertyId));
+      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
+      data = effectiveConfig.filterByEnterpriseScope(data, enterpriseId, propertyIds, rvcIds);
     }
     
     res.json(data);
@@ -3920,56 +3980,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "kdsDeviceId or rvcId required" });
       }
       
-      let tickets;
-      if (kdsDeviceId) {
-        tickets = await db.select().from(kdsTickets)
-          .where(and(
-            eq(kdsTickets.kdsDeviceId, kdsDeviceId as string),
-            inArray(kdsTickets.status, ['active', 'draft'])
-          ))
-          .orderBy(kdsTickets.createdAt);
-      } else {
-        tickets = await db.select().from(kdsTickets)
-          .where(and(
-            eq(kdsTickets.rvcId, rvcId as string),
-            inArray(kdsTickets.status, ['active', 'draft'])
-          ))
-          .orderBy(kdsTickets.createdAt);
-      }
+      const result = await storage.getActiveKdsTicketsWithDetails({
+        kdsDeviceId: kdsDeviceId as string | undefined,
+        rvcId: rvcId as string | undefined,
+      });
       
-      const ticketIds = tickets.map(t => t.id);
-      let ticketItemsData: any[] = [];
-      if (ticketIds.length > 0) {
-        ticketItemsData = await db.select().from(kdsTicketItems)
-          .where(inArray(kdsTicketItems.kdsTicketId, ticketIds));
-      }
-      
-      const checkIds = [...new Set(tickets.map(t => t.checkId))];
-      let checksData: any[] = [];
-      if (checkIds.length > 0) {
-        checksData = await db.select().from(checks)
-          .where(inArray(checks.id, checkIds));
-      }
-      
-      const checkItemIds = ticketItemsData.map(ti => ti.checkItemId);
-      let checkItemsData: any[] = [];
-      if (checkItemIds.length > 0) {
-        checkItemsData = await db.select().from(checkItems)
-          .where(inArray(checkItems.id, checkItemIds));
-      }
-      
-      const fullState = tickets.map(ticket => ({
-        ...ticket,
-        items: ticketItemsData
-          .filter(ti => ti.kdsTicketId === ticket.id)
-          .map(ti => ({
-            ...ti,
-            checkItem: checkItemsData.find(ci => ci.id === ti.checkItemId),
-          })),
-        check: checksData.find(c => c.id === ticket.checkId),
-      }));
-      
-      res.json({ tickets: fullState, fetchedAt: new Date().toISOString() });
+      res.json(result);
     } catch (error) {
       console.error("KDS active-tickets error:", error);
       res.status(500).json({ message: "Failed to fetch active tickets" });
@@ -4029,41 +4045,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       enterpriseId = await getEnterpriseIdFromContext({ rvcId, propertyId }) || undefined;
     }
     
-    let data = await storage.getTenders(rvcId);
-    
-    // Filter by enterprise if available (multi-tenancy)
     if (enterpriseId) {
-      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
-      data = filterByEnterprise(data, enterpriseId, propertyIds, rvcIds);
+      const data = await effectiveConfig.resolveTenders({ enterpriseId, propertyId, rvcId });
+      return res.json(data);
     }
     
-    if (propertyId) {
-      data = await filterByPropertyScope(data, propertyId, rvcId);
-    }
-    
+    const data = await effectiveConfig.getAllTenders(rvcId);
     res.json(data);
   });
 
-  // Get tenders by RVC ID (path param version for frontend convenience)
   app.get("/api/tenders/:rvcId", async (req, res) => {
     const rvcId = req.params.rvcId;
     const propertyId = req.query.propertyId as string | undefined;
     
-    // Auto-derive enterpriseId from rvcId for proper filtering
     const enterpriseId = await getEnterpriseIdFromContext({ rvcId });
     
-    let data = await storage.getTenders(rvcId);
-    
-    // Filter by enterprise if available (multi-tenancy)
     if (enterpriseId) {
-      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
-      data = filterByEnterprise(data, enterpriseId, propertyIds, rvcIds);
+      const data = await effectiveConfig.resolveTenders({ enterpriseId, propertyId, rvcId });
+      return res.json(data);
     }
 
-    if (propertyId) {
-      data = await filterByPropertyScope(data, propertyId, rvcId);
-    }
-    
+    const data = await effectiveConfig.getAllTenders(rvcId);
     res.json(data);
   });
 
@@ -4122,11 +4124,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!enterpriseId && (rvcId || propertyId)) {
       enterpriseId = await getEnterpriseIdFromContext({ rvcId, propertyId }) || undefined;
     }
-    let data = await storage.getTenders();
     if (enterpriseId) {
-      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
-      data = filterByEnterprise(data, enterpriseId, propertyIds, rvcIds);
+      const data = await effectiveConfig.resolveTenders({ enterpriseId, propertyId, rvcId });
+      return res.json(data);
     }
+    let data = await effectiveConfig.getAllTenders();
     if (propertyId) {
       data = await filterByPropertyScope(data, propertyId, rvcId);
     }
@@ -4140,14 +4142,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!enterpriseId && (rvcId || propertyId)) {
       enterpriseId = await getEnterpriseIdFromContext({ rvcId, propertyId }) || undefined;
     }
-    let data = await storage.getTaxGroups();
     if (enterpriseId) {
-      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
-      data = filterByEnterprise(data, enterpriseId, propertyIds, rvcIds);
+      const resolved = await effectiveConfig.resolveTaxGroups({ enterpriseId, propertyId, rvcId });
+      return res.json(resolved.taxGroups);
     }
-    if (propertyId) {
-      data = await filterByPropertyScope(data, propertyId, rvcId);
-    }
+    const data = await effectiveConfig.getAllTaxGroups();
     res.json(data);
   });
 
@@ -4181,18 +4180,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       enterpriseId = await getEnterpriseIdFromContext({ rvcId, propertyId }) || undefined;
     }
     
-    let data = await storage.getDiscounts();
-    
-    // Filter by enterprise if available (multi-tenancy)
     if (enterpriseId) {
-      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
-      data = filterByEnterprise(data, enterpriseId, propertyIds, rvcIds);
+      const data = await effectiveConfig.resolveDiscounts({ enterpriseId, propertyId, rvcId });
+      return res.json(data);
     }
     
-    if (propertyId) {
-      data = await filterByPropertyScope(data, propertyId, rvcId);
-    }
-    
+    const data = await effectiveConfig.getAllDiscounts();
     res.json(data);
   });
 
@@ -4309,14 +4302,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // Apply discount to item
-      await storage.updateCheckItem(itemId, {
-        discountId,
-        discountName: discount.name,
-        discountAmount: discountAmount.toFixed(2),
-        discountAppliedBy: employeeId,
-        discountApprovedBy: approvedByEmployeeId,
-      });
+      await journalWriteAtomic(
+        "update", "check_item", itemId, "POST", `/api/check-items/${itemId}/discount`,
+        () => storage.updateCheckItem(itemId, {
+          discountId, discountName: discount.name, discountAmount: discountAmount.toFixed(2),
+          discountAppliedBy: employeeId, discountApprovedBy: approvedByEmployeeId,
+        }),
+        { discountId, discountAmount, employeeId }
+      );
 
       // Recalculate check totals
       await recalculateCheckTotals(item.checkId);
@@ -4356,14 +4349,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Cannot modify discount on a closed check" });
       }
 
-      // Remove discount
-      await storage.updateCheckItem(itemId, {
-        discountId: null,
-        discountName: null,
-        discountAmount: null,
-        discountAppliedBy: null,
-        discountApprovedBy: null,
-      });
+      await journalWriteAtomic(
+        "update", "check_item", itemId, "DELETE", `/api/check-items/${itemId}/discount`,
+        () => storage.updateCheckItem(itemId, {
+          discountId: null, discountName: null,
+          discountAmount: null, discountAppliedBy: null, discountApprovedBy: null,
+        }),
+        { employeeId, checkId: item.checkId }
+      );
 
       // Recalculate check totals
       await recalculateCheckTotals(item.checkId);
@@ -4440,15 +4433,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // Create check discount record
-      const checkDiscount = await storage.createCheckDiscount({
-        checkId,
-        discountId,
-        discountName: discount.name,
-        amount: discountAmount.toFixed(2),
-        employeeId,
-        managerApprovalId: approvedByEmployeeId || null,
-      });
+      const pregenDiscountId = crypto.randomUUID();
+      const { result: checkDiscount } = await journalWriteAtomic(
+        "create", "check_discount", pregenDiscountId, "POST", `/api/checks/${checkId}/discount`,
+        () => storage.createCheckDiscount({
+          id: pregenDiscountId, checkId, discountId, discountName: discount.name,
+          amount: discountAmount.toFixed(2), employeeId, managerApprovalId: approvedByEmployeeId || null,
+        }),
+        { checkId, discountId, discountAmount, employeeId }
+      );
 
       // Recalculate check totals
       await recalculateCheckTotals(checkId);
@@ -4498,13 +4491,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Cannot modify discount on a closed check" });
       }
 
-      // Delete the discount
-      await storage.deleteCheckDiscount(discountId);
+      await journalWriteAtomic(
+        "delete", "check_discount", discountId, "DELETE", `/api/check-discounts/${discountId}`,
+        async () => {
+          await storage.deleteCheckDiscount(discountId);
+          await recalculateCheckTotals(checkDiscount.checkId);
+          return null;
+        },
+        { checkId: checkDiscount.checkId }
+      );
 
-      // Recalculate check totals
-      await recalculateCheckTotals(checkDiscount.checkId);
-
-      // Create audit log
       await storage.createAuditLog({
         rvcId: check.rvcId,
         employeeId,
@@ -4529,17 +4525,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const enterpriseId = await getEnforcedEnterpriseId(req);
     const propertyId = req.query.propertyId as string | undefined;
     const rvcId = req.query.rvcId as string | undefined;
-    let data = await storage.getServiceCharges();
-    
-    // Filter by enterprise if specified (multi-tenancy)
     if (enterpriseId) {
-      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
-      data = filterByEnterprise(data, enterpriseId, propertyIds, rvcIds);
-    }
-    if (propertyId) {
-      data = await filterByPropertyScope(data, propertyId, rvcId);
+      const data = await effectiveConfig.resolveServiceCharges({ enterpriseId, propertyId, rvcId });
+      return res.json(data);
     }
     
+    const data = await effectiveConfig.getAllServiceCharges();
     res.json(data);
   });
 
@@ -4594,8 +4585,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (serviceCharge.isTaxable) {
       taxableAmount = amount;
       if (serviceCharge.taxGroupId) {
-        const taxGroups = await storage.getTaxGroups();
-        const tg = taxGroups.find(t => t.id === serviceCharge.taxGroupId);
+        const rvc = await storage.getRvc(check.rvcId);
+        const property = rvc ? await storage.getProperty(rvc.propertyId!) : null;
+        const resolved = await effectiveConfig.resolveTaxGroups({ enterpriseId: property?.enterpriseId || "", propertyId: rvc?.propertyId, rvcId: check.rvcId });
+        const tg = resolved.taxGroups.find(t => t.id === serviceCharge.taxGroupId);
         if (tg) {
           taxRateAtSale = parseFloat(tg.rate);
           taxAmount = Math.round(amount * taxRateAtSale / 100 * 100) / 100;
@@ -4606,24 +4599,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const rvc = await storage.getRvc(check.rvcId);
     const property = rvc ? await storage.getProperty(rvc.propertyId!) : null;
     
-    const ledgerEntry = await storage.createCheckServiceCharge({
-      enterpriseId: property?.enterpriseId || "",
-      propertyId: rvc?.propertyId || "",
-      rvcId: check.rvcId,
-      checkId: check.id,
-      serviceChargeId: serviceCharge.id,
-      nameAtSale: serviceCharge.name,
-      codeAtSale: serviceCharge.code,
-      isTaxableAtSale: serviceCharge.isTaxable,
-      taxRateAtSale: taxRateAtSale?.toString() || null,
-      amount: amount.toFixed(2),
-      taxableAmount: taxableAmount.toFixed(2),
-      taxAmount: taxAmount.toFixed(2),
-      autoApplied: req.body.autoApplied || false,
-      appliedByEmployeeId: req.body.employeeId || null,
-      businessDate: check.originBusinessDate || new Date().toISOString().split("T")[0],
-      originDeviceId: req.body.originDeviceId || null,
-    });
+    const pregenScId = crypto.randomUUID();
+    const { result: ledgerEntry } = await journalWriteAtomic(
+      "create", "check_service_charge", pregenScId, "POST", `/api/checks/${check.id}/service-charges`,
+      () => storage.createCheckServiceCharge({
+        id: pregenScId, enterpriseId: property?.enterpriseId || "",
+        propertyId: rvc?.propertyId || "", rvcId: check.rvcId, checkId: check.id,
+        serviceChargeId: serviceCharge.id, nameAtSale: serviceCharge.name,
+        codeAtSale: serviceCharge.code, isTaxableAtSale: serviceCharge.isTaxable,
+        taxRateAtSale: taxRateAtSale?.toString() || null,
+        amount: amount.toFixed(2), taxableAmount: taxableAmount.toFixed(2),
+        taxAmount: taxAmount.toFixed(2), autoApplied: req.body.autoApplied || false,
+        appliedByEmployeeId: req.body.employeeId || null,
+        businessDate: check.originBusinessDate || new Date().toISOString().split("T")[0],
+        originDeviceId: req.body.originDeviceId || null,
+      }),
+      { checkId: check.id, serviceChargeId: serviceCharge.id, amount }
+    );
 
     await recalculateCheckTotals(check.id);
 
@@ -4631,10 +4623,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.post("/api/check-service-charges/:id/void", async (req, res) => {
-    const result = await storage.voidCheckServiceCharge(
-      req.params.id,
-      req.body.employeeId,
-      req.body.reason
+    const { result } = await journalWriteAtomic(
+      "update", "check_service_charge", req.params.id, "POST", `/api/check-service-charges/${req.params.id}/void`,
+      () => storage.voidCheckServiceCharge(req.params.id, req.body.employeeId, req.body.reason),
+      { employeeId: req.body.employeeId, reason: req.body.reason }
     );
     if (!result) return res.status(404).json({ message: "Service charge entry not found" });
 
@@ -4703,54 +4695,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const rvcId = req.query.rvcId as string;
       const orderType = req.query.orderType as string | undefined;
-      const statusFilter = req.query.statusFilter as string | undefined; // 'active' or 'completed'
+      const statusFilter = req.query.statusFilter as string | undefined;
       if (!rvcId) {
         return res.status(400).json({ message: "rvcId is required" });
       }
 
-      const conditions: any[] = [eq(checks.rvcId, rvcId), ne(checks.testMode, true)];
-
-      if (orderType && orderType !== "all") {
-        conditions.push(eq(checks.orderType, orderType));
-      }
-
-      if (statusFilter === "completed") {
-        conditions.push(eq(checks.status, "closed"));
-      } else {
-        conditions.push(inArray(checks.status, ["open", "voided"]));
-      }
-
-      const allChecks = await db
-        .select()
-        .from(checks)
-        .where(and(...conditions))
-        .orderBy(statusFilter === "completed" ? desc(checks.closedAt) : desc(checks.openedAt))
-        .limit(statusFilter === "completed" ? 50 : 500);
-
-      const enrichedChecks = await Promise.all(
-        allChecks.map(async (check) => {
-          const items = await storage.getCheckItems(check.id);
-          const activeItems = items.filter((i: any) => !i.voided);
-          const rounds = await storage.getRounds(check.id);
-          const lastRound = rounds.length > 0 ? rounds[rounds.length - 1] : null;
-          let employeeName: string | null = null;
-          if (check.employeeId) {
-            const employee = await storage.getEmployee(check.employeeId);
-            if (employee) {
-              employeeName = `${employee.firstName} ${employee.lastName}`.trim();
-            }
-          }
-          return {
-            ...check,
-            employeeName,
-            itemCount: activeItems.length,
-            unsentCount: activeItems.filter((i: any) => !i.sent).length,
-            roundCount: rounds.length,
-            lastRoundAt: lastRound?.sentAt || null,
-          };
-        })
-      );
-
+      const enrichedChecks = await storage.getOrdersForPickup(rvcId, { orderType, statusFilter });
       res.json(enrichedChecks);
     } catch (error) {
       console.error("Get checks/orders error:", error);
@@ -4761,16 +4711,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.patch("/api/checks/:id/fulfillment", async (req, res) => {
     try {
       const { fulfillmentStatus } = req.body;
+      const checkId = req.params.id;
       const validStatuses = ["received", "in_progress", "ready", "picked_up", "completed"];
       if (!validStatuses.includes(fulfillmentStatus)) {
         return res.status(400).json({ message: "Invalid fulfillment status" });
       }
 
-      const [updated] = await db
-        .update(checks)
-        .set({ fulfillmentStatus })
-        .where(eq(checks.id, req.params.id))
-        .returning();
+      const { result: updated } = await journalWriteAtomic(
+        "update", "check", checkId, "PATCH", `/api/checks/${checkId}/fulfillment`,
+        () => storage.updateCheck(checkId, { fulfillmentStatus }),
+        { fulfillmentStatus }
+      );
 
       if (!updated) {
         return res.status(404).json({ message: "Check not found" });
@@ -4778,39 +4729,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       if (updated.onlineOrderId) {
         try {
-          const [onlineOrder] = await db
-            .select()
-            .from(onlineOrders)
-            .where(eq(onlineOrders.id, updated.onlineOrderId))
-            .limit(1);
+          const onlineOrder = await storage.getOnlineOrder(updated.onlineOrderId);
 
           if (fulfillmentStatus === "ready") {
-            await db
-              .update(onlineOrders)
-              .set({ status: "ready", readyAt: new Date() })
-              .where(eq(onlineOrders.id, updated.onlineOrderId));
+            await journalWriteAtomic(
+              "update", "online_order", updated.onlineOrderId, "PATCH", `/api/online-orders/${updated.onlineOrderId}/status`,
+              () => storage.updateOnlineOrder(updated.onlineOrderId!, { status: "ready", readyAt: new Date() }),
+              { fulfillmentStatus }
+            );
           } else if (fulfillmentStatus === "picked_up" || fulfillmentStatus === "completed") {
-            await db
-              .update(onlineOrders)
-              .set({ status: "completed", pickedUpAt: new Date() })
-              .where(eq(onlineOrders.id, updated.onlineOrderId));
+            await journalWriteAtomic(
+              "update", "online_order", updated.onlineOrderId, "PATCH", `/api/online-orders/${updated.onlineOrderId}/status`,
+              () => storage.updateOnlineOrder(updated.onlineOrderId!, { status: "completed", pickedUpAt: new Date() }),
+              { fulfillmentStatus }
+            );
           } else if (fulfillmentStatus === "in_progress") {
-            await db
-              .update(onlineOrders)
-              .set({ status: "preparing" })
-              .where(eq(onlineOrders.id, updated.onlineOrderId));
+            await journalWriteAtomic(
+              "update", "online_order", updated.onlineOrderId, "PATCH", `/api/online-orders/${updated.onlineOrderId}/status`,
+              () => storage.updateOnlineOrder(updated.onlineOrderId!, { status: "preparing" }),
+              { fulfillmentStatus }
+            );
           }
 
           if (onlineOrder?.sourceId && (fulfillmentStatus === "ready")) {
             try {
-              const [source] = await db
-                .select()
-                .from(onlineOrderSources)
-                .where(eq(onlineOrderSources.id, onlineOrder.sourceId))
-                .limit(1);
+              const source = await storage.getOnlineOrderSource(onlineOrder.sourceId);
 
               if (source) {
-                let integration: any = null;
+                let integration: { markReady: (s: typeof source, extId: string) => Promise<void> } | null = null;
                 switch (source.platform) {
                   case "ubereats": case "uber_eats": integration = uberEatsIntegration; break;
                   case "grubhub": integration = grubhubIntegration; break;
@@ -4986,18 +4932,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
         
         const originDeviceId = workstationId !== 'default' ? workstationId : undefined;
-        const check = await storage.createCheckAtomic(rvcId, {
-          rvcId,
-          employeeId,
-          orderType: orderType || "dine_in",
-          status: "open",
-          originBusinessDate: businessDate,
-          businessDate,
-          testMode: testMode || false,
-          originDeviceId: originDeviceId || null,
-        });
-        
-        // Broadcast real-time update for new check
+        const pregenCheckId = crypto.randomUUID();
+        const { result: check } = await journalWriteAtomic(
+          "create", "check", pregenCheckId, "POST", "/api/checks",
+          () => storage.createCheckAtomic(rvcId, {
+            id: pregenCheckId, rvcId, employeeId,
+            orderType: orderType || "dine_in", status: "open",
+            originBusinessDate: businessDate, businessDate,
+            testMode: testMode || false, originDeviceId: originDeviceId || null,
+          }),
+          { rvcId, employeeId, orderType, businessDate },
+          undefined, workstationId, rvc?.propertyId
+        );
+
         broadcastCheckUpdate(check.id, "open", rvcId);
 
         if (idempotencyKey) {
@@ -5023,26 +4970,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const checkId = req.params.id;
       const { menuItemId, menuItemName, unitPrice, modifiers, quantity, itemStatus } = req.body;
 
-      const [check, menuItem, taxGroups] = await Promise.all([
+      const [check, menuItem] = await Promise.all([
         storage.getCheck(checkId),
         storage.getMenuItem(menuItemId),
-        storage.getTaxGroups(),
       ]);
 
       let businessDate: string | undefined;
       let rvc: any = null;
+      let enterpriseId: string | undefined;
       if (check) {
         rvc = await storage.getRvc(check.rvcId);
         if (rvc) {
           const property = await storage.getProperty(rvc.propertyId);
           if (property) {
             businessDate = resolveBusinessDate(new Date(), property);
+            enterpriseId = property.enterpriseId;
           }
         }
       }
 
       const itemQuantity = quantity || 1;
-      const taxGroup = taxGroups.find((tg) => tg.id === menuItem?.taxGroupId);
+      let resolvedTaxGroups;
+      if (enterpriseId) {
+        const resolved = await effectiveConfig.resolveTaxGroups({ enterpriseId, propertyId: rvc?.propertyId, rvcId: check?.rvcId });
+        resolvedTaxGroups = resolved.taxGroups;
+      } else {
+        resolvedTaxGroups = await effectiveConfig.getAllTaxGroups();
+      }
+      const taxGroup = resolvedTaxGroups.find((tg: any) => tg.id === menuItem?.taxGroupId);
       const taxGroupIdAtSale = taxGroup?.id || null;
       const taxModeAtSale = taxGroup?.taxMode || "add_on";
       const taxRateAtSale = parseFloat(taxGroup?.rate || "0");
@@ -5060,19 +5015,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         taxableAmount: taxableAmount.toFixed(2),
       };
       
-      const item = await storage.createCheckItem({
-        checkId,
-        menuItemId,
-        menuItemName,
-        unitPrice,
-        modifiers: modifiers || [],
-        quantity: itemQuantity,
-        itemStatus: itemStatus || "active",
-        sent: false,
-        voided: false,
-        businessDate,
-        ...taxSnapshot,
-      });
+      const pregenItemId = crypto.randomUUID();
+      const { result: item } = await journalWriteAtomic(
+        "create", "check_item", pregenItemId, "POST", `/api/checks/${checkId}/items`,
+        () => storage.createCheckItem({
+          id: pregenItemId, checkId, menuItemId, menuItemName, unitPrice,
+          modifiers: modifiers || [], quantity: itemQuantity,
+          itemStatus: itemStatus || "active", sent: false, voided: false,
+          businessDate, ...taxSnapshot,
+        }),
+        { checkId, menuItemId, unitPrice, quantity: itemQuantity }
+      );
 
       res.status(201).json(item);
 
@@ -5217,23 +5170,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Cancel KDS tickets - use getKdsTicketsByCheck to get raw tickets with checkId
       const checkTickets = await storage.getKdsTicketsByCheck(checkId);
       for (const ticket of checkTickets) {
-        // Get all ticket items for this ticket
         const ticketItems = await storage.getKdsTicketItems(ticket.id);
         
-        // Remove ticket items that belong to unsent (being cancelled) items
         let remainingItems = 0;
         for (const ticketItem of ticketItems) {
           if (unsentItemIds.has(ticketItem.checkItemId)) {
-            // This ticket item is for an unsent item being cancelled - remove it
-            await storage.removeKdsTicketItem(ticket.id, ticketItem.checkItemId);
+            await journalWriteAtomic(
+              "delete", "kds_ticket_item", `${ticket.id}:${ticketItem.checkItemId}`, "POST",
+              `/api/checks/${checkId}/cancel-transaction`,
+              () => storage.removeKdsTicketItem(ticket.id, ticketItem.checkItemId),
+              { kdsTicketId: ticket.id, checkItemId: ticketItem.checkItemId }
+            );
           } else {
             remainingItems++;
           }
         }
         
-        // If ticket has no remaining items, mark it as voided
         if (remainingItems === 0) {
-          await storage.updateKdsTicket(ticket.id, { status: "voided" });
+          await journalWriteAtomic(
+            "update", "kds_ticket", ticket.id, "POST", `/api/checks/${checkId}/cancel-transaction`,
+            () => storage.updateKdsTicket(ticket.id, { status: "voided" }),
+            { status: "voided" }
+          );
         }
       }
 
@@ -5241,20 +5199,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const rvc = await storage.getRvc(check.rvcId);
       const propertyId = rvc?.propertyId;
 
-      // Void all unsent items with "transaction_cancelled" reason
-      const voidedItems: any[] = [];
+      const voidedItems: unknown[] = [];
       for (const item of unsentItems) {
-        const voidedItem = await storage.updateCheckItem(item.id, {
-          voided: true,
-          voidReason: reason || "Transaction cancelled",
-          voidedAt: new Date(),
-        });
+        const { result: voidedItem } = await journalWriteAtomic(
+          "update", "check_item", item.id, "POST", `/api/checks/${checkId}/cancel-transaction`,
+          () => storage.updateCheckItem(item.id, {
+            voided: true, voidReason: reason || "Transaction cancelled", voidedAt: new Date(),
+          }),
+          { voided: true, voidReason: reason || "Transaction cancelled" }
+        );
         voidedItems.push(voidedItem);
         
-        // Restore item availability if this menu item had availability tracking
         if (propertyId && item.menuItemId) {
           const quantity = item.quantity || 1;
-          await storage.restoreItemAvailability(item.menuItemId, propertyId, quantity);
+          await journalWriteAtomic(
+            "update", "item_availability", `${item.menuItemId}:${propertyId}`, "POST",
+            `/api/checks/${checkId}/cancel-transaction`,
+            () => storage.restoreItemAvailability(item.menuItemId, propertyId, quantity),
+            { menuItemId: item.menuItemId, propertyId, quantity, action: "restore" }
+          );
         }
         
         await storage.createAuditLog({
@@ -5272,21 +5235,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         });
       }
 
-      // Always recalculate check totals after voiding items
       if (voidedItems.length > 0) {
         await recalculateCheckTotals(checkId);
       }
 
-      // Determine what to do with the check based on whether there are previous rounds
       let checkClosed = false;
       
       if (previouslySentItems.length === 0) {
-        // Scenario 1: No previous rounds, close the check as voided
-        // Don't delete - mark as closed for auditability
-        await storage.updateCheck(checkId, { 
-          status: "closed",
-          closedAt: new Date(),
-        });
+        await journalWriteAtomic(
+          "update", "check", checkId, "POST", `/api/checks/${checkId}/cancel-transaction/close`,
+          () => storage.updateCheck(checkId, { status: "closed", closedAt: new Date() }),
+          { status: "closed", reason: reason || "Transaction cancelled - all items voided" }
+        );
         checkClosed = true;
         
         await storage.createAuditLog({
@@ -5301,7 +5261,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           },
         });
       } else {
-        // Scenario 2: Previous rounds exist, keep check open with recalculated totals
         await storage.createAuditLog({
           rvcId: check.rvcId,
           employeeId,
@@ -5317,15 +5276,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         });
       }
 
-      // Always broadcast KDS update so cancelled tickets disappear
       broadcastKdsUpdate(check.rvcId);
       
-      // Broadcast availability update if items were voided and availability was restored
       if (voidedItems.length > 0 && propertyId) {
         broadcastAvailabilityUpdate(propertyId);
       }
 
-      // Get the updated check to return to the client
       const updatedCheck = await storage.getCheck(checkId);
       const updatedItems = await storage.getCheckItems(checkId);
 
@@ -5385,12 +5341,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         taxUpdateData = taxSnapshot;
       }
       
-      // Update modifiers and optionally itemStatus (for finalizing pending items)
       const updateData: any = { modifiers, ...taxUpdateData };
       if (itemStatus) {
         updateData.itemStatus = itemStatus;
       }
-      const updated = await storage.updateCheckItem(itemId, updateData);
+      const { result: updated } = await journalWriteAtomic(
+        "update", "check_item", itemId, "PATCH", `/api/check-items/${itemId}/modifiers`,
+        () => storage.updateCheckItem(itemId, updateData),
+        { modifiers, employeeId, itemStatus }
+      );
 
       const check = await storage.getCheck(item.checkId);
       
@@ -5465,12 +5424,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Cannot modify sent items" });
       }
 
-      const updateData: any = { modifiers: modifiers || [] };
+      const updateData2: any = { modifiers: modifiers || [] };
       if (unitPrice !== undefined) {
-        updateData.unitPrice = unitPrice;
+        updateData2.unitPrice = unitPrice;
       }
 
-      const updated = await storage.updateCheckItem(itemId, updateData);
+      const { result: updated } = await journalWriteAtomic(
+        "update", "check_item", itemId, "PUT", `/api/check-items/${itemId}/modifiers`,
+        () => storage.updateCheckItem(itemId, updateData2),
+        { modifiers, unitPrice }
+      );
 
       res.json(updated);
     } catch (error) {
@@ -5496,19 +5459,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         managerApprovalId = manager.id;
       }
 
-      const updated = await storage.updateCheckItem(itemId, {
-        voided: true,
-        voidReason: reason,
-        voidedByEmployeeId: employeeId,
-        voidedAt: new Date(),
-      });
+      const { result: updated } = await journalWriteAtomic(
+        "update", "check_item", itemId, "POST", `/api/check-items/${itemId}/void`,
+        () => storage.updateCheckItem(itemId, {
+          voided: true, voidReason: reason, voidedByEmployeeId: employeeId, voidedAt: new Date(),
+        }),
+        { reason, employeeId }
+      );
 
-      // Update KDS ticket item status to voided so KDS reflects the void in real-time
-      await storage.voidKdsTicketItem(itemId);
+      await journalWriteAtomic(
+        "update", "kds_ticket_item", itemId, "POST", `/api/check-items/${itemId}/void-kds`,
+        () => storage.voidKdsTicketItem(itemId),
+        { checkItemId: itemId }
+      );
 
       const check = await storage.getCheck(item.checkId);
       
-      // Restore item availability if this menu item had availability tracking
       let availabilityRestored = false;
       let propertyId: string | undefined;
       if (check && item.menuItemId) {
@@ -5516,7 +5482,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         propertyId = rvc?.propertyId;
         if (propertyId) {
           const quantity = item.quantity || 1;
-          await storage.restoreItemAvailability(item.menuItemId, propertyId, quantity);
+          await journalWriteAtomic(
+            "update", "item_availability", item.menuItemId, "POST", `/api/item-availability/restore`,
+            () => storage.restoreItemAvailability(item.menuItemId!, propertyId!, quantity),
+            { menuItemId: item.menuItemId, propertyId, quantity }
+          );
           availabilityRestored = true;
         }
       }
@@ -5662,23 +5632,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      const payment = await storage.createPayment({
-        checkId,
-        tenderId,
-        tenderName: tender.name,
-        amount,
-        tipAmount: tipAmount || undefined,
-        employeeId,
-        businessDate,
-        paymentTransactionId: paymentTransactionId || null,
-        paymentStatus,
-        paymentAttemptId: idempotencyKey || undefined,
-      });
+      const pregenPaymentId = crypto.randomUUID();
+      const { result: payment } = await journalWriteAtomic(
+        "create", "check_payment", pregenPaymentId, "POST", `/api/checks/${checkId}/payments`,
+        () => storage.createPayment({
+          id: pregenPaymentId, checkId, tenderId, tenderName: tender.name, amount,
+          tipAmount: tipAmount || undefined, employeeId, businessDate,
+          paymentTransactionId: paymentTransactionId || null, paymentStatus,
+          paymentAttemptId: idempotencyKey || undefined,
+        }),
+        { checkId, tenderId, amount, tipAmount, paymentStatus }
+      );
 
-      // Bidirectional link: update payment_transaction with check_payment_id
       if (paymentTransactionId) {
         try {
-          await storage.updatePaymentTransaction(paymentTransactionId, { checkPaymentId: payment.id });
+          await journalWriteAtomic(
+            "update", "payment_transaction", paymentTransactionId, "PATCH", `/api/payment-transactions/${paymentTransactionId}/link`,
+            () => storage.updatePaymentTransaction(paymentTransactionId!, { checkPaymentId: payment?.id }),
+            { checkPaymentId: payment?.id }
+          );
         } catch (linkError: any) {
           console.error("Failed to link payment_transaction to check_payment:", linkError.message);
         }
@@ -5687,16 +5659,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (tender.popDrawer && resolvedDrawerAssignmentId && resolvedDrawerId && businessDate) {
         try {
           const rvcForProp = await storage.getRvc(checkForBiz?.rvcId || "");
-          await storage.createCashTransaction({
-            propertyId: rvcForProp?.propertyId || "",
-            drawerId: resolvedDrawerId,
-            assignmentId: resolvedDrawerAssignmentId,
-            employeeId,
-            transactionType: "sale",
-            amount: amount,
-            businessDate,
-            checkId,
-          });
+          const cashTxId = crypto.randomUUID();
+          await journalWriteAtomic(
+            "create", "cash_transaction", cashTxId, "POST", "/api/cash-transactions",
+            () => storage.createCashTransaction({
+              propertyId: rvcForProp?.propertyId || "", drawerId: resolvedDrawerId!,
+              assignmentId: resolvedDrawerAssignmentId!, employeeId,
+              transactionType: "sale", amount, businessDate: businessDate!, checkId,
+            }),
+            { propertyId: rvcForProp?.propertyId, transactionType: "sale", amount, checkId }
+          );
         } catch (e) {
           console.error("Failed to create cash_transaction for sale:", e);
         }
@@ -5763,14 +5735,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         // Calculate total tips from all payments for the check
         const tipTotal = payments.reduce((sum, p) => sum + parseFloat(p.tipAmount || "0"), 0);
         
-        // Totals are already persisted via recalculateCheckTotals, just update status
-        // IMPORTANT: Update businessDate to current date when closing (for carried-over checks)
-        const updatedCheck = await storage.updateCheck(checkId, {
-          status: "closed",
-          closedAt: new Date(),
-          businessDate, // Close date = current business date
-          tipTotal: tipTotal.toFixed(2), // Store total tips from all payments
-        });
+        const { result: updatedCheck } = await journalWriteAtomic(
+          "update", "check", checkId, "PATCH", `/api/checks/${checkId}`,
+          () => storage.updateCheck(checkId, {
+            status: "closed", closedAt: new Date(), businessDate, tipTotal: tipTotal.toFixed(2),
+          }),
+          { status: "closed", businessDate }
+        );
 
         // Activate any pending gift cards and process reloads on this check
         try {
@@ -5787,23 +5758,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               if (gcModifier?.giftCardId) {
                 const pendingCard = await storage.getGiftCard(gcModifier.giftCardId);
                 if (pendingCard && pendingCard.status === "pending") {
-                  await storage.updateGiftCard(pendingCard.id, {
-                    status: "active",
-                    currentBalance: pendingCard.initialBalance,
-                    activatedAt: new Date(),
-                    activatedById: employeeId,
-                  });
-                  await storage.createGiftCardTransaction({
-                    giftCardId: pendingCard.id,
-                    transactionType: "activate",
-                    amount: pendingCard.initialBalance || "0",
-                    balanceBefore: "0",
-                    balanceAfter: pendingCard.initialBalance || "0",
-                    propertyId: pendingCard.propertyId || undefined,
-                    checkId,
-                    employeeId,
-                    notes: "Activated after payment",
-                  });
+                  await journalWriteAtomic(
+                    "update", "gift_card", pendingCard.id, "PATCH", `/api/gift-cards/${pendingCard.id}/activate`,
+                    async () => {
+                      await storage.updateGiftCard(pendingCard.id, {
+                        status: "active",
+                        currentBalance: pendingCard.initialBalance,
+                        activatedAt: new Date(),
+                        activatedById: employeeId,
+                      });
+                      await storage.createGiftCardTransaction({
+                        giftCardId: pendingCard.id,
+                        transactionType: "activate",
+                        amount: pendingCard.initialBalance || "0",
+                        balanceBefore: "0",
+                        balanceAfter: pendingCard.initialBalance || "0",
+                        propertyId: pendingCard.propertyId || undefined,
+                        checkId,
+                        employeeId,
+                        notes: "Activated after payment",
+                      });
+                      return null;
+                    },
+                    { checkId, giftCardId: pendingCard.id }
+                  );
                   console.log("Activated gift card:", pendingCard.cardNumber);
                 }
               }
@@ -5820,20 +5798,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   const reloadAmt = parseFloat(reloadModifier.reloadAmount || item.unitPrice || "0");
                   const newBalance = (currentBalance + reloadAmt).toFixed(2);
                   
-                  await storage.updateGiftCard(reloadCard.id, {
-                    currentBalance: newBalance,
-                  });
-                  await storage.createGiftCardTransaction({
-                    giftCardId: reloadCard.id,
-                    transactionType: "reload",
-                    amount: reloadAmt.toFixed(2),
-                    balanceBefore: currentBalance.toFixed(2),
-                    balanceAfter: newBalance,
-                    propertyId: reloadCard.propertyId || undefined,
-                    checkId,
-                    employeeId,
-                    notes: "Reloaded after payment",
-                  });
+                  await journalWriteAtomic(
+                    "update", "gift_card", reloadCard.id, "PATCH", `/api/gift-cards/${reloadCard.id}/reload`,
+                    async () => {
+                      await storage.updateGiftCard(reloadCard.id, {
+                        currentBalance: newBalance,
+                      });
+                      await storage.createGiftCardTransaction({
+                        giftCardId: reloadCard.id,
+                        transactionType: "reload",
+                        amount: reloadAmt.toFixed(2),
+                        balanceBefore: currentBalance.toFixed(2),
+                        balanceAfter: newBalance,
+                        propertyId: reloadCard.propertyId || undefined,
+                        checkId,
+                        employeeId,
+                        notes: "Reloaded after payment",
+                      });
+                      return null;
+                    },
+                    { checkId, giftCardId: reloadCard.id }
+                  );
                   console.log("Reloaded gift card:", reloadCard.cardNumber, "New balance:", newBalance);
                 }
               }
@@ -5879,15 +5864,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               const visitCount = enrollment.visitCount || 0;
               const lifetimeSpend = parseFloat(enrollment.lifetimeSpend || "0");
               
-              await storage.updateLoyaltyEnrollment(enrollment.id, {
-                currentPoints: currentPoints + pointsToAward,
-                lifetimePoints: lifetimePoints + pointsToAward,
-                visitCount: visitCount + visitIncrement,
-                lifetimeSpend: (lifetimeSpend + spendIncrement).toFixed(2),
-                lastActivityAt: new Date(),
-              });
+              await journalWriteAtomic(
+                "update", "loyalty_enrollment", enrollment.id, "PATCH", `/api/loyalty-enrollments/${enrollment.id}/earn`,
+                async () => {
+                  await storage.updateLoyaltyEnrollment(enrollment.id, {
+                    currentPoints: currentPoints + pointsToAward,
+                    lifetimePoints: lifetimePoints + pointsToAward,
+                    visitCount: visitCount + visitIncrement,
+                    lifetimeSpend: (lifetimeSpend + spendIncrement).toFixed(2),
+                    lastActivityAt: new Date(),
+                  });
+                  return null;
+                },
+                { checkId, programId: program.id, pointsToAward, visitIncrement, spendIncrement }
+              );
               
-              // Create loyalty transaction for audit trail
               await storage.createLoyaltyTransaction({
                 memberId: check.customerId,
                 programId: program.id,
@@ -6110,56 +6101,61 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Payment is already voided" });
       }
       
-      // Update payment status to voided
-      const updatedPayment = await storage.updateCheckPayment(paymentId, {
-        paymentStatus: "voided",
-      });
-      
-      // Get the check and recalculate totals
-      const check = await storage.getCheck(payment.checkId);
-      if (check) {
-        // Get all payments for this check to recalculate paid amount
-        const allPayments = await storage.getPayments(payment.checkId);
-        const newPaidAmount = allPayments
-          .filter(p => p.paymentStatus === "completed")
-          .reduce((sum, p) => sum + parseFloat(p.amount || "0") + parseFloat(p.tipAmount || "0"), 0);
-        
-        // Persist the updated paid amount to the check
-        const total = parseFloat(check.total || "0");
-        const wasClosedWithBalanceDue = check.status === "closed" && newPaidAmount < total;
-        
-        // Update check with new balance and potentially reopen (only if status change needed)
-        if (wasClosedWithBalanceDue) {
-          await storage.updateCheck(check.id, { status: "open" });
-        }
-        
-        // Log the void action
-        await storage.createAuditLog({
-          rvcId: check.rvcId,
-          action: "void_payment",
-          targetType: "payment",
-          targetId: paymentId,
-          employeeId: employeeId || null,
-          managerApprovalId: managerId || null,
-          details: {
-            checkId: payment.checkId,
-            amount: payment.amount,
-            previousPaidAmount: check.total,
-            newPaidAmount: newPaidAmount.toFixed(2),
-            reason: reason || "Payment voided",
-            checkReopened: wasClosedWithBalanceDue,
-          },
-        });
-        
-        // Broadcast the check update for status change
-        if (wasClosedWithBalanceDue) {
-          broadcastCheckUpdate(check.id, "open", check.rvcId);
-        }
-      }
-      
-      // Broadcast payment update
+      const { result: updatedPayment } = await journalWriteAtomic(
+        "void", "check_payment", paymentId, "PATCH", `/api/check-payments/${paymentId}/void`,
+        async (parentEventId) => {
+          const voidedPayment = await storage.updateCheckPayment(paymentId, {
+            paymentStatus: "voided",
+          });
+
+          const check = await storage.getCheck(payment.checkId);
+          if (check) {
+            const allPayments = await storage.getPayments(payment.checkId);
+            const newPaidAmount = allPayments
+              .filter(p => p.paymentStatus === "completed")
+              .reduce((sum, p) => sum + parseFloat(p.amount || "0") + parseFloat(p.tipAmount || "0"), 0);
+
+            const total = parseFloat(check.total || "0");
+            const wasClosedWithBalanceDue = check.status === "closed" && newPaidAmount < total;
+
+            if (wasClosedWithBalanceDue) {
+              await recordCompoundJournalEntry(
+                parentEventId, "update", "check", check.id,
+                "PATCH", `/api/checks/${check.id}/reopen-after-void`,
+                { status: "open", reason: "Reopened after payment void" }
+              );
+              await storage.updateCheck(check.id, { status: "open" });
+            }
+
+            await storage.createAuditLog({
+              rvcId: check.rvcId,
+              action: "void_payment",
+              targetType: "payment",
+              targetId: paymentId,
+              employeeId: employeeId || null,
+              managerApprovalId: managerId || null,
+              details: {
+                checkId: payment.checkId,
+                amount: payment.amount,
+                previousPaidAmount: check.total,
+                newPaidAmount: newPaidAmount.toFixed(2),
+                reason: reason || "Payment voided",
+                checkReopened: wasClosedWithBalanceDue,
+              },
+            });
+
+            if (wasClosedWithBalanceDue) {
+              broadcastCheckUpdate(check.id, "open", check.rvcId);
+            }
+          }
+
+          return voidedPayment;
+        },
+        { reason, employeeId, managerId }
+      );
+
       broadcastPaymentUpdate(payment.checkId);
-      
+
       res.json({ 
         ...updatedPayment, 
         message: "Payment voided successfully" 
@@ -6186,51 +6182,57 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Payment is not voided" });
       }
       
-      // Restore payment status to completed
-      const updatedPayment = await storage.updateCheckPayment(paymentId, {
-        paymentStatus: "completed",
-      });
-      
-      // Get the check and recalculate totals
-      const check = await storage.getCheck(payment.checkId);
-      if (check) {
-        // Get all payments for this check to recalculate paid amount
-        const allPayments = await storage.getPayments(payment.checkId);
-        const newPaidAmount = allPayments
-          .filter(p => p.paymentStatus === "completed")
-          .reduce((sum, p) => sum + parseFloat(p.amount || "0") + parseFloat(p.tipAmount || "0"), 0);
-        
-        // Check if the check is now fully paid
-        const total = parseFloat(check.total || "0");
-        const isFullyPaid = newPaidAmount >= total;
-        
-        // If check was open and is now fully paid, close it
-        if (check.status === "open" && isFullyPaid) {
-          await storage.updateCheck(check.id, { status: "closed", closedAt: new Date() });
-          broadcastCheckUpdate(check.id, "closed", check.rvcId);
-        }
-        
-        // Log the restore action
-        await storage.createAuditLog({
-          rvcId: check.rvcId,
-          action: "restore_payment",
-          targetType: "payment",
-          targetId: paymentId,
-          employeeId: req.body.employeeId || null,
-          managerApprovalId: null,
-          details: {
-            checkId: payment.checkId,
-            amount: payment.amount,
-            newPaidAmount: newPaidAmount.toFixed(2),
-            reason: "Payment restored (void cancelled)",
-            checkClosed: check.status === "open" && isFullyPaid,
-          },
-        });
-      }
-      
-      // Broadcast payment update
+      const { result: updatedPayment } = await journalWriteAtomic(
+        "restore", "check_payment", paymentId, "PATCH", `/api/check-payments/${paymentId}/restore`,
+        async (parentEventId) => {
+          const restoredPayment = await storage.updateCheckPayment(paymentId, {
+            paymentStatus: "completed",
+          });
+
+          const check = await storage.getCheck(payment.checkId);
+          if (check) {
+            const allPayments = await storage.getPayments(payment.checkId);
+            const newPaidAmount = allPayments
+              .filter(p => p.paymentStatus === "completed")
+              .reduce((sum, p) => sum + parseFloat(p.amount || "0") + parseFloat(p.tipAmount || "0"), 0);
+
+            const total = parseFloat(check.total || "0");
+            const isFullyPaid = newPaidAmount >= total;
+
+            if (check.status === "open" && isFullyPaid) {
+              await recordCompoundJournalEntry(
+                parentEventId, "update", "check", check.id,
+                "PATCH", `/api/checks/${check.id}/close-after-restore`,
+                { status: "closed", reason: "Closed after payment restore" }
+              );
+              await storage.updateCheck(check.id, { status: "closed", closedAt: new Date() });
+              broadcastCheckUpdate(check.id, "closed", check.rvcId);
+            }
+
+            await storage.createAuditLog({
+              rvcId: check.rvcId,
+              action: "restore_payment",
+              targetType: "payment",
+              targetId: paymentId,
+              employeeId: req.body.employeeId || null,
+              managerApprovalId: null,
+              details: {
+                checkId: payment.checkId,
+                amount: payment.amount,
+                newPaidAmount: newPaidAmount.toFixed(2),
+                reason: "Payment restored (void cancelled)",
+                checkClosed: check.status === "open" && isFullyPaid,
+              },
+            });
+          }
+
+          return restoredPayment;
+        },
+        { employeeId: req.body.employeeId }
+      );
+
       broadcastPaymentUpdate(payment.checkId);
-      
+
       res.json({ 
         ...updatedPayment, 
         message: "Payment restored successfully" 
@@ -6461,6 +6463,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           businessDate = resolveBusinessDate(new Date(), property);
         }
       }
+      await journalWriteAtomic(
+        "create", "check_split", sourceCheckId, "POST", `/api/checks/${sourceCheckId}/split`,
+        async (parentEventId) => {
       for (const targetIndex of Array.from(targetIndices)) {
         const newCheck = await storage.createCheckAtomic(sourceCheck.rvcId, {
           rvcId: sourceCheck.rvcId,
@@ -6476,7 +6481,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const results: any[] = [];
 
-      // Process each operation
       for (const op of operations) {
         const targetCheck = newChecks.find((nc) => nc.index === op.targetCheckIndex)?.check;
         if (!targetCheck) continue;
@@ -6485,16 +6489,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         if (!item) continue;
 
         if (op.type === "move") {
-          // Move entire item to new check - keep sent status (items must be sent before splitting)
+          await recordCompoundJournalEntry(
+            parentEventId, "update", "check_item", op.itemId,
+            "PATCH", `/api/check-items/${op.itemId}/move`,
+            { checkId: targetCheck.id, fromCheckId: sourceCheckId }
+          );
           await storage.updateCheckItem(op.itemId, { checkId: targetCheck.id });
           results.push({ type: "move", itemId: op.itemId, newCheckId: targetCheck.id });
         } else if (op.type === "share") {
-          // Share item: split the quantity and amount across checks
-          const shareRatio = op.shareRatio || 0.5; // Default to 50/50
+          const shareRatio = op.shareRatio || 0.5;
           const originalQty = item.quantity || 1;
           const originalPrice = parseFloat(item.unitPrice || "0");
 
-          // Update original item with reduced quantity/value
           const originalShare = 1 - shareRatio;
           const newQtyOriginal = Math.max(1, Math.round(originalQty * originalShare));
           const newPriceOriginal = originalPrice * originalShare;
@@ -6588,13 +6594,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // Recalculate totals for all affected checks
       await recalculateCheckTotals(sourceCheckId);
       for (const nc of newChecks) {
         await recalculateCheckTotals(nc.check.id);
       }
 
-      // Log the action
       await storage.createAuditLog({
         rvcId: sourceCheck.rvcId,
         employeeId,
@@ -6608,7 +6612,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         },
       });
 
-      // Return updated source check and new checks
+      return results;
+        },
+        { employeeId, operations }
+      );
+
       const updatedSourceCheck = await storage.getCheck(sourceCheckId);
       const sourceItems = await storage.getCheckItems(sourceCheckId);
       const newChecksWithItems = await Promise.all(
@@ -6621,7 +6629,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({
         sourceCheck: { check: updatedSourceCheck, items: sourceItems },
         newChecks: newChecksWithItems,
-        results,
       });
     } catch (error) {
       console.error("Split check error:", error);
@@ -6654,10 +6661,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const fromEmployee = await storage.getEmployee(check.employeeId);
 
-      // Update check ownership
-      const updatedCheck = await storage.updateCheck(checkId, {
-        employeeId: toEmployeeId,
-      });
+      const { result: updatedCheck } = await journalWriteAtomic(
+        "update", "check", checkId, "POST", `/api/checks/${checkId}/transfer`,
+        () => storage.updateCheck(checkId, { employeeId: toEmployeeId }),
+        { employeeId, toEmployeeId }
+      );
 
       // Log the action
       await storage.createAuditLog({
@@ -6704,46 +6712,58 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const mergedFromChecks: number[] = [];
 
-      // Move items from each source check to target
-      for (const sourceId of sourceCheckIds) {
-        if (sourceId === targetCheckId) continue;
+      await journalWriteAtomic(
+        "update", "check_merge", targetCheckId, "POST", `/api/checks/merge`,
+        async (parentEventId) => {
+          for (const sourceId of sourceCheckIds) {
+            if (sourceId === targetCheckId) continue;
 
-        const sourceCheck = await storage.getCheck(sourceId);
-        if (!sourceCheck || sourceCheck.status === "closed") continue;
+            const sourceCheck = await storage.getCheck(sourceId);
+            if (!sourceCheck || sourceCheck.status === "closed") continue;
 
-        const sourceItems = await storage.getCheckItems(sourceId);
-        for (const item of sourceItems) {
-          if (!item.voided) {
-            await storage.updateCheckItem(item.id, { checkId: targetCheckId });
+            const sourceItems = await storage.getCheckItems(sourceId);
+            for (const item of sourceItems) {
+              if (!item.voided) {
+                await recordCompoundJournalEntry(
+                  parentEventId, "update", "check_item", item.id,
+                  "PATCH", `/api/check-items/${item.id}/move`,
+                  { checkId: targetCheckId, fromCheckId: sourceId }
+                );
+                await storage.updateCheckItem(item.id, { checkId: targetCheckId });
+              }
+            }
+
+            await recordCompoundJournalEntry(
+              parentEventId, "update", "check", sourceId,
+              "PATCH", `/api/checks/${sourceId}/close-after-merge`,
+              { status: "closed", reason: "Closed after merge into " + targetCheckId }
+            );
+            await storage.updateCheck(sourceId, {
+              status: "closed",
+              closedAt: new Date(),
+            });
+
+            mergedFromChecks.push(sourceCheck.checkNumber);
           }
-        }
 
-        // Close the source check (it's now empty)
-        await storage.updateCheck(sourceId, {
-          status: "closed",
-          closedAt: new Date(),
-        });
+          await recalculateCheckTotals(targetCheckId);
 
-        mergedFromChecks.push(sourceCheck.checkNumber);
-      }
-
-      // Recalculate target check totals
-      await recalculateCheckTotals(targetCheckId);
-
-      // Log the action
-      await storage.createAuditLog({
-        rvcId: targetCheck.rvcId,
-        employeeId,
-        action: "merge_checks",
-        targetType: "check",
-        targetId: targetCheckId,
-        details: {
-          targetCheckNumber: targetCheck.checkNumber,
-          mergedFromChecks,
+          await storage.createAuditLog({
+            rvcId: targetCheck.rvcId,
+            employeeId,
+            action: "merge_checks",
+            targetType: "check",
+            targetId: targetCheckId,
+            details: {
+              targetCheckNumber: targetCheck.checkNumber,
+              mergedFromChecks,
+            },
+          });
+          return null;
         },
-      });
+        { employeeId, sourceCheckIds, targetCheckId }
+      );
 
-      // Return updated target check with items
       const updatedCheck = await storage.getCheck(targetCheckId);
       const items = await storage.getCheckItems(targetCheckId);
 
@@ -6843,11 +6863,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      const updatedItem = await storage.updateCheckItem(itemId, {
-        unitPrice: newPrice.toFixed(2),
-        taxableAmount: newTaxableAmount.toFixed(2),
-        taxAmount: newTaxAmount,
-      });
+      const { result: updatedItem } = await journalWriteAtomic(
+        "update", "check_item", itemId, "POST", `/api/check-items/${itemId}/price-override`,
+        () => storage.updateCheckItem(itemId, {
+          unitPrice: newPrice.toFixed(2),
+          taxableAmount: newTaxableAmount.toFixed(2),
+          taxAmount: newTaxAmount,
+        }),
+        { oldPrice: item.unitPrice, newPrice, reason, employeeId }
+      );
 
       // Recalculate check totals
       await recalculateCheckTotals(item.checkId);
@@ -6917,11 +6941,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Only closed checks can be reopened" });
       }
 
-      // Reopen the check
-      const reopenedCheck = await storage.updateCheck(id, {
-        status: "open",
-        closedAt: null,
-      });
+      const { result: reopenedCheck } = await journalWriteAtomic(
+        "update", "check", id, "POST", `/api/checks/${id}/reopen`,
+        () => storage.updateCheck(id, { status: "open", closedAt: null }),
+        { employeeId }
+      );
 
       // Log the action
       await storage.createAuditLog({
@@ -6978,11 +7002,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (existingLock) {
         if (existingLock.workstationId === workstationId) {
           const newExpiry = new Date(Date.now() + LOCK_EXPIRY_MINUTES * 60 * 1000);
-          const refreshedLock = await storage.updateCheckLock(existingLock.id, { expiresAt: newExpiry, lockMode });
+          const { result: refreshedLock } = await journalWriteAtomic(
+            "update", "check_lock", existingLock.id, "POST", `/api/checks/${id}/lock`,
+            () => storage.updateCheckLock(existingLock.id, { expiresAt: newExpiry, lockMode }),
+            { workstationId, lockMode }
+          );
           return res.json({ success: true, lock: refreshedLock });
         }
         if (new Date(existingLock.expiresAt) > new Date()) {
-          // Get workstation info for better error message
           const lockingWs = await storage.getWorkstation(existingLock.workstationId);
           return res.status(409).json({
             error: "Check locked by another workstation",
@@ -6992,11 +7019,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             expiresAt: existingLock.expiresAt,
           });
         }
-        await storage.deleteCheckLock(existingLock.id);
+        await journalWriteAtomic(
+          "delete", "check_lock", existingLock.id, "DELETE", `/api/checks/${id}/lock/expired`,
+          () => storage.deleteCheckLock(existingLock.id),
+          { reason: "expired_lock_cleanup" }
+        );
       }
 
       const expiresAt = new Date(Date.now() + LOCK_EXPIRY_MINUTES * 60 * 1000);
-      const lock = await storage.createCheckLock({ checkId: id, workstationId, employeeId, lockMode, expiresAt });
+      const { result: lock } = await journalWriteAtomic(
+        "create", "check_lock", id, "POST", `/api/checks/${id}/lock`,
+        () => storage.createCheckLock({ checkId: id, workstationId, employeeId, lockMode, expiresAt }),
+        { workstationId, employeeId, lockMode }
+      );
 
       res.json({ success: true, lock });
     } catch (error) {
@@ -7020,7 +7055,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(403).json({ message: "Cannot release lock held by another workstation" });
       }
 
-      await storage.deleteCheckLock(existingLock.id);
+      await journalWriteAtomic(
+        "delete", "check_lock", existingLock.id, "POST", `/api/checks/${id}/unlock`,
+        () => storage.deleteCheckLock(existingLock.id),
+        { workstationId }
+      );
       res.json({ success: true });
     } catch (error) {
       console.error("Release check lock error:", error);
@@ -7044,7 +7083,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       const newExpiry = new Date(Date.now() + LOCK_EXPIRY_MINUTES * 60 * 1000);
-      const refreshedLock = await storage.updateCheckLock(existingLock.id, { expiresAt: newExpiry });
+      const { result: refreshedLock } = await journalWriteAtomic(
+        "update", "check_lock", existingLock.id, "POST", `/api/checks/${id}/lock/refresh`,
+        () => storage.updateCheckLock(existingLock.id, { expiresAt: newExpiry }),
+        { workstationId }
+      );
 
       res.json({ success: true, lock: refreshedLock });
     } catch (error) {
@@ -7064,7 +7107,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       if (new Date(lock.expiresAt) <= new Date()) {
-        await storage.deleteCheckLock(lock.id);
+        await journalWriteAtomic(
+          "delete", "check_lock", lock.id, "DELETE", `/api/checks/${id}/lock/expired`,
+          () => storage.deleteCheckLock(lock.id),
+          { reason: "expired_lock_cleanup" }
+        );
         return res.status(404).json({ lock: null });
       }
 
@@ -7079,7 +7126,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/workstations/:workstationId/release-locks", async (req, res) => {
     try {
       const { workstationId } = req.params;
-      const count = await storage.deleteCheckLocksByWorkstation(workstationId);
+      const { result: count } = await journalWriteAtomic(
+        "delete", "check_lock", workstationId, "POST", `/api/workstations/${workstationId}/release-locks`,
+        () => storage.deleteCheckLocksByWorkstation(workstationId),
+        { workstationId }
+      );
       res.json({ success: true, releasedCount: count });
     } catch (error) {
       console.error("Release workstation locks error:", error);
@@ -7358,24 +7409,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Get next refund number
       const refundNumber = await storage.getNextRefundNumber(rvcId);
 
-      // Create the refund
-      const refund = await storage.createRefund(
-        {
-          refundNumber,
-          rvcId,
-          originalCheckId,
-          originalCheckNumber: originalCheck.checkNumber,
-          refundType,
-          subtotal: refundSubtotal.toFixed(2),
-          taxTotal: refundTaxTotal.toFixed(2),
-          total: refundTotal.toFixed(2),
-          reason,
-          processedByEmployeeId,
-          managerApprovalId,
-          businessDate: businessDate || originalCheck.businessDate,
-        },
-        refundItemsData,
-        refundPaymentsData
+      const pregenRefundId = crypto.randomUUID();
+      const { result: refund } = await journalWriteAtomic(
+        "create", "refund", pregenRefundId, "POST", "/api/refunds",
+        () => storage.createRefund(
+          {
+            id: pregenRefundId, refundNumber, rvcId, originalCheckId,
+            originalCheckNumber: originalCheck.checkNumber, refundType,
+            subtotal: refundSubtotal.toFixed(2), taxTotal: refundTaxTotal.toFixed(2),
+            total: refundTotal.toFixed(2), reason, processedByEmployeeId,
+            managerApprovalId, businessDate: businessDate || originalCheck.businessDate,
+          },
+          refundItemsData, refundPaymentsData
+        ),
+        { originalCheckId, refundType, total: refundTotal.toFixed(2), reason }
       );
 
       for (const rp of refundPaymentsData) {
@@ -7387,16 +7434,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             const activeAssignment = assignments.find(a => a.status === "open" && a.employeeId === processedByEmployeeId);
             if (activeAssignment) {
               try {
-                await storage.createCashTransaction({
-                  propertyId: rvcForCash.propertyId,
-                  drawerId: activeAssignment.drawerId,
-                  assignmentId: activeAssignment.id,
-                  employeeId: processedByEmployeeId,
-                  transactionType: "refund",
-                  amount: (-parseFloat(rp.amount)).toFixed(2),
-                  businessDate: businessDate || originalCheck.businessDate || new Date().toISOString().split("T")[0],
-                  checkId: originalCheckId,
-                });
+                const refundCashTxId = crypto.randomUUID();
+                await journalWriteAtomic(
+                  "create", "cash_transaction", refundCashTxId, "POST", "/api/cash-transactions",
+                  () => storage.createCashTransaction({
+                    propertyId: rvcForCash!.propertyId!, drawerId: activeAssignment.drawerId,
+                    assignmentId: activeAssignment.id, employeeId: processedByEmployeeId,
+                    transactionType: "refund",
+                    amount: (-parseFloat(rp.amount)).toFixed(2),
+                    businessDate: businessDate || originalCheck.businessDate || new Date().toISOString().split("T")[0],
+                    checkId: originalCheckId,
+                  }),
+                  { transactionType: "refund", amount: rp.amount, checkId: originalCheckId }
+                );
               } catch (e) {
                 console.error("Failed to create cash_transaction for refund:", e);
               }
@@ -7502,13 +7552,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/kds-tickets/:id/bump", async (req, res) => {
     try {
       const ticketId = req.params.id;
-      // Accept either employeeId (POS mode) or deviceId (dedicated KDS mode)
       const { employeeId, deviceId } = req.body;
 
-      // For dedicated KDS devices, pass undefined (null in DB) since deviceId can't go in employee FK field
-      // Employee ID is used when bumped from POS mode with logged-in employee
       const bumpedBy = employeeId || undefined;
-      const updated = await storage.bumpKdsTicket(ticketId, bumpedBy);
+      const { result: updated } = await journalWriteAtomic(
+        "update", "kds_ticket", ticketId, "POST", `/api/kds-tickets/${ticketId}/bump`,
+        () => storage.bumpKdsTicket(ticketId, bumpedBy),
+        { employeeId, deviceId }
+      );
 
       broadcastKdsUpdate();
       res.json(updated);
@@ -7521,10 +7572,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Bump all tickets for a station/RVC/property/device
   app.post("/api/kds-tickets/bump-all", async (req, res) => {
     try {
-      // Accept either rvcId (POS mode) or propertyId (dedicated KDS mode)
       const { employeeId, deviceId, rvcId, propertyId, stationType, kdsDeviceId } = req.body;
 
-      // Build filter based on what's provided - kdsDeviceId scopes to a specific device
       const filters: { rvcId?: string; propertyId?: string; stationType?: string; kdsDeviceId?: string } = {};
       if (kdsDeviceId) filters.kdsDeviceId = kdsDeviceId;
       if (rvcId) filters.rvcId = rvcId;
@@ -7534,13 +7583,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const tickets = await storage.getKdsTickets(filters);
       const activeTickets = tickets.filter((t: any) => t.status === "active");
       
-      // For dedicated KDS devices, pass undefined (null in DB) since deviceId can't go in employee FK field
-      // Employee ID is used when bumped from POS mode with logged-in employee
       const bumpedBy = employeeId || undefined;
       
       let bumped = 0;
       for (const ticket of activeTickets) {
-        await storage.bumpKdsTicket(ticket.id, bumpedBy);
+        await journalWriteAtomic(
+          "update", "kds_ticket", ticket.id, "POST", "/api/kds-tickets/bump-all",
+          () => storage.bumpKdsTicket(ticket.id, bumpedBy),
+          { employeeId, deviceId }
+        );
         bumped++;
       }
 
@@ -7555,11 +7606,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/kds-tickets/:id/recall", async (req, res) => {
     try {
       const ticketId = req.params.id;
-      // Accept either employeeId (POS mode) or deviceId (dedicated KDS mode)
-      // scope determines which stations to recall to: 'expo' or 'all'
       const { scope, deviceId } = req.body;
 
-      const updated = await storage.recallKdsTicket(ticketId, scope);
+      const { result: updated } = await journalWriteAtomic(
+        "update", "kds_ticket", ticketId, "POST", `/api/kds-tickets/${ticketId}/recall`,
+        () => storage.recallKdsTicket(ticketId, scope),
+        { scope, deviceId }
+      );
 
       broadcastKdsUpdate();
       res.json(updated);
@@ -7646,7 +7699,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/kds-items/:id/ready", async (req, res) => {
     try {
       const itemId = req.params.id;
-      await storage.markKdsItemReady(itemId);
+      await journalWriteAtomic("update", "kds_item", itemId, "POST", `/api/kds-items/${itemId}/ready`,
+        () => storage.markKdsItemReady(itemId),
+        { action: "ready" });
       broadcastKdsUpdate();
       res.json({ success: true });
     } catch (error) {
@@ -7655,11 +7710,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Unmark an individual KDS item as ready
   app.post("/api/kds-items/:id/unready", async (req, res) => {
     try {
       const itemId = req.params.id;
-      await storage.unmarkKdsItemReady(itemId);
+      await journalWriteAtomic("update", "kds_item", itemId, "POST", `/api/kds-items/${itemId}/unready`,
+        () => storage.unmarkKdsItemReady(itemId),
+        { action: "unready" });
       broadcastKdsUpdate();
       res.json({ success: true });
     } catch (error) {
@@ -9801,12 +9857,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const allPayments = await storage.getAllPayments();
       const allChecks = await storage.getChecks();
       const allRvcs = await storage.getRvcs();
-      const allTenders = await storage.getTenders();
+      const allTenders = await effectiveConfig.getAllTenders();
       const employees = await storage.getEmployees();
       const allRefunds = await storage.getRefunds();
       const allRefundItemRecords = await storage.getAllRefundItems();
       
-      // Get valid RVC IDs for filtering
       let validRvcIds: string[] | null = null;
       if (propertyId && propertyId !== "all") {
         validRvcIds = allRvcs.filter(r => r.propertyId === propertyId).map(r => r.id);
@@ -10433,7 +10488,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const allPayments = await storage.getAllPayments();
       const allRefunds = await storage.getRefunds();
       const allRefundItemRecords = await storage.getAllRefundItems();
-      const allTenders = await storage.getTenders();
+      const allTenders = await effectiveConfig.getAllTenders();
       
       let closedChecks = allChecks.filter(c => c.status === "closed" && !c.testMode);
       
@@ -10554,7 +10609,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const allRvcs = await storage.getRvcs();
       const allPayments = await storage.getAllPayments();
       const allCheckItems = await storage.getAllCheckItems();
-      const tenders = await storage.getTenders();
+      const tenders = await effectiveConfig.getAllTenders();
       const menuItems = await storage.getMenuItems();
       const allRefunds = await storage.getRefunds();
       const allRefundItemRecords = await storage.getAllRefundItems();
@@ -11494,21 +11549,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const now = new Date();
       const businessDate = resolveBusinessDate(now, property);
 
-      const punch = await storage.createTimePunch({
-        propertyId,
-        employeeId,
-        punchType: "clock_in",
-        actualTimestamp: now,
-        businessDate,
-        jobCodeId,
-        notes,
-        source: "pos",
-      });
+      const pregenPunchId = crypto.randomUUID();
+      const { result: punch } = await journalWriteAtomic(
+        "create", "time_punch", pregenPunchId, "POST", "/api/time-punches/clock-in",
+        () => storage.createTimePunch({
+          id: pregenPunchId, propertyId, employeeId, punchType: "clock_in",
+          actualTimestamp: now, businessDate, jobCodeId, notes, source: "pos",
+        }),
+        { propertyId, employeeId, punchType: "clock_in", businessDate }
+      );
 
-      // Recalculate timecard
       await storage.recalculateTimecard(employeeId, businessDate);
-
-      // Broadcast real-time updates for time clock and timecards
       broadcastTimePunchUpdate(propertyId, employeeId);
       broadcastTimecardUpdate(propertyId, employeeId);
       broadcastScheduleUpdate();
@@ -11556,22 +11607,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         await storage.recalculateTimecard(employeeId, activeBreak.businessDate);
       }
 
-      const punch = await storage.createTimePunch({
-        propertyId,
-        employeeId,
-        punchType: "clock_out",
-        actualTimestamp: now,
-        businessDate,
-        notes,
-        source: "pos",
-      });
+      const pregenOutPunchId = crypto.randomUUID();
+      const { result: punch } = await journalWriteAtomic(
+        "create", "time_punch", pregenOutPunchId, "POST", "/api/time-punches/clock-out",
+        () => storage.createTimePunch({
+          id: pregenOutPunchId, propertyId, employeeId, punchType: "clock_out",
+          actualTimestamp: now, businessDate, notes, source: "pos",
+        }),
+        { propertyId, employeeId, punchType: "clock_out", businessDate }
+      );
 
-      // Recalculate timecard after clock out punch
       await storage.recalculateTimecard(employeeId, businessDate);
 
       // Check for break violations
       try {
-        const breakRules = await storage.getBreakRules({ propertyId });
+        const breakRules = await effectiveConfig.getAllBreakRules(propertyId);
         const activeRule = breakRules.find(r => r.active);
         
         if (activeRule) {
@@ -11698,17 +11748,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const businessDate = resolveBusinessDate(now, property);
       const scheduledMinutes = breakType === "meal" ? 30 : 15;
 
-      // Create break_start punch
-      const punch = await storage.createTimePunch({
-        propertyId,
-        employeeId,
-        jobCodeId: lastPunch.jobCodeId,
-        punchType: "break_start",
-        actualTimestamp: now,
-        businessDate,
-        source: "pos",
-        notes: `${breakType === "meal" ? "Meal" : "Rest"} break (${scheduledMinutes} min)`,
-      });
+      const pregenBreakStartId = crypto.randomUUID();
+      const { result: punch } = await journalWriteAtomic(
+        "create", "time_punch", pregenBreakStartId, "POST", "/api/time-punches/break-start",
+        () => storage.createTimePunch({
+          id: pregenBreakStartId, propertyId, employeeId, jobCodeId: lastPunch.jobCodeId,
+          punchType: "break_start", actualTimestamp: now, businessDate, source: "pos",
+          notes: `${breakType === "meal" ? "Meal" : "Rest"} break (${scheduledMinutes} min)`,
+        }),
+        { propertyId, employeeId, punchType: "break_start", breakType, businessDate }
+      );
 
       // Create break session record
       await storage.createBreakSession({
@@ -11757,16 +11806,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Use the break session's business date to keep shift together (handles overnight breaks)
       const businessDate = activeBreak.businessDate;
 
-      // Create break_end punch
-      const punch = await storage.createTimePunch({
-        propertyId,
-        employeeId,
-        punchType: "break_end",
-        actualTimestamp: now,
-        businessDate,
-        source: "pos",
-        notes: `Break ended after ${breakMinutes} minutes`,
-      });
+      const pregenBreakEndId = crypto.randomUUID();
+      const { result: punch } = await journalWriteAtomic(
+        "create", "time_punch", pregenBreakEndId, "POST", "/api/time-punches/break-end",
+        () => storage.createTimePunch({
+          id: pregenBreakEndId, propertyId, employeeId, punchType: "break_end",
+          actualTimestamp: now, businessDate, source: "pos",
+          notes: `Break ended after ${breakMinutes} minutes`,
+        }),
+        { propertyId, employeeId, punchType: "break_end", businessDate }
+      );
 
       // Update break session
       await storage.updateBreakSession(activeBreak.id, {
@@ -11826,13 +11875,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Editor ID and reason are required" });
       }
 
-      const punch = await storage.updateTimePunch(
-        req.params.id,
-        { actualTimestamp: actualTimestamp ? new Date(actualTimestamp) : undefined },
-        editedById || undefined,
-        editReason,
-        editedByEmcUserId || undefined,
-        editedByDisplayName || undefined
+      const { result: punch } = await journalWriteAtomic(
+        "update", "time_punch", req.params.id, "PATCH", `/api/time-punches/${req.params.id}`,
+        () => storage.updateTimePunch(
+          req.params.id,
+          { actualTimestamp: actualTimestamp ? new Date(actualTimestamp) : undefined },
+          editedById || undefined, editReason,
+          editedByEmcUserId || undefined, editedByDisplayName || undefined
+        ),
+        { actualTimestamp, editedById, editReason }
       );
 
       if (!punch) {
@@ -11863,7 +11914,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Voider ID and reason are required" });
       }
 
-      const punch = await storage.voidTimePunch(req.params.id, voidedById, voidReason);
+      const { result: punch } = await journalWriteAtomic(
+        "update", "time_punch", req.params.id, "POST", `/api/time-punches/${req.params.id}/void`,
+        () => storage.voidTimePunch(req.params.id, voidedById, voidReason),
+        { voidedById, voidReason }
+      );
       if (!punch) {
         return res.status(404).json({ message: "Time punch not found" });
       }
@@ -12651,11 +12706,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // === EMC ACCESS (Employee-linked EMC users) ===
+  // === EMC ACCESS (Employee-linked EMC users) — cloud-only, disabled on LFS ===
 
   app.get("/api/employees/:id/emc-access", async (req, res) => {
+    if (isLocalMode) {
+      return res.json({ hasEmcAccess: false, disabled: true, reason: "EMC access is cloud-only" });
+    }
     try {
-      const result = await db.select().from(emcUsers).where(eq(emcUsers.employeeId, req.params.id)).limit(1);
+      const emcUsersList = await storage.getEmcUsers();
+      const result = emcUsersList.filter((u: any) => u.employeeId === req.params.id);
       if (result.length > 0) {
         res.json({
           hasEmcAccess: true,
@@ -12674,6 +12733,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.put("/api/employees/:id/emc-access", async (req, res) => {
+    if (isLocalMode) {
+      return res.status(403).json({ message: "EMC access management is disabled on LFS (cloud-only feature)" });
+    }
     try {
       const employeeId = req.params.id;
       const { email, password, accessLevel, removeAccess } = req.body;
@@ -12684,11 +12746,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       if (removeAccess) {
-        const existing = await db.select().from(emcUsers).where(eq(emcUsers.employeeId, employeeId)).limit(1);
+        const emcUsersList = await storage.getEmcUsers();
+        const existing = emcUsersList.filter((u) => u.employeeId === employeeId);
         if (existing.length > 0) {
-          await db.update(emcUsers).set({ active: false, employeeId: null }).where(eq(emcUsers.id, existing[0].id));
+          await storage.updateEmcUser(existing[0].id, { active: false, employeeId: null } as Partial<EmcUser>);
         }
-      broadcastConfigUpdate("employees", "update", req.params.id);
+        broadcastConfigUpdate("employees", "update", req.params.id);
         return res.json({ success: true, removed: true });
       }
 
@@ -12696,15 +12759,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Email is required" });
       }
 
-      const existingByEmployee = await db.select().from(emcUsers).where(eq(emcUsers.employeeId, employeeId)).limit(1);
+      const emcUsersList = await storage.getEmcUsers();
+      const existingByEmployee = emcUsersList.filter((u) => u.employeeId === employeeId);
+      const existingByEmail = emcUsersList.filter((u) => u.email === email.toLowerCase());
 
-      const existingByEmail = await db.select().from(emcUsers).where(eq(emcUsers.email, email.toLowerCase())).limit(1);
       if (existingByEmail.length > 0 && existingByEmail[0].employeeId !== employeeId) {
         return res.status(400).json({ message: "This email is already in use by another EMC user" });
       }
 
       if (existingByEmployee.length > 0) {
-        const updateData: any = {
+        const updateData: Partial<EmcUser> = {
           email: email.toLowerCase(),
           accessLevel: accessLevel || existingByEmployee[0].accessLevel,
           active: true,
@@ -12714,14 +12778,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         if (password && password.length > 0) {
           updateData.passwordHash = await bcrypt.hash(password, 10);
         }
-        await db.update(emcUsers).set(updateData).where(eq(emcUsers.id, existingByEmployee[0].id));
+        await storage.updateEmcUser(existingByEmployee[0].id, updateData);
         res.json({ success: true, updated: true });
       } else {
         if (!password || password.length < 8) {
           return res.status(400).json({ message: "Password must be at least 8 characters" });
         }
         const passwordHash = await bcrypt.hash(password, 10);
-        await db.insert(emcUsers).values({
+        await storage.createEmcUser({
           email: email.toLowerCase(),
           passwordHash,
           firstName: employee.firstName,
@@ -12731,7 +12795,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           propertyId: employee.propertyId,
           employeeId: employeeId,
           active: true,
-        });
+        } as InsertEmcUser);
         res.json({ success: true, created: true });
       }
     } catch (error) {
@@ -14081,16 +14145,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             await storage.recalculateTimecard(employeeId, activeBreak.businessDate);
           }
 
-          // Create clock-out punch with note indicating auto clock-out
-          await storage.createTimePunch({
-            propertyId,
-            employeeId,
-            punchType: "clock_out",
-            actualTimestamp: now,
-            businessDate,
-            notes: "Auto clock-out: Business date change",
-            source: "system",
-          });
+          const pregenAutoClockOutId = crypto.randomUUID();
+          await journalWriteAtomic(
+            "create", "time_punch", pregenAutoClockOutId, "POST", "/api/time-punches/auto-clock-out",
+            () => storage.createTimePunch({
+              id: pregenAutoClockOutId, propertyId, employeeId, punchType: "clock_out",
+              actualTimestamp: now, businessDate, notes: "Auto clock-out: Business date change", source: "system",
+            }),
+            { propertyId, employeeId, punchType: "clock_out", businessDate }
+          );
 
           // Recalculate timecard
           await storage.recalculateTimecard(employeeId, businessDate);
@@ -14266,7 +14329,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const allRefunds = await storage.getRefunds();
       const allRefundItems = await storage.getAllRefundItems();
       const employees = await storage.getEmployees();
-      const tenders = await storage.getTenders();
+      const tenders = await effectiveConfig.getAllTenders();
 
       const checksInScope = allChecks.filter(c => rvcIds.includes(c.rvcId) && c.businessDate === businessDate);
       const closedChecks = checksInScope.filter(c => c.status === "closed");
@@ -14988,7 +15051,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!propertyId) {
         return res.status(400).json({ message: "Property ID is required" });
       }
-      const rules = await storage.getOvertimeRules(propertyId as string);
+      const rules = await effectiveConfig.getAllOvertimeRules(propertyId as string);
       res.json(rules);
     } catch (error) {
       console.error("Get overtime rules error:", error);
@@ -15068,7 +15131,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!propertyId) {
         return res.status(400).json({ message: "Property ID is required" });
       }
-      const rules = await storage.getBreakRules(propertyId as string);
+      const rules = await effectiveConfig.getAllBreakRules(propertyId as string);
       res.json(rules);
     } catch (error) {
       console.error("Get break rules error:", error);
@@ -15818,21 +15881,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         workstationId,
       });
 
-      // Record the transaction - use responseMessage for errors since dedicated error fields don't exist
-      const transaction = await storage.createPaymentTransaction({
-        paymentProcessorId: processor.id,
-        gatewayTransactionId: result.transactionId || null,
-        authCode: result.authCode || null,
-        referenceNumber: result.referenceNumber || null,
-        cardBrand: result.cardBrand || null,
-        cardLast4: result.cardLast4 || null,
-        entryMode: result.entryMode || null,
-        authAmount: Math.round(amount * 100),
-        status: result.success ? "authorized" : "declined",
-        transactionType: "auth",
-        responseCode: result.success ? result.responseCode || null : result.errorCode || null,
-        responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
-      });
+      const pregenAuthTxnId = crypto.randomUUID();
+      const { result: transaction } = await journalWriteAtomic(
+        "create", "payment_transaction", pregenAuthTxnId, "POST", "/api/payments/authorize",
+        () => storage.createPaymentTransaction({
+          id: pregenAuthTxnId, paymentProcessorId: processor.id,
+          gatewayTransactionId: result.transactionId || null, authCode: result.authCode || null,
+          referenceNumber: result.referenceNumber || null, cardBrand: result.cardBrand || null,
+          cardLast4: result.cardLast4 || null, entryMode: result.entryMode || null,
+          authAmount: Math.round(amount * 100),
+          status: result.success ? "authorized" : "declined", transactionType: "auth",
+          responseCode: result.success ? result.responseCode || null : result.errorCode || null,
+          responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
+        }),
+        { propertyId, amount, orderId, status: result.success ? "authorized" : "declined" }
+      );
 
       res.json({
         success: result.success,
@@ -15896,14 +15959,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         tipAmount: tipAmountCents, // For reference/logging
       });
 
-      // Update the transaction record
-      await storage.updatePaymentTransaction(transactionId, {
-        status: result.success ? "captured" : "capture_failed",
-        captureAmount: result.success ? totalCaptureAmount : null,
-        tipAmount: tipAmountCents,
-        responseCode: result.success ? result.responseCode || null : result.errorCode || null,
-        responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
-      });
+      await journalWriteAtomic(
+        "update", "payment_transaction", transactionId, "POST", "/api/payments/capture",
+        () => storage.updatePaymentTransaction(transactionId, {
+          status: result.success ? "captured" : "capture_failed",
+          captureAmount: result.success ? totalCaptureAmount : null,
+          tipAmount: tipAmountCents,
+          responseCode: result.success ? result.responseCode || null : result.errorCode || null,
+          responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
+        }),
+        { transactionId, amount: totalCaptureAmount, tipAmount: tipAmountCents, status: result.success ? "captured" : "capture_failed" }
+      );
 
       res.json({
         success: result.success,
@@ -15956,12 +16022,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         reason,
       });
 
-      // Update the transaction record
-      await storage.updatePaymentTransaction(transactionId, {
-        status: result.success ? "voided" : "void_failed",
-        responseCode: result.success ? result.responseCode || null : result.errorCode || null,
-        responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
-      });
+      const voidStatus = result.success ? "voided" : "void_failed";
+      await journalWriteAtomic(
+        "update", "payment_transaction", transactionId, "POST", "/api/payments/void",
+        () => storage.updatePaymentTransaction(transactionId, {
+          status: voidStatus,
+          responseCode: result.success ? result.responseCode || null : result.errorCode || null,
+          responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
+        }),
+        { reason, status: voidStatus }
+      );
 
       res.json({
         success: result.success,
@@ -16016,21 +16086,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         reason,
       });
 
-      // Create a new refund transaction record
-      const refundTransaction = await storage.createPaymentTransaction({
-        paymentProcessorId: processor.id,
-        gatewayTransactionId: result.transactionId || null,
-        authCode: null,
-        referenceNumber: originalTransaction.gatewayTransactionId,
-        cardBrand: originalTransaction.cardBrand,
-        cardLast4: originalTransaction.cardLast4,
-        entryMode: null,
-        authAmount: refundAmountCents,
-        status: result.success ? "refunded" : "refund_failed",
-        transactionType: "refund",
-        responseCode: result.success ? result.responseCode || null : result.errorCode || null,
-        responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
-      });
+      const refundTxnStatus = result.success ? "refunded" : "refund_failed";
+      const pregenRefundTxnId = crypto.randomUUID();
+      const { result: refundTransaction } = await journalWriteAtomic(
+        "create", "payment_transaction", pregenRefundTxnId, "POST", "/api/payments/refund",
+        () => storage.createPaymentTransaction({
+          id: pregenRefundTxnId, paymentProcessorId: processor.id,
+          gatewayTransactionId: result.transactionId || null, authCode: null,
+          referenceNumber: originalTransaction.gatewayTransactionId,
+          cardBrand: originalTransaction.cardBrand, cardLast4: originalTransaction.cardLast4,
+          entryMode: null, authAmount: refundAmountCents, status: refundTxnStatus,
+          transactionType: "refund",
+          responseCode: result.success ? result.responseCode || null : result.errorCode || null,
+          responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
+        }),
+        { originalTransactionId: transactionId, amount, reason, status: refundTxnStatus }
+      );
 
       res.json({
         success: result.success,
@@ -16093,13 +16164,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         tipAmount: tipAmountCents,
       });
 
-      // Update the transaction record
-      await storage.updatePaymentTransaction(transactionId, {
-        tipAmount: tipAmountCents,
-        captureAmount: result.newTotalAmount,
-        responseCode: result.success ? result.responseCode || null : result.errorCode || null,
-        responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
-      });
+      await journalWriteAtomic(
+        "update", "payment_transaction", transactionId, "POST", "/api/payments/tip-adjust",
+        () => storage.updatePaymentTransaction(transactionId, {
+          tipAmount: tipAmountCents, captureAmount: result.newTotalAmount,
+          responseCode: result.success ? result.responseCode || null : result.errorCode || null,
+          responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
+        }),
+        { transactionId, tipAmount }
+      );
 
       res.json({
         success: result.success,
@@ -16294,23 +16367,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         // Create a transaction record for test mode
         const transactionStatus = isDeclineCard ? "declined" : (isAuthOnly ? "authorized" : "captured");
         const transactionType = isAuthOnly ? "auth" : "sale";
-        const transaction = await storage.createPaymentTransaction({
-          paymentProcessorId: processor.id,
-          gatewayTransactionId: `TEST-${Date.now()}`,
-          authCode: isDeclineCard ? null : "TEST123",
-          cardBrand: cleanCardNumber.startsWith("4") ? "visa" : cleanCardNumber.startsWith("5") ? "mastercard" : "card",
-          cardLast4: cleanCardNumber.slice(-4) || "0000",
-          entryMode: "manual",
-          authAmount: Math.round(amount * 100),
-          captureAmount: isAuthOnly ? null : Math.round(amount * 100), // Only set if captured
-          status: transactionStatus,
-          transactionType: transactionType,
-          responseCode: isDeclineCard ? "05" : "00",
-          responseMessage: isDeclineCard ? "Declined" : (isAuthOnly ? "Pre-authorized" : "Approved"),
-          employeeId,
-          workstationId,
-          capturedAt: isAuthOnly ? null : new Date(), // Only set if captured
-        });
+        const testTxnId = crypto.randomUUID();
+        const { result: transaction } = await journalWriteAtomic(
+          "create", "payment_transaction", testTxnId, "POST", "/api/payments/process",
+          () => storage.createPaymentTransaction({
+            paymentProcessorId: processor.id,
+            gatewayTransactionId: `TEST-${Date.now()}`,
+            authCode: isDeclineCard ? null : "TEST123",
+            cardBrand: cleanCardNumber.startsWith("4") ? "visa" : cleanCardNumber.startsWith("5") ? "mastercard" : "card",
+            cardLast4: cleanCardNumber.slice(-4) || "0000",
+            entryMode: "manual",
+            authAmount: Math.round(amount * 100),
+            captureAmount: isAuthOnly ? null : Math.round(amount * 100),
+            status: transactionStatus,
+            transactionType: transactionType,
+            responseCode: isDeclineCard ? "05" : "00",
+            responseMessage: isDeclineCard ? "Declined" : (isAuthOnly ? "Pre-authorized" : "Approved"),
+            employeeId,
+            workstationId,
+            capturedAt: isAuthOnly ? null : new Date(),
+          }),
+          { environment: "sandbox", transactionType }
+        );
 
         if (isDeclineCard) {
           return res.json({
@@ -16412,24 +16490,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const tipValue = parseFloat(tipAmount) || 0;
       const finalAmount = originalAmount + tipValue;
 
-      // For demo/test mode, just update the records
-      // In production, this would call the payment gateway's capture endpoint
-      if (transaction) {
-        // Update the transaction record
-        await storage.updatePaymentTransaction(transaction.id, {
-          status: "captured",
-          captureAmount: Math.round(finalAmount * 100),
-          tipAmount: Math.round(tipValue * 100),
-          capturedAt: new Date(),
-        });
-      }
-
-      // Update the check payment record
-      await storage.updateCheckPayment(checkPaymentId, {
-        amount: finalAmount.toString(),
-        tipAmount: tipValue.toString(),
-        paymentStatus: "completed",
-      });
+      await journalWriteAtomic(
+        "update", "check_payment", checkPaymentId, "POST", "/api/pos/capture-with-tip",
+        async () => {
+          if (transaction) {
+            await storage.updatePaymentTransaction(transaction.id, {
+              status: "captured", captureAmount: Math.round(finalAmount * 100),
+              tipAmount: Math.round(tipValue * 100), capturedAt: new Date(),
+            });
+          }
+          await storage.updateCheckPayment(checkPaymentId, {
+            amount: finalAmount.toString(), tipAmount: tipValue.toString(), paymentStatus: "completed",
+          });
+        },
+        { checkPaymentId, tipAmount, checkId: payment.checkId }
+      );
 
       // Recalculate check totals
       await recalculateCheckTotals(payment.checkId);
@@ -16445,14 +16520,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           .reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0);
 
         if (paidAmount >= total - 0.01) {
-          // Calculate total tips from all payments for the check
           const tipTotal = allPayments.reduce((sum, p) => sum + parseFloat(p.tipAmount || "0"), 0);
-          // Close the check with tipTotal
-          await storage.updateCheck(payment.checkId, { 
-            status: "closed", 
-            closedAt: new Date(),
-            tipTotal: tipTotal.toFixed(2),
-          });
+          await journalWriteAtomic(
+            "update", "check", payment.checkId, "PATCH", `/api/checks/${payment.checkId}/close`,
+            () => storage.updateCheck(payment.checkId, { 
+              status: "closed", 
+              closedAt: new Date(),
+              tipTotal: tipTotal.toFixed(2),
+            }),
+            { reason: "auto-close after capture-with-tip" }
+          );
         }
       }
 
@@ -16512,20 +16589,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const tender = await storage.getTender(tenderId);
       const tenderName = tender?.name || "Card";
 
-      // Create the check payment record (no payment transaction needed for external terminal)
-      // The external terminal already processed the full payment - we're just recording it
-      // Note: We store approval code and last4 in paymentTransactionId field for reference
+      const pregenExtPayId = crypto.randomUUID();
       const externalRef = last4 ? `EXT:${approvalCode}:${last4}` : `EXT:${approvalCode}`;
-      const checkPayment = await storage.createPayment({
-        checkId,
-        tenderId,
-        tenderName,
-        amount: total.toString(),
-        tipAmount: tip.toString(),
-        paymentStatus: "completed",
-        paymentTransactionId: externalRef, // Store reference info here
-        employeeId: employeeId || null,
-      });
+      const { result: checkPayment } = await journalWriteAtomic(
+        "create", "check_payment", pregenExtPayId, "POST", "/api/pos/record-external-payment",
+        () => storage.createPayment({
+          id: pregenExtPayId, checkId, tenderId, tenderName, amount: total.toString(),
+          tipAmount: tip.toString(), paymentStatus: "completed",
+          paymentTransactionId: externalRef, employeeId: employeeId || null,
+        }),
+        { checkId, tenderId, totalCharged: total, tipAmount: tip, approvalCode }
+      );
 
       // Recalculate check totals
       await recalculateCheckTotals(checkId);
@@ -16541,7 +16615,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           .reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0);
 
         if (paidAmount >= checkTotal - 0.01) {
-          await storage.updateCheck(checkId, { status: "closed", closedAt: new Date() });
+          await journalWriteAtomic(
+            "update", "check", checkId, "PATCH", `/api/checks/${checkId}/close`,
+            () => storage.updateCheck(checkId, { status: "closed", closedAt: new Date() }),
+            { reason: "auto-close after external payment" }
+          );
         }
       }
 
@@ -16581,10 +16659,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       let devices = await storage.getTerminalDevices(propertyId as string);
       console.log("[terminal-devices] Found", devices.length, "devices for propertyId:", propertyId);
       
-      // Filter by enterprise if specified (multi-tenancy)
       if (enterpriseId && !propertyId) {
-        const { propertyIds } = await getEnterpriseFilterSets(enterpriseId as string);
-        devices = devices.filter(d => d.propertyId && propertyIds.has(d.propertyId));
+        const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId as string);
+        devices = effectiveConfig.filterByEnterpriseScope(devices, enterpriseId as string, propertyIds, rvcIds);
       }
       
       res.json(devices);
@@ -16881,26 +16958,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                       ? await storage.getPaymentProcessor(terminal.paymentProcessorId)
                       : null;
                     if (processorForTx) {
-                      const paymentTx = await storage.createPaymentTransaction({
-                        paymentProcessorId: processorForTx.id,
-                        gatewayTransactionId: session.processorReference!,
-                        authCode: status.authCode || null,
-                        referenceNumber: session.processorReference!,
-                        cardBrand: status.cardBrand || null,
-                        cardLast4: status.cardLast4 || null,
-                        entryMode: "contactless",
-                        authAmount: status.baseAmount || session.amount,
-                        captureAmount: status.totalAmount || session.amount,
-                        tipAmount: status.tipAmount || 0,
-                        status: "captured",
-                        transactionType: "sale",
-                        responseCode: "succeeded",
-                        responseMessage: "Stripe Terminal payment captured",
-                        workstationId: session.workstationId || undefined,
-                        employeeId: session.employeeId || undefined,
-                        terminalId: terminal?.terminalId || terminal?.id,
-                      });
-                      paymentTxId = paymentTx.id;
+                      const pollTxnId = crypto.randomUUID();
+                      const { result: paymentTx } = await journalWriteAtomic(
+                        "create", "payment_transaction", pollTxnId, "POST", `/api/terminal-sessions/${session.id}/poll-create-tx`,
+                        () => storage.createPaymentTransaction({
+                          paymentProcessorId: processorForTx.id,
+                          gatewayTransactionId: session.processorReference!,
+                          authCode: status.authCode || null,
+                          referenceNumber: session.processorReference!,
+                          cardBrand: status.cardBrand || null,
+                          cardLast4: status.cardLast4 || null,
+                          entryMode: "contactless",
+                          authAmount: status.baseAmount || session.amount,
+                          captureAmount: status.totalAmount || session.amount,
+                          tipAmount: status.tipAmount || 0,
+                          status: "captured",
+                          transactionType: "sale",
+                          responseCode: "succeeded",
+                          responseMessage: "Stripe Terminal payment captured",
+                          workstationId: session.workstationId || undefined,
+                          employeeId: session.employeeId || undefined,
+                          terminalId: terminal?.terminalId || terminal?.id,
+                        }),
+                        { sessionId: session.id }
+                      );
+                      paymentTxId = paymentTx?.id || null;
                       console.log(`[terminal-poll] Created payment_transaction ${paymentTxId} with gateway_transaction_id=${session.processorReference} for session ${session.id}`);
                     } else {
                       console.error(`[terminal-poll] No payment processor found for terminal ${terminal?.id} — payment_transaction NOT created`);
@@ -17195,67 +17277,84 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const cardLast4 = "4242";
         const cardBrand = "visa";
 
-        let transaction = null;
+        let transaction: any = null;
         if (processor) {
-          transaction = await storage.createPaymentTransaction({
-            paymentProcessorId: processor.id,
-            gatewayTransactionId: `SIM-${Date.now()}`,
-            authCode,
-            cardBrand,
-            cardLast4,
-            entryMode: "contactless",
-            authAmount: session.amount,
-            captureAmount: session.amount + (session.tipAmount || 0),
-            tipAmount: session.tipAmount || 0,
-            status: "captured",
-            transactionType: "sale",
-            responseCode: "00",
-            responseMessage: "Approved (Simulated)",
-            workstationId: session.workstationId || undefined,
-            employeeId: session.employeeId || undefined,
-            terminalId: terminal?.terminalId || terminal?.id,
-          });
+          const txnId = crypto.randomUUID();
+          const { result: txn } = await journalWriteAtomic(
+            "create", "payment_transaction", txnId, "POST", `/api/terminal-sessions/${req.params.id}/simulate-callback`,
+            () => storage.createPaymentTransaction({
+              paymentProcessorId: processor.id,
+              gatewayTransactionId: `SIM-${Date.now()}`,
+              authCode,
+              cardBrand,
+              cardLast4,
+              entryMode: "contactless",
+              authAmount: session.amount,
+              captureAmount: session.amount + (session.tipAmount || 0),
+              tipAmount: session.tipAmount || 0,
+              status: "captured",
+              transactionType: "sale",
+              responseCode: "00",
+              responseMessage: "Approved (Simulated)",
+              workstationId: session.workstationId || undefined,
+              employeeId: session.employeeId || undefined,
+              terminalId: terminal?.terminalId || terminal?.id,
+            }),
+            { sessionId: req.params.id }
+          );
+          transaction = txn;
         }
 
-        // Create check payment if check was specified
-        let checkPayment = null;
+        let checkPayment: any = null;
         if (session.checkId && session.tenderId) {
           const tender = await storage.getTender(session.tenderId);
           const amountDollars = (session.amount / 100).toFixed(2);
           const tipDollars = ((session.tipAmount || 0) / 100).toFixed(2);
           
-          checkPayment = await storage.createPayment({
-            checkId: session.checkId,
-            tenderId: session.tenderId,
-            tenderName: tender?.name || "Card",
-            amount: amountDollars,
-            tipAmount: tipDollars,
-            paymentStatus: "completed",
-            paymentTransactionId: transaction?.id || `TERM:${authCode}:${cardLast4}`,
-            employeeId: session.employeeId || undefined,
-          });
+          const payId = crypto.randomUUID();
+          const { result: pay } = await journalWriteAtomic(
+            "create", "check_payment", payId, "POST", `/api/checks/${session.checkId}/payments`,
+            () => storage.createPayment({
+              id: payId,
+              checkId: session.checkId!,
+              tenderId: session.tenderId!,
+              tenderName: tender?.name || "Card",
+              amount: amountDollars,
+              tipAmount: tipDollars,
+              paymentStatus: "completed",
+              paymentTransactionId: transaction?.id || `TERM:${authCode}:${cardLast4}`,
+              employeeId: session.employeeId || undefined,
+            }),
+            { checkId: session.checkId, tenderId: session.tenderId }
+          );
+          checkPayment = pay;
 
-          // Bidirectional link: update payment_transaction with check_payment_id
           if (transaction && checkPayment) {
             try {
-              await storage.updatePaymentTransaction(transaction.id, { checkPaymentId: checkPayment.id });
+              await journalWriteAtomic(
+                "update", "payment_transaction", transaction.id, "PATCH", `/api/payment-transactions/${transaction.id}/link`,
+                () => storage.updatePaymentTransaction(transaction.id, { checkPaymentId: checkPayment.id }),
+                { checkPaymentId: checkPayment.id }
+              );
             } catch (linkError: any) {
               console.error("Failed to link payment_transaction to check_payment (simulate):", linkError.message);
             }
           }
 
-          // Recalculate check totals and auto-close if fully paid
           await recalculateCheckTotals(session.checkId);
           const updatedCheck = await storage.getCheck(session.checkId);
           if (updatedCheck) {
             const allPayments = await storage.getPayments(session.checkId);
-            // Only count completed payments
             const totalPaid = allPayments
               .filter(p => p.paymentStatus === "completed")
               .reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0);
             const checkTotal = parseFloat(updatedCheck.total || "0");
             if (totalPaid >= checkTotal && checkTotal > 0) {
-              await storage.updateCheck(session.checkId, { status: "closed", closedAt: new Date() });
+              await journalWriteAtomic(
+                "update", "check", session.checkId, "PATCH", `/api/checks/${session.checkId}/close`,
+                () => storage.updateCheck(session.checkId, { status: "closed", closedAt: new Date() }),
+                { reason: "auto-close after payment session" }
+              );
             }
           }
         }
@@ -17389,58 +17488,71 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         : null;
 
       if (status === "approved") {
-        // Create payment transaction record
-        let transaction = null;
+        let transaction: any = null;
         if (processor) {
-          transaction = await storage.createPaymentTransaction({
-            paymentProcessorId: processor.id,
-            gatewayTransactionId: transactionId || `HLD-${Date.now()}`,
-            authCode: authCode || "000000",
-            cardBrand: cardBrand || "unknown",
-            cardLast4: cardLast4 || "0000",
-            entryMode: entryMode || "chip",
-            authAmount: session.amount,
-            captureAmount: session.amount + (tipAmount || session.tipAmount || 0),
-            tipAmount: tipAmount || session.tipAmount || 0,
-            status: "captured",
-            transactionType: session.transactionType || "sale",
-            responseCode: responseCode || "00",
-            responseMessage: responseMessage || "Approved",
-            workstationId: session.workstationId || undefined,
-            employeeId: session.employeeId || undefined,
-            terminalId: terminal?.terminalId || terminal?.id,
-            metadata: emvData ? { emvData, signatureData } : undefined,
-          });
+          const cbTxnId = crypto.randomUUID();
+          const { result: txn } = await journalWriteAtomic(
+            "create", "payment_transaction", cbTxnId, "POST", `/api/terminal-sessions/${session.id}/callback`,
+            () => storage.createPaymentTransaction({
+              paymentProcessorId: processor.id,
+              gatewayTransactionId: transactionId || `HLD-${Date.now()}`,
+              authCode: authCode || "000000",
+              cardBrand: cardBrand || "unknown",
+              cardLast4: cardLast4 || "0000",
+              entryMode: entryMode || "chip",
+              authAmount: session.amount,
+              captureAmount: session.amount + (tipAmount || session.tipAmount || 0),
+              tipAmount: tipAmount || session.tipAmount || 0,
+              status: "captured",
+              transactionType: session.transactionType || "sale",
+              responseCode: responseCode || "00",
+              responseMessage: responseMessage || "Approved",
+              workstationId: session.workstationId || undefined,
+              employeeId: session.employeeId || undefined,
+              terminalId: terminal?.terminalId || terminal?.id,
+              metadata: emvData ? { emvData, signatureData } : undefined,
+            }),
+            { sessionId: session.id }
+          );
+          transaction = txn;
         }
 
-        // Create check payment if check was specified
-        let checkPayment = null;
+        let checkPayment: any = null;
         if (session.checkId && session.tenderId) {
           const tender = await storage.getTender(session.tenderId);
           const amountDollars = (session.amount / 100).toFixed(2);
           const tipDollars = ((tipAmount || session.tipAmount || 0) / 100).toFixed(2);
           
-          checkPayment = await storage.createPayment({
-            checkId: session.checkId,
-            tenderId: session.tenderId,
-            tenderName: tender?.name || "Card",
-            amount: amountDollars,
-            tipAmount: tipDollars,
-            paymentStatus: "completed",
-            paymentTransactionId: transaction?.id || `TERM:${authCode}:${cardLast4}`,
-            employeeId: session.employeeId || undefined,
-          });
+          const cbPayId = crypto.randomUUID();
+          const { result: pay } = await journalWriteAtomic(
+            "create", "check_payment", cbPayId, "POST", `/api/checks/${session.checkId}/payments`,
+            () => storage.createPayment({
+              id: cbPayId,
+              checkId: session.checkId!,
+              tenderId: session.tenderId!,
+              tenderName: tender?.name || "Card",
+              amount: amountDollars,
+              tipAmount: tipDollars,
+              paymentStatus: "completed",
+              paymentTransactionId: transaction?.id || `TERM:${authCode}:${cardLast4}`,
+              employeeId: session.employeeId || undefined,
+            }),
+            { checkId: session.checkId, tenderId: session.tenderId }
+          );
+          checkPayment = pay;
 
-          // Bidirectional link: update payment_transaction with check_payment_id
           if (transaction && checkPayment) {
             try {
-              await storage.updatePaymentTransaction(transaction.id, { checkPaymentId: checkPayment.id });
+              await journalWriteAtomic(
+                "update", "payment_transaction", transaction.id, "PATCH", `/api/payment-transactions/${transaction.id}/link`,
+                () => storage.updatePaymentTransaction(transaction.id, { checkPaymentId: checkPayment.id }),
+                { checkPaymentId: checkPayment.id }
+              );
             } catch (linkError: any) {
               console.error("Failed to link payment_transaction to check_payment (callback):", linkError.message);
             }
           }
 
-          // Recalculate check totals and auto-close if fully paid
           await recalculateCheckTotals(session.checkId);
           const updatedCheck = await storage.getCheck(session.checkId);
           if (updatedCheck) {
@@ -17450,7 +17562,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               .reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0);
             const checkTotal = parseFloat(updatedCheck.total || "0");
             if (totalPaid >= checkTotal && checkTotal > 0) {
-              await storage.updateCheck(session.checkId, { status: "closed", closedAt: new Date() });
+              await journalWriteAtomic(
+                "update", "check", session.checkId, "PATCH", `/api/checks/${session.checkId}/close`,
+                () => storage.updateCheck(session.checkId!, { status: "closed", closedAt: new Date() }),
+                { reason: "auto-close after terminal callback payment" }
+              );
             }
           }
         }
@@ -17721,11 +17837,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { propertyId, enterpriseId } = req.query;
       let devices = await storage.getRegisteredDevices(propertyId as string);
       
-      // Filter by enterprise if specified (multi-tenancy)
       if (enterpriseId && !propertyId) {
-        const properties = await storage.getProperties(enterpriseId as string);
-        const propertyIds = new Set(properties.map(p => p.id));
-        devices = devices.filter(d => d.propertyId && propertyIds.has(d.propertyId));
+        const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId as string);
+        devices = effectiveConfig.filterByEnterpriseScope(devices, enterpriseId as string, propertyIds, rvcIds);
       }
       
       res.json(devices);
@@ -18420,10 +18534,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const enterpriseId = await getEnforcedEnterpriseId(req);
       let agents = await storage.getPrintAgents(propertyId);
       
-      // Filter by enterprise if specified (multi-tenancy)
       if (enterpriseId && !propertyId) {
-        const { propertyIds } = await getEnterpriseFilterSets(enterpriseId);
-        agents = agents.filter(a => a.propertyId && propertyIds.has(a.propertyId));
+        const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
+        agents = effectiveConfig.filterByEnterpriseScope(agents, enterpriseId, propertyIds, rvcIds);
       }
       
       // Add connection status from connectedAgents map
@@ -19168,35 +19281,12 @@ connect();
         lastLoginAt: new Date(),
       });
 
-      let accessibleEnterprises: any[] = [];
-      let accessibleProperties: any[] = [];
-
-      if (isSystemLevel(user.accessLevel)) {
-        accessibleEnterprises = await db.select().from(enterprises);
-        accessibleProperties = await db.select().from(properties);
-      } else if (user.accessLevel === "enterprise_admin") {
-        if (user.enterpriseId) {
-          accessibleEnterprises = await db.select().from(enterprises).where(eq(enterprises.id, user.enterpriseId));
-          accessibleProperties = await db.select().from(properties).where(eq(properties.enterpriseId, user.enterpriseId));
-        }
-      } else {
-        // property_admin - get from employee assignments if linked, otherwise from propertyId
-        if (user.enterpriseId) {
-          accessibleEnterprises = await db.select().from(enterprises).where(eq(enterprises.id, user.enterpriseId));
-        }
-
-        if ((user as any).employeeId) {
-          const assignments = await db.select().from(employeeAssignments).where(eq(employeeAssignments.employeeId, (user as any).employeeId));
-          const assignedPropertyIds = assignments.map(a => a.propertyId).filter(Boolean) as string[];
-          if (assignedPropertyIds.length > 0) {
-            accessibleProperties = await db.select().from(properties).where(inArray(properties.id, assignedPropertyIds));
-          }
-        }
-
-        if (accessibleProperties.length === 0 && user.propertyId) {
-          accessibleProperties = await db.select().from(properties).where(eq(properties.id, user.propertyId));
-        }
-      }
+      const { enterprises: accessibleEnterprises, properties: accessibleProperties } = await storage.getAccessibleEnterprisesAndProperties({
+        accessLevel: user.accessLevel,
+        enterpriseId: user.enterpriseId,
+        propertyId: user.propertyId,
+        employeeId: (user as Record<string, unknown>).employeeId as string | null,
+      });
 
       res.json({
         success: true,
@@ -19364,25 +19454,30 @@ connect();
         try {
           const amountCents = Math.round(parseFloat(amount.toString()) * 100);
           const tipCents = tipAmount ? Math.round(parseFloat(tipAmount.toString()) * 100) : 0;
-          const paymentTx = await storage.createPaymentTransaction({
-            paymentProcessorId: processor.id,
-            gatewayTransactionId: paymentIntentId,
-            authCode: null,
-            referenceNumber: paymentIntentId,
-            cardBrand: cardBrand || null,
-            cardLast4: cardLast4 || null,
-            entryMode: "manual",
-            authAmount: amountCents,
-            captureAmount: amountCents,
-            tipAmount: tipCents,
-            status: "captured",
-            transactionType: "sale",
-            responseCode: "succeeded",
-            responseMessage: "Stripe payment captured",
-            businessDate,
-            employeeId: employeeId || null,
-          });
-          paymentTxId = paymentTx.id;
+          const recTxnId = crypto.randomUUID();
+          const { result: paymentTx } = await journalWriteAtomic(
+            "create", "payment_transaction", recTxnId, "POST", `/api/checks/${checkId}/record-payment`,
+            () => storage.createPaymentTransaction({
+              paymentProcessorId: processor!.id,
+              gatewayTransactionId: paymentIntentId,
+              authCode: null,
+              referenceNumber: paymentIntentId,
+              cardBrand: cardBrand || null,
+              cardLast4: cardLast4 || null,
+              entryMode: "manual",
+              authAmount: amountCents,
+              captureAmount: amountCents,
+              tipAmount: tipCents,
+              status: "captured",
+              transactionType: "sale",
+              responseCode: "succeeded",
+              responseMessage: "Stripe payment captured",
+              businessDate,
+              employeeId: employeeId || null,
+            }),
+            { checkId, paymentIntentId }
+          );
+          paymentTxId = paymentTx?.id || null;
           console.log(`[record-payment] Created payment_transaction ${paymentTxId} with gateway_transaction_id=${paymentIntentId}`);
         } catch (txError: any) {
           console.error("[record-payment] CRITICAL: Failed to create payment_transaction for Stripe:", txError.message, txError.stack);
@@ -19391,21 +19486,31 @@ connect();
         console.error(`[record-payment] CRITICAL: No payment processor found for property ${propertyId} — payment_transaction will NOT be created. Refunds will require manual processing.`);
       }
 
-      const checkPayment = await storage.createPayment({
-        checkId,
-        tenderId,
-        tenderName: tender.name,
-        amount: amount.toString(),
-        tipAmount: tipAmount ? tipAmount.toString() : undefined,
-        employeeId,
-        businessDate,
-        paymentStatus: "completed",
-        paymentTransactionId: paymentTxId,
-      });
+      const recPayId = crypto.randomUUID();
+      const { result: checkPayment } = await journalWriteAtomic(
+        "create", "check_payment", recPayId, "POST", `/api/checks/${checkId}/record-payment`,
+        () => storage.createPayment({
+          id: recPayId,
+          checkId,
+          tenderId,
+          tenderName: tender.name,
+          amount: amount.toString(),
+          tipAmount: tipAmount ? tipAmount.toString() : undefined,
+          employeeId,
+          businessDate,
+          paymentStatus: "completed",
+          paymentTransactionId: paymentTxId,
+        }),
+        { checkId, tenderId, paymentIntentId }
+      );
 
-      if (paymentTxId) {
+      if (paymentTxId && checkPayment) {
         try {
-          await storage.updatePaymentTransaction(paymentTxId, { checkPaymentId: checkPayment.id });
+          await journalWriteAtomic(
+            "update", "payment_transaction", paymentTxId, "PATCH", `/api/payment-transactions/${paymentTxId}/link`,
+            () => storage.updatePaymentTransaction(paymentTxId!, { checkPaymentId: checkPayment!.id }),
+            { checkPaymentId: checkPayment!.id }
+          );
         } catch (linkError: any) {
           console.error("Failed to link payment transaction to check payment:", linkError.message);
         }
@@ -19424,17 +19529,19 @@ connect();
       let autoPrintStatus: { success: boolean; message?: string } = { success: false };
       
       if (totalPaid >= checkTotal) {
-        // Calculate total tips from all payments for the check
         const tipTotal = allPayments.reduce((sum, p) => sum + parseFloat(p.tipAmount || "0"), 0);
         
-        const result = await storage.updateCheck(checkId, {
-          status: "closed",
-          closedAt: new Date(),
-          tipTotal: tipTotal.toFixed(2),
-        });
+        const { result } = await journalWriteAtomic(
+          "update", "check", checkId, "PATCH", `/api/checks/${checkId}/close`,
+          () => storage.updateCheck(checkId, {
+            status: "closed",
+            closedAt: new Date(),
+            tipTotal: tipTotal.toFixed(2),
+          }),
+          { reason: "auto-close after checkout" }
+        );
         if (result) updatedCheck = result;
         
-        // Broadcast check closure
         broadcastCheckUpdate(checkId, "closed", check.rvcId);
         broadcastPaymentUpdate(checkId);
         
@@ -19635,10 +19742,9 @@ connect();
       const { propertyId, enterpriseId } = req.query;
       let drawers = await storage.getCashDrawers(propertyId as string);
       
-      // Filter by enterprise if specified (multi-tenancy)
       if (enterpriseId && !propertyId) {
-        const { propertyIds } = await getEnterpriseFilterSets(enterpriseId as string);
-        drawers = drawers.filter(d => propertyIds.has(d.propertyId));
+        const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId as string);
+        drawers = effectiveConfig.filterByEnterpriseScope(drawers, enterpriseId as string, propertyIds, rvcIds);
       }
       
       res.json(drawers);
@@ -19722,9 +19828,13 @@ connect();
 
   app.post("/api/cash-transactions", async (req, res) => {
     try {
-      const transaction = await storage.createCashTransaction(req.body);
+      const cashTxId = crypto.randomUUID();
+      const { result: transaction } = await journalWriteAtomic(
+        "create", "cash_transaction", cashTxId, "POST", "/api/cash-transactions",
+        () => storage.createCashTransaction(req.body),
+        { transactionType: req.body.transactionType, amount: req.body.amount, drawerId: req.body.drawerId }
+      );
       
-      // Update drawer assignment expected amount
       if (req.body.assignmentId) {
         const assignment = await storage.getDrawerAssignment(req.body.assignmentId);
         if (assignment) {
@@ -20714,48 +20824,50 @@ connect();
       const order = await storage.getOnlineOrder(req.params.id);
       if (!order) return res.status(404).json({ message: "Order not found" });
 
-      // Create a POS check from the online order
-      const check = await storage.createCheck({
-        rvcId: order.rvcId || undefined,
-        employeeId,
-        orderType: order.orderType === "delivery" ? "delivery" : "pickup",
-        guestName: order.customerName,
-        notes: `Online Order: ${order.externalOrderId}`,
-      });
+      const pregenOnlineCheckId = crypto.randomUUID();
+      const { result: check } = await journalWriteAtomic(
+        "create", "check", pregenOnlineCheckId, "POST", `/api/online-orders/${req.params.id}/inject`,
+        async () => {
+          const newCheck = await storage.createCheck({
+            id: pregenOnlineCheckId, rvcId: order.rvcId || undefined, employeeId,
+            orderType: order.orderType === "delivery" ? "delivery" : "pickup",
+            guestName: order.customerName, notes: `Online Order: ${order.externalOrderId}`,
+          });
 
-      // Add items from online order with tax snapshots
-      const items = order.items as any[];
-      for (const item of items) {
-        const qty = item.quantity || 1;
-        const taxSnapshot = await calculateTaxSnapshot(
-          item.menuItemId,
-          parseFloat(item.price || "0"),
-          item.modifiers || [],
-          qty
-        );
-        
-        await storage.createCheckItem({
-          checkId: check.id,
-          menuItemId: item.menuItemId,
-          menuItemName: item.name,
-          unitPrice: item.price,
-          quantity: qty,
-          modifiers: item.modifiers || [],
-          ...taxSnapshot,
-        });
-      }
+          const items = order.items as any[];
+          for (const item of items) {
+            const qty = item.quantity || 1;
+            const taxSnapshot = await calculateTaxSnapshot(
+              item.menuItemId,
+              parseFloat(item.price || "0"),
+              item.modifiers || [],
+              qty
+            );
+            await storage.createCheckItem({
+              checkId: newCheck.id,
+              menuItemId: item.menuItemId,
+              menuItemName: item.name,
+              unitPrice: item.price,
+              quantity: qty,
+              modifiers: item.modifiers || [],
+              ...taxSnapshot,
+            });
+          }
 
-      // Update online order with check link
-      await storage.updateOnlineOrder(req.params.id, {
-        checkId: check.id,
-        status: "confirmed",
-        confirmedAt: new Date(),
-        injectedAt: new Date(),
-        injectedById: employeeId,
-      });
+          await storage.updateOnlineOrder(req.params.id, {
+            checkId: newCheck.id,
+            status: "confirmed",
+            confirmedAt: new Date(),
+            injectedAt: new Date(),
+            injectedById: employeeId,
+          });
 
-      // Recalculate check totals
-      await recalculateCheckTotals(check.id);
+          await recalculateCheckTotals(newCheck.id);
+          return newCheck;
+        },
+        { onlineOrderId: order.id, employeeId }
+      );
+
       const updatedCheck = await storage.getCheck(check.id);
 
       res.json({ check: updatedCheck, order });
@@ -20779,10 +20891,9 @@ connect();
         acknowledged === "true" ? true : acknowledged === "false" ? false : undefined
       );
       
-      // Filter by enterprise if specified (multi-tenancy)
       if (enterpriseId && !propertyId) {
-        const { propertyIds } = await getEnterpriseFilterSets(enterpriseId as string);
-        alerts = alerts.filter(a => a.propertyId && propertyIds.has(a.propertyId));
+        const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId as string);
+        alerts = effectiveConfig.filterByEnterpriseScope(alerts, enterpriseId as string, propertyIds, rvcIds);
       }
       
       res.json(alerts);
@@ -20999,7 +21110,11 @@ connect();
         return res.status(400).json({ message: "menuItemId and propertyId are required" });
       }
       
-      const availability = await storage.decrementItemAvailability(menuItemId, propertyId, delta);
+      const { result: availability } = await journalWriteAtomic(
+        "update", "item_availability", menuItemId, "POST", "/api/item-availability/decrement",
+        () => storage.decrementItemAvailability(menuItemId, propertyId, delta),
+        { menuItemId, propertyId, delta }
+      );
       
       if (availability) {
         // Broadcast real-time update to all connected clients
@@ -21022,7 +21137,11 @@ connect();
         return res.status(400).json({ message: "menuItemId and propertyId are required" });
       }
       
-      const availability = await storage.incrementItemAvailability(menuItemId, propertyId, delta);
+      const { result: availability } = await journalWriteAtomic(
+        "update", "item_availability", menuItemId, "POST", "/api/item-availability/increment",
+        () => storage.incrementItemAvailability(menuItemId, propertyId, delta),
+        { menuItemId, propertyId, delta }
+      );
       
       if (availability) {
         broadcastAvailabilityUpdate(propertyId, menuItemId);
@@ -21038,13 +21157,14 @@ connect();
   app.post("/api/item-availability/:id/86", async (req, res) => {
     try {
       const { employeeId } = req.body;
-      const availability = await storage.updateItemAvailability(req.params.id, {
-        is86ed: true,
-        isAvailable: false,
-        eightySixedAt: new Date(),
-        eightySixedById: employeeId,
-        currentQuantity: 0,
-      });
+      const { result: availability } = await journalWriteAtomic(
+        "update", "item_availability", req.params.id, "POST", `/api/item-availability/${req.params.id}/86`,
+        () => storage.updateItemAvailability(req.params.id, {
+          is86ed: true, isAvailable: false, eightySixedAt: new Date(),
+          eightySixedById: employeeId, currentQuantity: 0,
+        }),
+        { employeeId }
+      );
 
       // Get the menu item name for the alert
       const item = await storage.getItemAvailability(req.params.id);
@@ -21348,7 +21468,12 @@ connect();
         return res.json(existing); // Idempotent - return existing record
       }
 
-      const queueItem = await storage.createOfflineOrderQueue(req.body);
+      const queueId = crypto.randomUUID();
+      const { result: queueItem } = await journalWriteAtomic(
+        "create", "offline_order_queue", queueId, "POST", "/api/offline-queue",
+        () => storage.createOfflineOrderQueue(req.body),
+        { localId: req.body.localId }
+      );
       res.status(201).json(queueItem);
     } catch (error) {
       res.status(500).json({ message: "Failed to queue offline order" });
@@ -21368,45 +21493,48 @@ connect();
       });
 
       try {
-        // Create the actual check from the order data
         const orderData = queueItem.orderData as any;
-        const check = await storage.createCheck({
-          rvcId: queueItem.rvcId || undefined,
-          employeeId: queueItem.employeeId || undefined,
-          orderType: orderData.orderType,
-          guestName: orderData.guestName,
-          notes: orderData.notes,
-        });
+        const offlineCheckId = crypto.randomUUID();
+        const { result: check } = await journalWriteAtomic(
+          "create", "check", offlineCheckId, "POST", `/api/offline-queue/${req.params.id}/sync`,
+          async () => {
+            const newCheck = await storage.createCheck({
+              id: offlineCheckId, rvcId: queueItem.rvcId || undefined,
+              employeeId: queueItem.employeeId || undefined, orderType: orderData.orderType,
+              guestName: orderData.guestName, notes: orderData.notes,
+            });
 
-        // Add items with tax snapshots
-        for (const item of orderData.items || []) {
-          const qty = item.quantity || 1;
-          const taxSnapshot = await calculateTaxSnapshot(
-            item.menuItemId,
-            parseFloat(item.unitPrice || "0"),
-            item.modifiers || [],
-            qty
-          );
-          
-          await storage.createCheckItem({
-            checkId: check.id,
-            menuItemId: item.menuItemId,
-            menuItemName: item.menuItemName,
-            unitPrice: item.unitPrice,
-            quantity: qty,
-            modifiers: item.modifiers,
-            ...taxSnapshot,
-          });
-        }
+            for (const item of orderData.items || []) {
+              const qty = item.quantity || 1;
+              const taxSnapshot = await calculateTaxSnapshot(
+                item.menuItemId,
+                parseFloat(item.unitPrice || "0"),
+                item.modifiers || [],
+                qty
+              );
+              await storage.createCheckItem({
+                checkId: newCheck.id,
+                menuItemId: item.menuItemId,
+                menuItemName: item.menuItemName,
+                unitPrice: item.unitPrice,
+                quantity: qty,
+                modifiers: item.modifiers,
+                ...taxSnapshot,
+              });
+            }
 
-        await recalculateCheckTotals(check.id);
+            await recalculateCheckTotals(newCheck.id);
 
-        // Mark as synced
-        await storage.updateOfflineOrderQueue(req.params.id, {
-          status: "synced",
-          syncedCheckId: check.id,
-          syncedAt: new Date(),
-        });
+            await storage.updateOfflineOrderQueue(req.params.id, {
+              status: "synced",
+              syncedCheckId: newCheck.id,
+              syncedAt: new Date(),
+            });
+
+            return newCheck;
+          },
+          { offlineQueueId: req.params.id }
+        );
 
         const finalCheck = await storage.getCheck(check.id);
         res.json({ success: true, check: finalCheck });
@@ -21555,13 +21683,15 @@ connect();
       const lifetimeBefore = member.lifetimePoints || 0;
       const lifetimeAfter = lifetimeBefore + (points > 0 ? points : 0);
 
-      // Update member points
-      await storage.updateLoyaltyMember(member.id, {
-        currentPoints: pointsAfter,
-        lifetimePoints: lifetimeAfter,
-      });
+      await journalWriteAtomic(
+        "update", "loyalty_member", member.id, "POST", `/api/pos/customers/${req.params.id}/add-points`,
+        () => storage.updateLoyaltyMember(member.id, {
+          currentPoints: pointsAfter,
+          lifetimePoints: lifetimeAfter,
+        }),
+        { points, pointsBefore, pointsAfter, employeeId }
+      );
 
-      // Create transaction record
       const transaction = await storage.createLoyaltyTransaction({
         memberId: member.id,
         transactionType: "adjust",
@@ -21617,29 +21747,37 @@ connect();
       const items = await storage.getCheckItems(lastCheck.id);
       const validItems = items.filter(i => !i.voided);
 
-      // Add items to current check with tax snapshots
-      // For reorders, we calculate fresh tax based on CURRENT menu item settings
-      // (not the old order's settings, since prices/tax may have changed)
-      for (const item of validItems) {
-        const qty = item.quantity || 1;
-        const taxSnapshot = await calculateTaxSnapshot(
-          item.menuItemId,
-          parseFloat(item.unitPrice || "0"),
-          item.modifiers || [],
-          qty
-        );
-        
-        await storage.createCheckItem({
-          checkId,
-          menuItemId: item.menuItemId,
-          menuItemName: item.menuItemName,
-          unitPrice: item.unitPrice,
-          quantity: qty,
-          modifiers: item.modifiers,
-          itemStatus: "active",
-          ...taxSnapshot,
-        });
-      }
+      await journalWriteAtomic(
+        "create", "check_item", checkId, "POST", `/api/pos/checks/${checkId}/reorder/${customerId}`,
+        async (parentEventId) => {
+          for (const item of validItems) {
+            const qty = item.quantity || 1;
+            const taxSnapshot = await calculateTaxSnapshot(
+              item.menuItemId,
+              parseFloat(item.unitPrice || "0"),
+              item.modifiers || [],
+              qty
+            );
+
+            const created = await storage.createCheckItem({
+              checkId,
+              menuItemId: item.menuItemId,
+              menuItemName: item.menuItemName,
+              unitPrice: item.unitPrice,
+              quantity: qty,
+              modifiers: item.modifiers,
+              itemStatus: "active",
+              ...taxSnapshot,
+            });
+            await recordCompoundJournalEntry(
+              parentEventId, "create", "check_item", created.id,
+              "POST", `/api/check-items`,
+              { checkId, menuItemId: item.menuItemId, menuItemName: item.menuItemName }
+            );
+          }
+        },
+        { checkId, customerId, itemCount: validItems.length }
+      );
 
       await recalculateCheckTotals(checkId);
       const updatedCheck = await storage.getCheck(checkId);
@@ -21692,19 +21830,27 @@ connect();
       const lifetimeBefore = member.lifetimePoints || 0;
       const lifetimeAfter = lifetimeBefore + pointsEarned;
 
-      // Update member points
-      await storage.updateLoyaltyMember(member.id, {
-        currentPoints: pointsAfter,
-        lifetimePoints: lifetimeAfter,
-        lastVisitAt: new Date(),
-      });
+      await journalWriteAtomic(
+        "update", "loyalty_member", member.id, "POST", `/api/pos/loyalty/${customerId}/earn`,
+        async (parentEventId) => {
+          await storage.updateLoyaltyMember(member.id, {
+            currentPoints: pointsAfter,
+            lifetimePoints: lifetimeAfter,
+            lastVisitAt: new Date(),
+          });
 
-      // Update check with points earned
-      await storage.updateCheck(checkId, {
-        loyaltyPointsEarned: pointsEarned,
-      });
+          await recordCompoundJournalEntry(
+            parentEventId, "update", "check", checkId,
+            "PATCH", `/api/checks/${checkId}/loyalty-points`,
+            { loyaltyPointsEarned: pointsEarned }
+          );
+          await storage.updateCheck(checkId, {
+            loyaltyPointsEarned: pointsEarned,
+          });
+        },
+        { customerId, checkId, pointsEarned, pointsBefore, pointsAfter, employeeId }
+      );
 
-      // Create transaction record
       const transaction = await storage.createLoyaltyTransaction({
         memberId: member.id,
         propertyId: undefined,
@@ -21831,11 +21977,14 @@ connect();
       const pointsBefore = member.currentPoints || 0;
       const pointsAfter = pointsBefore - pointsCost;
 
-      await storage.updateLoyaltyMember(member.id, {
-        currentPoints: pointsAfter,
-      });
+      await journalWriteAtomic(
+        "update", "loyalty_member", member.id, "POST", `/api/pos/loyalty/redeem`,
+        () => storage.updateLoyaltyMember(member.id, {
+          currentPoints: pointsAfter,
+        }),
+        { customerId, rewardId, checkId, pointsCost, pointsBefore, pointsAfter }
+      );
 
-      // Create redemption record
       const redemption = await storage.createLoyaltyRedemption({
         memberId: member.id,
         rewardId: reward.id,
@@ -22242,12 +22391,14 @@ connect();
 
       const newBalance = (currentBalance - redeemAmount).toFixed(2);
 
-      // Update gift card balance
-      await storage.updateGiftCard(giftCard.id, {
-        currentBalance: newBalance,
-      });
+      await journalWriteAtomic(
+        "update", "gift_card", giftCard.id, "POST", `/api/pos/gift-cards/redeem`,
+        () => storage.updateGiftCard(giftCard.id, {
+          currentBalance: newBalance,
+        }),
+        { cardNumber, amount, checkId, currentBalance: giftCard.currentBalance, newBalance }
+      );
 
-      // Create redemption transaction
       const transaction = await storage.createGiftCardTransaction({
         giftCardId: giftCard.id,
         transactionType: "redeem",

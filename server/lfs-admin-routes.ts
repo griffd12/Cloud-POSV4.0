@@ -2,6 +2,8 @@ import type { Express, Request, Response } from "express";
 import express from "express";
 import { isLocalMode } from "./db";
 import { getConfigSyncService, restartConfigSync } from "./config-sync";
+import { getCloudSyncStatus } from "./cloud-sync";
+import { getJournalStats } from "./transaction-journal";
 import path from "path";
 import fs from "fs";
 

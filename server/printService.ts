@@ -1,7 +1,4 @@
 import * as net from "net";
-import { db } from "./db";
-import { printers, printJobs, checks, checkItems, checkPayments, employees, properties, rvcs } from "@shared/schema";
-import { eq, and, or, isNull, desc } from "drizzle-orm";
 import { storage } from "./storage";
 
 // ESC/POS Commands
@@ -192,39 +189,19 @@ function formatDateTime(date: Date | string | null, timezone?: string): string {
 export async function buildCheckReceipt(checkId: string, charWidth: number = 42): Promise<ESCPOSBuilder> {
   const builder = new ESCPOSBuilder(charWidth);
 
-  const [check] = await db
-    .select()
-    .from(checks)
-    .where(eq(checks.id, checkId))
-    .limit(1);
+  const check = await storage.getCheck(checkId);
 
   if (!check) {
     builder.align("center").bold().line("CHECK NOT FOUND").bold(false);
     return builder;
   }
 
-  // Get RVC first, then property from RVC
-  const [rvc] = check.rvcId
-    ? await db.select().from(rvcs).where(eq(rvcs.id, check.rvcId)).limit(1)
-    : [null];
-
-  const [property] = rvc?.propertyId
-    ? await db.select().from(properties).where(eq(properties.id, rvc.propertyId)).limit(1)
-    : [null];
-
-  const [employee] = check.employeeId
-    ? await db.select().from(employees).where(eq(employees.id, check.employeeId)).limit(1)
-    : [null];
-
-  const items = await db
-    .select()
-    .from(checkItems)
-    .where(and(eq(checkItems.checkId, checkId), eq(checkItems.voided, false)));
-
-  const payments = await db
-    .select()
-    .from(checkPayments)
-    .where(eq(checkPayments.checkId, checkId));
+  const rvc = check.rvcId ? await storage.getRvc(check.rvcId) : null;
+  const property = rvc?.propertyId ? await storage.getProperty(rvc.propertyId) : null;
+  const employee = check.employeeId ? await storage.getEmployee(check.employeeId) : null;
+  const allItems = await storage.getCheckItems(checkId);
+  const items = allItems.filter(i => !i.voided);
+  const payments = await storage.getPayments(checkId);
 
   // Get effective descriptors for this RVC (or use defaults)
   let headerLines: string[] = [];
@@ -483,42 +460,22 @@ export async function printToNetworkPrinter(
   });
 }
 
-// Get printer by ID with connection info
 export async function getPrinter(printerId: string) {
-  const [printer] = await db
-    .select()
-    .from(printers)
-    .where(eq(printers.id, printerId))
-    .limit(1);
-  return printer;
+  return storage.getPrinter(printerId);
 }
 
-// Find receipt printer for a property/workstation
 export async function findReceiptPrinter(propertyId: string, workstationId?: string) {
   if (workstationId) {
-    const { workstations } = await import("@shared/schema");
-    const [ws] = await db.select().from(workstations).where(eq(workstations.id, workstationId)).limit(1);
+    const ws = await storage.getWorkstation(workstationId);
     if (ws?.defaultReceiptPrinterId) {
-      const [wsPrinter] = await db.select().from(printers).where(
-        and(eq(printers.id, ws.defaultReceiptPrinterId), eq(printers.active, true))
-      ).limit(1);
-      if (wsPrinter) return wsPrinter;
+      const wsPrinter = await storage.getPrinter(ws.defaultReceiptPrinterId);
+      if (wsPrinter && wsPrinter.active) return wsPrinter;
     }
   }
 
-  const result = await db
-    .select()
-    .from(printers)
-    .where(
-      and(
-        eq(printers.propertyId, propertyId),
-        eq(printers.printerType, "receipt"),
-        eq(printers.active, true)
-      )
-    )
-    .limit(1);
-  
-  return result[0] || null;
+  const allPrinters = await storage.getPrinters(propertyId);
+  const receiptPrinter = allPrinters.find(p => p.printerType === "receipt" && p.active);
+  return receiptPrinter || null;
 }
 
 // Create a print job
@@ -536,44 +493,27 @@ export async function createPrintJob(
     priority?: number;
   } = {}
 ) {
-  const [job] = await db
-    .insert(printJobs)
-    .values({
-      propertyId,
-      printerId: options.printerId,
-      workstationId: options.workstationId,
-      jobType,
-      status: "pending",
-      priority: options.priority || 5,
-      checkId: options.checkId,
-      employeeId: options.employeeId,
-      businessDate: options.businessDate,
-      escPosData,
-      plainTextData,
-      attempts: 0,
-      maxAttempts: 3,
-    })
-    .returning();
+  const job = await storage.createPrintJob({
+    propertyId,
+    printerId: options.printerId,
+    workstationId: options.workstationId,
+    jobType,
+    status: "pending",
+    priority: options.priority || 5,
+    checkId: options.checkId,
+    employeeId: options.employeeId,
+    businessDate: options.businessDate,
+    escPosData,
+    plainTextData,
+    attempts: 0,
+    maxAttempts: 3,
+  });
 
   return job;
 }
 
-// Process pending print jobs for network printers
 export async function processPendingPrintJobs() {
-  const pendingJobs = await db
-    .select()
-    .from(printJobs)
-    .where(
-      and(
-        eq(printJobs.status, "pending"),
-        or(
-          isNull(printJobs.expiresAt),
-          // Can't directly compare with now in drizzle easily, skip for now
-        )
-      )
-    )
-    .orderBy(printJobs.priority, printJobs.createdAt)
-    .limit(10);
+  const pendingJobs = await storage.getPendingPrintJobs();
 
   for (const job of pendingJobs) {
     if (!job.printerId || !job.escPosData) continue;
@@ -581,11 +521,7 @@ export async function processPendingPrintJobs() {
     const printer = await getPrinter(job.printerId);
     if (!printer || printer.connectionType !== "network" || !printer.ipAddress) continue;
 
-    // Mark as printing
-    await db
-      .update(printJobs)
-      .set({ status: "printing", attempts: (job.attempts || 0) + 1 })
-      .where(eq(printJobs.id, job.id));
+    await storage.updatePrintJob(job.id, { status: "printing", attempts: (job.attempts || 0) + 1 });
 
     const data = Buffer.from(job.escPosData, "base64");
     const result = await printToNetworkPrinter(
@@ -595,33 +531,17 @@ export async function processPendingPrintJobs() {
     );
 
     if (result.success) {
-      await db
-        .update(printJobs)
-        .set({ status: "completed", printedAt: new Date() })
-        .where(eq(printJobs.id, job.id));
-
-      // Update printer online status
-      await db
-        .update(printers)
-        .set({ isOnline: true, lastSeenAt: new Date() })
-        .where(eq(printers.id, printer.id));
+      await storage.updatePrintJob(job.id, { status: "completed", printedAt: new Date() });
+      await storage.updatePrinter(printer.id, { isOnline: true, lastSeenAt: new Date() });
     } else {
       const attempts = (job.attempts || 0) + 1;
       const maxAttempts = job.maxAttempts || 3;
 
-      await db
-        .update(printJobs)
-        .set({
-          status: attempts >= maxAttempts ? "failed" : "pending",
-          lastError: result.error,
-        })
-        .where(eq(printJobs.id, job.id));
-
-      // Update printer offline status
-      await db
-        .update(printers)
-        .set({ isOnline: false })
-        .where(eq(printers.id, printer.id));
+      await storage.updatePrintJob(job.id, {
+        status: attempts >= maxAttempts ? "failed" : "pending",
+        lastError: result.error,
+      });
+      await storage.updatePrinter(printer.id, { isOnline: false });
     }
   }
 }

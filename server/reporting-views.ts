@@ -1,10 +1,10 @@
-import { db } from "./db";
 import { eq, and, sql, gte, lte, desc, isNull, or, inArray } from "drizzle-orm";
 import {
   checks, checkItems, checkPayments, checkDiscounts, checkServiceCharges,
   cashTransactions, drawerAssignments, cashDrawers, timecards, tenders,
   refunds, refundItems, refundPayments,
 } from "@shared/schema";
+import { storage } from "./storage";
 
 export interface ReportFilters {
   propertyId: string;
@@ -135,7 +135,7 @@ export async function getSalesLines(filters: ReportFilters): Promise<SalesLine[]
     ? sql`AND c.status = 'closed'`
     : sql``;
 
-  const result = await db.execute(sql`
+  const result = await storage.executeReportQuery(sql`
     SELECT
       ci.check_id AS "checkId",
       ci.id AS "checkItemId",
@@ -256,7 +256,7 @@ export async function getCheckDiscounts(filters: ReportFilters): Promise<CheckDi
     ? sql`AND c.status = 'closed'`
     : sql``;
 
-  const result = await db.execute(sql`
+  const result = await storage.executeReportQuery(sql`
     SELECT
       cd.check_id AS "checkId",
       cd.discount_id AS "discountId",
@@ -287,7 +287,7 @@ export async function getServiceChargeLines(filters: ReportFilters): Promise<Ser
     ? sql`AND EXISTS (SELECT 1 FROM checks c2 WHERE c2.id = csc.check_id AND c2.status = 'closed')`
     : sql``;
 
-  const result = await db.execute(sql`
+  const result = await storage.executeReportQuery(sql`
     SELECT
       csc.check_id AS "checkId",
       csc.service_charge_id AS "serviceChargeId",
@@ -320,7 +320,7 @@ export async function getPaymentLines(filters: ReportFilters): Promise<PaymentLi
     ? sql`AND c.status = 'closed'`
     : sql``;
 
-  const result = await db.execute(sql`
+  const result = await storage.executeReportQuery(sql`
     SELECT
       cp.check_id AS "checkId",
       cp.id AS "paymentId",
@@ -355,7 +355,7 @@ export async function getVoidLines(filters: ReportFilters): Promise<VoidLine[]> 
     ? sql`AND c.rvc_id = ${filters.rvcId}`
     : sql``;
 
-  const result = await db.execute(sql`
+  const result = await storage.executeReportQuery(sql`
     SELECT
       ci.check_id AS "checkId",
       ci.id AS "checkItemId",
@@ -381,7 +381,7 @@ export async function getVoidLines(filters: ReportFilters): Promise<VoidLine[]> 
 }
 
 export async function getTimecardLines(filters: ReportFilters): Promise<TimecardLine[]> {
-  const result = await db.execute(sql`
+  const result = await storage.executeReportQuery(sql`
     SELECT
       tc.id AS "timecardId",
       tc.employee_id AS "employeeId",
@@ -408,7 +408,7 @@ export async function getTimecardLines(filters: ReportFilters): Promise<Timecard
 }
 
 export async function getCashDrawerActivity(filters: ReportFilters): Promise<CashDrawerActivityLine[]> {
-  const result = await db.execute(sql`
+  const result = await storage.executeReportQuery(sql`
     SELECT
       ct.id AS "transactionId",
       ct.drawer_id AS "drawerId",
@@ -431,7 +431,7 @@ export async function getCashDrawerActivity(filters: ReportFilters): Promise<Cas
 }
 
 export async function getDrawerSummary(assignmentId: string): Promise<DrawerSummary> {
-  const result = await db.execute(sql`
+  const result = await storage.executeReportQuery(sql`
     SELECT
       COALESCE(da.opening_amount, 0) AS "opening",
       COALESCE(SUM(CASE WHEN ct.transaction_type = 'sale' THEN ct.amount ELSE 0 END), 0) AS "cashSales",

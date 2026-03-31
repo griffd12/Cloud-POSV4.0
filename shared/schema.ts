@@ -4032,4 +4032,46 @@ export const lfsSyncLogs = pgTable("lfs_sync_logs", {
 
 export const insertLfsSyncLogSchema = createInsertSchema(lfsSyncLogs).omit({ id: true, createdAt: true });
 export type LfsSyncLog = typeof lfsSyncLogs.$inferSelect;
+
+export const transactionJournal = pgTable("transaction_journal", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventId: varchar("event_id").notNull().unique(),
+  operationType: text("operation_type").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  httpMethod: text("http_method").notNull(),
+  endpoint: text("endpoint").notNull(),
+  payload: jsonb("payload"),
+  offlineTransactionId: text("offline_transaction_id"),
+  workstationId: varchar("workstation_id"),
+  propertyId: varchar("property_id"),
+  journalStatus: text("journal_status").default("completed"),
+  synced: boolean("synced").default(false),
+  syncedAt: timestamp("synced_at"),
+  syncError: text("sync_error"),
+  retryCount: integer("retry_count").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_transaction_journal_synced").on(table.synced),
+  index("idx_transaction_journal_entity").on(table.entityType, table.entityId),
+  index("idx_transaction_journal_created").on(table.createdAt),
+  index("idx_transaction_journal_property").on(table.propertyId),
+]);
+
+export const insertTransactionJournalSchema = createInsertSchema(transactionJournal).omit({ id: true, createdAt: true });
+export type TransactionJournalEntry = typeof transactionJournal.$inferSelect;
+export type InsertTransactionJournalEntry = z.infer<typeof insertTransactionJournalSchema>;
+
+export const lfsSyncStatus = pgTable("lfs_sync_status", {
+  tableName: text("table_name").primaryKey(),
+  lastSyncedAt: timestamp("last_synced_at"),
+  recordCount: integer("record_count").default(0),
+});
+
+export const lfsOfflineSequence = pgTable("lfs_offline_sequence", {
+  workstationId: varchar("workstation_id").primaryKey(),
+  currentNumber: integer("current_number").notNull(),
+  rangeStart: integer("range_start").notNull(),
+  rangeEnd: integer("range_end").notNull(),
+});
 export type InsertLfsSyncLog = z.infer<typeof insertLfsSyncLogSchema>;

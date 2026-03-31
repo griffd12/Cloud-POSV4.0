@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { connectionManager } from "@/lib/connection-manager";
 import { Wifi, WifiOff, RefreshCw, CloudOff } from "lucide-react";
+import { LfsModeBar } from "./lfs-mode-indicator";
 
-export function OfflineBanner() {
+const isLfsMode = typeof window !== "undefined" && (window.location.search.includes("lfs=1") || localStorage.getItem("lfs_local_server_url") === window.location.origin);
+
+function CloudOfflineBanner() {
   const [state, setState] = useState(connectionManager.currentState);
   const [syncProgress, setSyncProgress] = useState(connectionManager.currentSyncProgress);
   const [pendingCount, setPendingCount] = useState(connectionManager.pendingSync);
@@ -104,4 +107,11 @@ export function OfflineBanner() {
       )}
     </div>
   );
+}
+
+export function OfflineBanner() {
+  if (isLfsMode) {
+    return <LfsModeBar />;
+  }
+  return <CloudOfflineBanner />;
 }

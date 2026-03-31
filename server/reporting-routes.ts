@@ -5,7 +5,6 @@ import {
   getCashDrawerActivity, getDrawerSummary,
   type ReportFilters
 } from "./reporting-views";
-import { db } from "./db";
 import { sql } from "drizzle-orm";
 
 function round2(val: number): number {
@@ -84,7 +83,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
         amount: round2(amount),
       }));
 
-      const changeDueResult = await db.execute(sql`
+      const changeDueResult = await storage.executeReportQuery(sql`
         SELECT
           COALESCE(SUM(
             CASE WHEN pmt.pmt_total > c.total AND pmt.pmt_total > 0
@@ -166,7 +165,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
         return res.status(400).json({ message: "propertyId and businessDate are required" });
       }
 
-      const checksResult = await db.execute(sql`
+      const checksResult = await storage.executeReportQuery(sql`
         SELECT
           c.id,
           c.check_number AS "checkNumber",
@@ -191,7 +190,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       const checkIdSet = new Set(allChecks.map(c => c.id));
       const paidCheckIds = new Set<string>();
       if (checkIdSet.size > 0) {
-        const paidResult = await db.execute(sql`
+        const paidResult = await storage.executeReportQuery(sql`
           SELECT DISTINCT check_id AS "checkId"
           FROM check_payments
           WHERE payment_status = 'completed'
@@ -203,7 +202,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
         }
       }
 
-      const carriedInResult = await db.execute(sql`
+      const carriedInResult = await storage.executeReportQuery(sql`
         SELECT
           c.id,
           c.check_number AS "checkNumber",
@@ -299,7 +298,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
 
       const summary = await getDrawerSummary(assignmentId);
 
-      const assignmentResult = await db.execute(sql`
+      const assignmentResult = await storage.executeReportQuery(sql`
         SELECT
           da.id,
           da.property_id AS "propertyId",
@@ -487,7 +486,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
         getPaymentLines(closedFilters),
         getVoidLines(allFilters),
         getTimecardLines(timecardFilters),
-        db.execute(sql`
+        storage.executeReportQuery(sql`
           SELECT
             -- Carried over: checks from prior business dates that are still open OR were paid during this business date
             COALESCE(SUM(CASE WHEN c.business_date < ${businessDate}
@@ -638,7 +637,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
 
       const customerTotal = round2(netSales + totalTax + serviceChargesAmt + cardTips);
 
-      const changeDueResult = await db.execute(sql`
+      const changeDueResult = await storage.executeReportQuery(sql`
         SELECT
           COALESCE(SUM(
             CASE WHEN pmt.pmt_total > c.total AND pmt.pmt_total > 0
@@ -894,7 +893,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       }
 
       // CHECK 1: Service charge reconciliation
-      const scReconResult = await db.execute(sql`
+      const scReconResult = await storage.executeReportQuery(sql`
         SELECT
           c.id AS "checkId",
           c.check_number AS "checkNumber",
@@ -937,7 +936,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       };
 
       // CHECK 2: Model A tip verification
-      const tipCheckResult = await db.execute(sql`
+      const tipCheckResult = await storage.executeReportQuery(sql`
         SELECT
           COALESCE(SUM(cp.amount), 0) AS "totalCollected",
           COALESCE(SUM(cp.tip_amount), 0) AS "totalTips"
@@ -963,7 +962,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       };
 
       // CHECK 3: Cash drawer linkage
-      const cashPaymentsResult = await db.execute(sql`
+      const cashPaymentsResult = await storage.executeReportQuery(sql`
         SELECT
           cp.id AS "paymentId",
           cp.check_id AS "checkId",
@@ -981,7 +980,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
 
       const cashPayments = cashPaymentsResult.rows as any[];
 
-      const cashTxResult = await db.execute(sql`
+      const cashTxResult = await storage.executeReportQuery(sql`
         SELECT DISTINCT check_id AS "checkId"
         FROM cash_transactions
         WHERE property_id = ${propertyId}
@@ -1009,7 +1008,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       };
 
       // CHECK 4: Sales rebuild (closed checks only)
-      const rebuildResult = await db.execute(sql`
+      const rebuildResult = await storage.executeReportQuery(sql`
         SELECT
           c.id AS "checkId",
           c.check_number AS "checkNumber",
@@ -1075,7 +1074,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       );
       const reconTotalPayments = round2(pmtLines.reduce((s, l) => s + num(l.amount) + num(l.tipAmount), 0));
 
-      const reconChangeDueResult = await db.execute(sql`
+      const reconChangeDueResult = await storage.executeReportQuery(sql`
         SELECT COALESCE(SUM(
           CASE WHEN pmt.pmt_total > c.total AND pmt.pmt_total > 0
             THEN pmt.pmt_total - c.total ELSE 0 END
@@ -1096,7 +1095,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       `);
       const reconChangeDue = round2(num((reconChangeDueResult.rows[0] as any)?.changeDue));
 
-      const reconCheckTotalsResult = await db.execute(sql`
+      const reconCheckTotalsResult = await storage.executeReportQuery(sql`
         SELECT COALESCE(SUM(c.total), 0) AS "checkTotals"
         FROM checks c
         JOIN rvcs r ON r.id = c.rvc_id
@@ -1132,7 +1131,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       };
 
       // CHECK 6: Cash overpayments = change due (INFO), non-cash overpayments = error (FAIL)
-      const overpaymentResult = await db.execute(sql`
+      const overpaymentResult = await storage.executeReportQuery(sql`
         SELECT
           c.id AS "checkId",
           c.check_number AS "checkNumber",
@@ -1196,7 +1195,7 @@ export function registerReportingRoutes(app: Express, storage: any) {
       };
 
       // CHECK 7: No open checks in Financial Close
-      const openChecksResult = await db.execute(sql`
+      const openChecksResult = await storage.executeReportQuery(sql`
         SELECT
           c.id AS "checkId",
           c.check_number AS "checkNumber",
