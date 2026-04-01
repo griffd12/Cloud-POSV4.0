@@ -187,17 +187,34 @@ if ($nssm) {
     & nssm set $ServiceName AppRotateFiles 1
     & nssm set $ServiceName AppRotateBytes 10485760
 } else {
-    Write-Host "NSSM not found. Installing service using sc.exe..." -ForegroundColor Yellow
-    Write-Host "Note: For production use, install NSSM (https://nssm.cc) for better service management." -ForegroundColor Yellow
+    Write-Host "NSSM not found. Using Scheduled Task for auto-start..." -ForegroundColor Yellow
 
-    $binPath = "`"$nodePath`" `"$wrapperScript`""
-    sc.exe create $ServiceName binPath= $binPath start= auto DisplayName= $DisplayName | Out-Null
-    sc.exe description $ServiceName "Cloud POS Local Failover Server - provides offline POS capability" | Out-Null
-    sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/10000/restart/30000 | Out-Null
+    $existingScService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($existingScService) {
+        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+        sc.exe delete $ServiceName | Out-Null
+        Start-Sleep -Seconds 1
+        Write-Host "  Removed old sc.exe service registration" -ForegroundColor Yellow
+    }
+
+    $existingTask = Get-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
+    if ($existingTask) {
+        Unregister-ScheduledTask -TaskName $ServiceName -Confirm:$false
+        Write-Host "  Removed existing scheduled task" -ForegroundColor Yellow
+    }
+
+    $taskAction = New-ScheduledTaskAction -Execute $nodePath -Argument "`"$wrapperScript`"" -WorkingDirectory $InstallDir
+    $taskTrigger = New-ScheduledTaskTrigger -AtStartup
+    $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 3
+    $taskPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+    Register-ScheduledTask -TaskName $ServiceName -Action $taskAction -Trigger $taskTrigger -Settings $taskSettings -Principal $taskPrincipal -Description "Cloud POS Local Failover Server - provides offline POS capability" | Out-Null
+    Write-Host "  Scheduled task '$ServiceName' registered (runs at startup as SYSTEM)" -ForegroundColor Green
 }
 
 Write-Host ""
-Write-Host "Service '$ServiceName' installed successfully!" -ForegroundColor Green
+Write-Host "Installation complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "Configuration:" -ForegroundColor Cyan
 Write-Host "  Install Dir:  $InstallDir"
@@ -209,15 +226,28 @@ Write-Host ""
 
 $startNow = Read-Host "Start the service now? (Y/n)"
 if ($startNow -ne 'n' -and $startNow -ne 'N') {
-    Start-Service -Name $ServiceName
-    Start-Sleep -Seconds 3
-    $svc = Get-Service -Name $ServiceName
-    if ($svc.Status -eq 'Running') {
-        Write-Host "Service is running!" -ForegroundColor Green
-        Write-Host "  POS API: http://localhost:$Port" -ForegroundColor Cyan
-        Write-Host "  Admin:   http://localhost:$AdminPort" -ForegroundColor Cyan
+    if ($nssm) {
+        Start-Service -Name $ServiceName
+        Start-Sleep -Seconds 3
+        $svc = Get-Service -Name $ServiceName
+        if ($svc.Status -eq 'Running') {
+            Write-Host "Service is running!" -ForegroundColor Green
+            Write-Host "  POS API: http://localhost:$Port" -ForegroundColor Cyan
+            Write-Host "  Admin:   http://localhost:$AdminPort" -ForegroundColor Cyan
+        } else {
+            Write-Host "Service failed to start. Check logs at: $logDir" -ForegroundColor Red
+        }
     } else {
-        Write-Host "Service failed to start. Check logs at: $logDir" -ForegroundColor Red
+        Start-ScheduledTask -TaskName $ServiceName
+        Start-Sleep -Seconds 3
+        $nodeProc = Get-Process -Name "node" -ErrorAction SilentlyContinue
+        if ($nodeProc) {
+            Write-Host "LFS server is running!" -ForegroundColor Green
+            Write-Host "  POS API: http://localhost:$Port" -ForegroundColor Cyan
+            Write-Host "  Admin:   http://localhost:$AdminPort" -ForegroundColor Cyan
+        } else {
+            Write-Host "Server may still be starting. Check logs at: $logDir" -ForegroundColor Yellow
+        }
     }
 }
 
