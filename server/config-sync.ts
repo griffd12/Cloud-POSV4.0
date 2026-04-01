@@ -96,21 +96,14 @@ function getTableColumns(tableName: string): string[] {
   }
 }
 
+const ARRAY_COLUMNS: Record<string, Set<string>> = {
+  workstations: new Set(["allowed_role_ids", "service_bindings", "installed_services"]),
+  service_charges: new Set(["order_types"]),
+  tip_pool_policies: new Set(["excluded_job_code_ids"]),
+};
+
 function getArrayColumns(tableName: string): Set<string> {
-  const table = getSchemaTable(tableName);
-  if (!table) return new Set();
-  try {
-    const config = getTableConfig(table);
-    const arrayCols = new Set<string>();
-    for (const col of config.columns) {
-      if ((col as any).columnType === "PgArray" || (col as any).baseColumn) {
-        arrayCols.add(col.name);
-      }
-    }
-    return arrayCols;
-  } catch {
-    return new Set();
-  }
+  return ARRAY_COLUMNS[tableName] || new Set();
 }
 
 function toPostgresArrayLiteral(arr: any[]): string {
