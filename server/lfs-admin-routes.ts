@@ -392,7 +392,15 @@ export function registerLfsAdminRoutes(app: Express) {
         if (authRes.ok) {
           const data = await authRes.json() as { user?: { accessLevel?: string; enterpriseId?: string; propertyId?: string } };
           const level = data.user?.accessLevel || "";
-          if (level === "enterprise_admin" || level === "property_admin" || level === "property_manager") {
+          if (level === "system_admin" || level === "enterprise_admin" || level === "property_admin" || level === "property_manager") {
+            if (level === "system_admin") {
+              const token = createSessionToken();
+              res.setHeader("Set-Cookie", buildCookieHeader(token));
+              captureLog(`[admin] EMC credential login by ${email} (${level} — full access)`);
+              res.json({ ok: true });
+              return;
+            }
+
             const lfsPropertyId = process.env.LFS_PROPERTY_ID || "";
             const userEnterpriseId = data.user?.enterpriseId || "";
             const userPropertyId = data.user?.propertyId || "";
