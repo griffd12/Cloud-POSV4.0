@@ -38,7 +38,7 @@ Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
 function Generate-Password {
-    $chars = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#%"
+    $chars = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     $password = ""
     $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
     $bytes = New-Object byte[] 1
@@ -209,7 +209,8 @@ Write-Host "[OK] Database ready" -ForegroundColor Green
 
 $env:PGPASSWORD = ""
 
-$databaseUrl = "postgresql://${DbUser}:${dbPassword}@localhost:${PgPort}/${DbName}"
+$encodedPassword = [System.Uri]::EscapeDataString($dbPassword)
+$databaseUrl = "postgresql://${DbUser}:${encodedPassword}@localhost:${PgPort}/${DbName}"
 
 Write-Host ""
 Write-Host "Step 3: Configuration" -ForegroundColor Cyan
