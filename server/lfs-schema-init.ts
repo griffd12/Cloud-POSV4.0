@@ -373,6 +373,8 @@ export async function migrate(pool: pg.Pool): Promise<void> {
       created_at TIMESTAMP DEFAULT now()
     );`);
 
+    await client.query(`CREATE SEQUENCE IF NOT EXISTS config_versions_id_seq`);
+
     await client.query(`CREATE TABLE IF NOT EXISTS config_versions (
       id INTEGER DEFAULT nextval('config_versions_id_seq'::regclass) PRIMARY KEY,
       property_id VARCHAR,
@@ -1866,6 +1868,8 @@ export async function migrate(pool: pg.Pool): Promise<void> {
       resolved_at TIMESTAMP,
       notifications_sent BOOLEAN DEFAULT false
     );`);
+
+    await client.query(`CREATE SEQUENCE IF NOT EXISTS service_host_metrics_id_seq`);
 
     await client.query(`CREATE TABLE IF NOT EXISTS service_host_metrics (
       id INTEGER DEFAULT nextval('service_host_metrics_id_seq'::regclass) PRIMARY KEY,
