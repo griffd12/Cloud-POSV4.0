@@ -323,16 +323,14 @@
       </div>
 
       <div id="wizard-step-4" style="display:none;">
-        <p style="color:var(--text-muted); font-size:14px; margin:0 0 16px;">Choose the device type and name for this service host.</p>
-        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:4px;">Device Type</label>
-        <select id="wiz-device-type" data-testid="select-wiz-device-type"
-          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:8px;">
-          <option value="service_host">Service Host</option>
-          <option value="workstation">Workstation</option>
-          <option value="kds_display">KDS Display</option>
-        </select>
+        <p style="color:var(--text-muted); font-size:14px; margin:0 0 16px;">Give this service host a name so you can identify it in the admin dashboard.</p>
+        <input id="wiz-device-type" type="hidden" value="service_host" />
+        <div style="padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+          <span style="color:var(--success); font-size:16px;">&#9679;</span>
+          <span style="color:var(--text); font-size:14px;">Device Type: <strong>Service Host</strong></span>
+        </div>
         <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:4px;">Device Name</label>
-        <input id="wiz-device-name" type="text" placeholder="e.g. Derek-Laptop" data-testid="input-wiz-device-name"
+        <input id="wiz-device-name" type="text" placeholder="e.g. Front-Counter-PC" data-testid="input-wiz-device-name"
           style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
         <div style="display:flex; gap:8px;">
           <button id="wiz-btn-back-3" style="flex:1; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-card); color:var(--text); font-size:14px; cursor:pointer;">Back</button>
