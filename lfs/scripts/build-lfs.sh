@@ -18,7 +18,7 @@ echo "=========================================="
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/$PACKAGE_NAME"
 
-echo "[1/9] Building server bundle..."
+echo "[1/10] Building server bundle..."
 cd "$PROJECT_ROOT"
 npx esbuild server/index.ts \
   --bundle \
@@ -26,14 +26,13 @@ npx esbuild server/index.ts \
   --target=node18 \
   --format=cjs \
   --outfile="$BUILD_DIR/$PACKAGE_NAME/server.cjs" \
-  --external:better-sqlite3 \
   --external:pg-native \
   --external:bufferutil \
   --external:utf-8-validate \
   --define:process.env.NODE_ENV=\"production\" \
   --minify
 
-echo "[2/9] Building frontend assets..."
+echo "[2/10] Building frontend assets..."
 npx vite build --outDir "$BUILD_DIR/$PACKAGE_NAME/public"
 
 if [ ! -f "$BUILD_DIR/$PACKAGE_NAME/public/index.html" ]; then
@@ -47,10 +46,10 @@ if [ "$FRONTEND_FILES" -eq 0 ]; then
 fi
 echo "  Frontend build OK: index.html + $FRONTEND_FILES JS bundle(s)"
 
-echo "[3/9] Copying LFS admin dashboard..."
+echo "[3/10] Copying LFS admin dashboard..."
 cp -r "$PROJECT_ROOT/lfs/admin" "$BUILD_DIR/$PACKAGE_NAME/lfs-admin"
 
-echo "[4/9] Copying runtime dependencies..."
+echo "[4/10] Copying runtime dependencies..."
 mkdir -p "$BUILD_DIR/$PACKAGE_NAME/node_modules"
 
 copy_dep_tree() {
@@ -74,41 +73,14 @@ copy_dep_tree() {
   fi
 }
 
-RUNTIME_DEPS="better-sqlite3 bindings file-uri-to-path prebuild-install node-abi napi-build-utils"
+RUNTIME_DEPS="pg pg-pool pg-protocol pg-types pgpass buffer-writer packet-reader pg-int8 pg-numeric postgres-array postgres-bytea postgres-date postgres-interval postgres-range split2 obuf pg-copy-streams"
 for dep in $RUNTIME_DEPS; do
   copy_dep_tree "$dep"
 done
 
 echo "  Bundled $(ls -1 "$BUILD_DIR/$PACKAGE_NAME/node_modules" | wc -l) runtime packages"
 
-SQLITE_VER=$(node -p "require('$BUILD_DIR/$PACKAGE_NAME/node_modules/better-sqlite3/package.json').version")
-
-SQLITE_DEST="$BUILD_DIR/$PACKAGE_NAME/node_modules/better-sqlite3"
-NODE_ABI=115
-
-case "$TARGET_PLATFORM" in
-  "windows"|"win"|"win64") PREBUILD_PLATFORM="win32-x64" ;;
-  "arm"|"linux-arm64"|"rpi") PREBUILD_PLATFORM="linux-arm64" ;;
-  *) PREBUILD_PLATFORM="" ;;
-esac
-
-if [ -n "$PREBUILD_PLATFORM" ]; then
-  echo "  Downloading ${PREBUILD_PLATFORM} native binary for better-sqlite3 v${SQLITE_VER}..."
-  PREBUILD_URL="https://github.com/WiseLibs/better-sqlite3/releases/download/v${SQLITE_VER}/better-sqlite3-v${SQLITE_VER}-node-v${NODE_ABI}-${PREBUILD_PLATFORM}.tar.gz"
-  PREBUILD_TAR="$BUILD_DIR/better-sqlite3-prebuild.tar.gz"
-  if curl -sL --fail "$PREBUILD_URL" -o "$PREBUILD_TAR"; then
-    rm -rf "$SQLITE_DEST/build"
-    tar -xzf "$PREBUILD_TAR" -C "$SQLITE_DEST"
-    rm -f "$PREBUILD_TAR"
-    echo "  Native binary installed: $(ls "$SQLITE_DEST/build/Release/" 2>/dev/null)"
-  else
-    echo "  WARNING: Could not download prebuilt binary from:"
-    echo "    $PREBUILD_URL"
-    echo "  User must run 'npm rebuild better-sqlite3' on the target machine."
-  fi
-fi
-
-echo "[5/9] Downloading Node.js runtime for $TARGET_PLATFORM..."
+echo "[5/10] Downloading Node.js runtime for $TARGET_PLATFORM..."
 NODE_DIR="$BUILD_DIR/$PACKAGE_NAME/runtime"
 mkdir -p "$NODE_DIR"
 
@@ -154,20 +126,18 @@ case "$TARGET_PLATFORM" in
     ;;
 esac
 
-echo "[6/9] Creating startup scripts..."
+echo "[6/10] Creating startup scripts..."
 
 cat > "$BUILD_DIR/$PACKAGE_NAME/start-lfs.sh" << STARTUP_SH
 #!/bin/bash
 set -euo pipefail
 
 SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-DATA_DIR="\$SCRIPT_DIR/data"
 LOG_DIR="\$SCRIPT_DIR/logs"
 
-mkdir -p "\$DATA_DIR" "\$LOG_DIR"
+mkdir -p "\$LOG_DIR"
 
 export DB_MODE=local
-export SQLITE_PATH="\$DATA_DIR/pos-local.db"
 export NODE_ENV=production
 export PORT=\${PORT:-3001}
 
@@ -177,15 +147,39 @@ if [ -f "\$SCRIPT_DIR/.env" ]; then
   set +a
 fi
 
+if [ -z "\${LFS_DATABASE_URL:-}" ]; then
+  echo "ERROR: LFS_DATABASE_URL is not set."
+  echo "Please configure the .env file with your PostgreSQL connection string."
+  echo "Example: LFS_DATABASE_URL=postgresql://lfs_user:password@localhost:5432/cloud_pos_lfs"
+  exit 1
+fi
+
+echo "Checking PostgreSQL connection..."
 NODE_CMD="\$SCRIPT_DIR/$NODE_BIN"
 if [ ! -x "\$NODE_CMD" ]; then
   NODE_CMD="node"
 fi
 
+PG_CHECK=\$("\$NODE_CMD" -e "
+  const url = process.env.LFS_DATABASE_URL;
+  const { Pool } = require('./node_modules/pg');
+  const pool = new Pool({ connectionString: url, connectionTimeoutMillis: 5000 });
+  pool.query('SELECT 1').then(() => { console.log('OK'); pool.end(); }).catch(e => { console.log('FAIL: ' + e.message); pool.end(); process.exit(1); });
+" 2>&1) || true
+
+if [[ "\$PG_CHECK" == FAIL* ]]; then
+  echo "ERROR: Cannot connect to PostgreSQL."
+  echo "  \$PG_CHECK"
+  echo ""
+  echo "  Verify PostgreSQL is running and LFS_DATABASE_URL is correct."
+  exit 1
+fi
+echo "  PostgreSQL connection OK"
+
 echo "Starting Cloud POS Local Failover Server..."
 echo "  API Port: \$PORT"
 echo "  Admin: http://localhost:\${LFS_ADMIN_PORT:-3002}"
-echo "  Data: \$DATA_DIR"
+echo "  Database: PostgreSQL (LFS_DATABASE_URL configured)"
 echo "  Logs: \$LOG_DIR"
 
 exec "\$NODE_CMD" "\$SCRIPT_DIR/server.cjs" 2>&1 | tee -a "\$LOG_DIR/lfs-\$(date +%Y%m%d).log"
@@ -197,14 +191,11 @@ cat > "$BUILD_DIR/$PACKAGE_NAME/start-lfs.bat" << 'STARTUP_BAT'
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
-set "DATA_DIR=%SCRIPT_DIR%data"
 set "LOG_DIR=%SCRIPT_DIR%logs"
 
-if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
 set DB_MODE=local
-set SQLITE_PATH=%DATA_DIR%\pos-local.db
 set NODE_ENV=production
 if not defined PORT set PORT=3001
 
@@ -214,13 +205,31 @@ if exist "%SCRIPT_DIR%.env" (
   )
 )
 
+if not defined LFS_DATABASE_URL (
+  echo ERROR: LFS_DATABASE_URL is not set.
+  echo Please configure the .env file with your PostgreSQL connection string.
+  echo Example: LFS_DATABASE_URL=postgresql://lfs_user:password@localhost:5432/cloud_pos_lfs
+  pause
+  exit /b 1
+)
+
 set "NODE_CMD=%SCRIPT_DIR%runtime\node.exe"
 if not exist "%NODE_CMD%" set "NODE_CMD=node"
+
+echo Checking PostgreSQL connection...
+"%NODE_CMD%" -e "const{Pool}=require('./node_modules/pg');const p=new Pool({connectionString:process.env.LFS_DATABASE_URL,connectionTimeoutMillis:5000});p.query('SELECT 1').then(()=>{console.log('OK');p.end()}).catch(e=>{console.log('FAIL: '+e.message);p.end();process.exit(1)})" 2>nul
+if errorlevel 1 (
+  echo ERROR: Cannot connect to PostgreSQL.
+  echo Verify PostgreSQL is running and LFS_DATABASE_URL is correct in .env
+  pause
+  exit /b 1
+)
+echo   PostgreSQL connection OK
 
 echo Starting Cloud POS Local Failover Server...
 echo   API Port: %PORT%
 echo   Admin: http://localhost:3002
-echo   Data: %DATA_DIR%
+echo   Database: PostgreSQL
 echo   Logs: %LOG_DIR%
 
 set "LOG_FILE=%LOG_DIR%\lfs.log"
@@ -229,11 +238,11 @@ echo [%date% %time%] === LFS Starting === >> "%LOG_FILE%"
 powershell -NoProfile -Command "& '%NODE_CMD%' '%SCRIPT_DIR%server.cjs' 2>&1 | ForEach-Object { $line = \"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $_\"; Write-Host $_; Add-Content -Path '%LOG_FILE%' -Value $line }"
 STARTUP_BAT
 
-echo "[7/9] Copying installer and utility scripts..."
+echo "[7/10] Copying installer and utility scripts..."
 SCRIPTS_DIR="$BUILD_DIR/$PACKAGE_NAME/scripts"
 mkdir -p "$SCRIPTS_DIR"
 
-for script in install-windows-service.ps1 uninstall-windows-service.ps1 lfs-tray.ps1; do
+for script in install-lfs.ps1 install-windows-service.ps1 uninstall-windows-service.ps1 lfs-tray.ps1; do
   if [ -f "$PROJECT_ROOT/lfs/scripts/$script" ]; then
     cp "$PROJECT_ROOT/lfs/scripts/$script" "$SCRIPTS_DIR/"
     echo "  Copied $script"
@@ -247,7 +256,25 @@ fi
 
 cp "$PROJECT_ROOT/package.json" "$BUILD_DIR/$PACKAGE_NAME/package.json"
 
-echo "[8/9] Creating environment template..."
+echo "[8/10] Bundling PostgreSQL installer..."
+PG_INSTALLER="$PROJECT_ROOT/lfs/installers/postgresql-17.9-2-windows-x64.exe"
+if [ "$TARGET_PLATFORM" = "windows" ] || [ "$TARGET_PLATFORM" = "win" ] || [ "$TARGET_PLATFORM" = "win64" ]; then
+  INSTALLERS_DIR="$BUILD_DIR/$PACKAGE_NAME/installers"
+  mkdir -p "$INSTALLERS_DIR"
+  if [ -f "$PG_INSTALLER" ]; then
+    cp "$PG_INSTALLER" "$INSTALLERS_DIR/"
+    PG_SIZE=$(du -sh "$PG_INSTALLER" | cut -f1)
+    echo "  Bundled PostgreSQL installer ($PG_SIZE)"
+  else
+    echo "  WARNING: PostgreSQL installer not found at $PG_INSTALLER"
+    echo "  The Windows one-click installer will skip automatic PostgreSQL setup."
+    echo "  To include it, place postgresql-17.9-2-windows-x64.exe in lfs/installers/"
+  fi
+else
+  echo "  Skipping PostgreSQL installer bundling (not a Windows build)"
+fi
+
+echo "[9/10] Creating environment template..."
 cat > "$BUILD_DIR/$PACKAGE_NAME/.env.example" << 'ENV_TEMPLATE'
 # Cloud POS - Local Failover Server Configuration
 # Copy this file to .env and fill in values
@@ -261,9 +288,9 @@ LFS_PROPERTY_ID=your-property-id
 PORT=3001
 LFS_ADMIN_PORT=3002
 
-# Database
+# Database (PostgreSQL)
 DB_MODE=local
-SQLITE_PATH=./data/pos-local.db
+LFS_DATABASE_URL=postgresql://lfs_user:your-password@localhost:5432/cloud_pos_lfs
 
 # Sync interval (milliseconds, default 60000 = 1 minute)
 LFS_SYNC_INTERVAL_MS=60000
@@ -276,7 +303,7 @@ LFS_UPDATE_CHECK_INTERVAL_MS=3600000
 LFS_LOG_LEVEL=info
 ENV_TEMPLATE
 
-echo "[9/9] Creating distribution archive..."
+echo "[10/10] Creating distribution archive..."
 cd "$BUILD_DIR"
 
 if [ "$TARGET_PLATFORM" = "windows" ] || [ "$TARGET_PLATFORM" = "win" ] || [ "$TARGET_PLATFORM" = "win64" ]; then
@@ -299,10 +326,11 @@ echo " Build complete!"
 echo " Output: lfs/dist/$ARCHIVE"
 echo " Size: $ARCHIVE_SIZE"
 echo " Node.js: $NODE_VERSION (bundled)"
+echo " Database: PostgreSQL (pg client bundled)"
 echo "=========================================="
 echo ""
 echo "To deploy:"
 echo "  1. Extract the archive on target machine"
-echo "  2. Copy .env.example to .env and configure"
-echo "  3. Run: ./start-lfs.sh (Linux/Mac) or start-lfs.bat (Windows)"
+echo "  2. Run: scripts/install-lfs.ps1 (Windows) for one-click setup"
+echo "  3. Or manually: copy .env.example to .env, configure, run start-lfs.sh"
 echo "  4. Access admin at: http://localhost:3002"

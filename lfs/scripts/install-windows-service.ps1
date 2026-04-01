@@ -93,7 +93,6 @@ if (fs.existsSync(envFile)) {
 
 process.env.DB_MODE = 'local';
 process.env.NODE_ENV = 'production';
-process.env.SQLITE_PATH = process.env.SQLITE_PATH || path.join(installDir, 'data', 'pos-local.db');
 process.env.PORT = process.env.PORT || '$Port';
 process.env.LFS_ADMIN_PORT = process.env.LFS_ADMIN_PORT || '$AdminPort';
 

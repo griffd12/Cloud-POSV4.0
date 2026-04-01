@@ -263,19 +263,114 @@
           </p>
         </div>
       </div>
-      <div id="setup-form" style="display:none;">
-        <h2 style="margin:0 0 8px; color:var(--text-primary);">Initial Setup</h2>
-        <p style="margin:0 0 16px; color:var(--text-muted); font-size:14px;">Generate your API key in EMC under your Property &gt; Local Failover Server, then enter the details below to connect this LFS to the cloud.</p>
-        <input id="setup-api-key" type="password" placeholder="Paste API key from EMC" data-testid="input-setup-api-key"
-          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:8px;" />
-        <input id="setup-cloud-url" type="text" placeholder="Cloud URL (e.g. https://pos.example.com)" data-testid="input-setup-cloud-url"
-          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:8px;" />
-        <input id="setup-property-id" type="text" placeholder="Property ID" data-testid="input-setup-property-id"
-          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
-        <button id="setup-btn" data-testid="button-setup"
-          style="width:100%; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Complete Setup</button>
-      </div>
       <p id="login-error" style="color:var(--danger); font-size:13px; margin:8px 0 0; display:none;"></p>
+    </div>
+  </div>
+
+  <div id="wizard-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:10000; align-items:center; justify-content:center;">
+    <div style="background:var(--card-bg); border-radius:12px; padding:32px; max-width:520px; width:95%; box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h2 style="margin:0; color:var(--text-primary); font-size:18px;" id="wizard-title">First-Run Setup</h2>
+        <span style="color:var(--text-muted); font-size:13px;" id="wizard-step-label">Step 1 of 5</span>
+      </div>
+      <div style="display:flex; gap:4px; margin-bottom:24px;">
+        <div class="wizard-progress-bar" style="flex:1; height:4px; border-radius:2px; background:var(--accent);"></div>
+        <div class="wizard-progress-bar" style="flex:1; height:4px; border-radius:2px; background:var(--border);"></div>
+        <div class="wizard-progress-bar" style="flex:1; height:4px; border-radius:2px; background:var(--border);"></div>
+        <div class="wizard-progress-bar" style="flex:1; height:4px; border-radius:2px; background:var(--border);"></div>
+        <div class="wizard-progress-bar" style="flex:1; height:4px; border-radius:2px; background:var(--border);"></div>
+      </div>
+
+      <div id="wizard-step-1">
+        <p style="color:var(--text-muted); font-size:14px; margin:0 0 16px;">Enter the URL of your Cloud POS server and your enterprise code.</p>
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:4px;">Cloud URL</label>
+        <input id="wiz-cloud-url" type="url" placeholder="https://your-cloud-pos.replit.app" data-testid="input-wiz-cloud-url"
+          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:8px;" />
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:4px;">Enterprise Code</label>
+        <input id="wiz-enterprise-code" type="text" placeholder="BLUE_OCEANS" data-testid="input-wiz-enterprise-code"
+          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
+        <div id="wiz-cloud-status" style="display:none; padding:8px 12px; border-radius:8px; font-size:13px; margin-bottom:12px;"></div>
+        <button id="wiz-btn-validate-cloud" data-testid="button-wiz-validate-cloud"
+          style="width:100%; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Connect & Validate</button>
+      </div>
+
+      <div id="wizard-step-2" style="display:none;">
+        <p style="color:var(--text-muted); font-size:14px; margin:0 0 16px;">Sign in with your EMC administrator credentials.</p>
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:4px;">Email</label>
+        <input id="wiz-email" type="email" placeholder="admin@example.com" data-testid="input-wiz-email"
+          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:8px;" />
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:4px;">Password</label>
+        <input id="wiz-password" type="password" placeholder="Password" data-testid="input-wiz-password"
+          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
+        <div style="display:flex; gap:8px;">
+          <button id="wiz-btn-back-1" style="flex:1; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-card); color:var(--text); font-size:14px; cursor:pointer;">Back</button>
+          <button id="wiz-btn-auth" data-testid="button-wiz-auth" style="flex:2; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Sign In</button>
+        </div>
+      </div>
+
+      <div id="wizard-step-3" style="display:none;">
+        <p style="color:var(--text-muted); font-size:14px; margin:0 0 16px;">Select the property this LFS will serve.</p>
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:4px;">Property</label>
+        <select id="wiz-property" data-testid="select-wiz-property"
+          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;">
+          <option value="">Loading properties...</option>
+        </select>
+        <div id="wiz-property-info" style="display:none; padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:12px; font-size:13px; color:var(--text-muted);"></div>
+        <div style="display:flex; gap:8px;">
+          <button id="wiz-btn-back-2" style="flex:1; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-card); color:var(--text); font-size:14px; cursor:pointer;">Back</button>
+          <button id="wiz-btn-select-property" data-testid="button-wiz-select-property" style="flex:2; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Select Property</button>
+        </div>
+      </div>
+
+      <div id="wizard-step-4" style="display:none;">
+        <p style="color:var(--text-muted); font-size:14px; margin:0 0 16px;">Choose the device type and name for this service host.</p>
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:4px;">Device Type</label>
+        <select id="wiz-device-type" data-testid="select-wiz-device-type"
+          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:8px;">
+          <option value="service_host">Service Host</option>
+          <option value="workstation">Workstation</option>
+          <option value="kds_display">KDS Display</option>
+        </select>
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:4px;">Device Name</label>
+        <input id="wiz-device-name" type="text" placeholder="e.g. Derek-Laptop" data-testid="input-wiz-device-name"
+          style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text-primary); font-size:14px; box-sizing:border-box; margin-bottom:12px;" />
+        <div style="display:flex; gap:8px;">
+          <button id="wiz-btn-back-3" style="flex:1; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-card); color:var(--text); font-size:14px; cursor:pointer;">Back</button>
+          <button id="wiz-btn-select-device" data-testid="button-wiz-select-device" style="flex:2; padding:10px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer;">Continue</button>
+        </div>
+      </div>
+
+      <div id="wizard-step-5" style="display:none;">
+        <p style="color:var(--text-muted); font-size:14px; margin:0 0 16px;">Ready to sync all configuration from the cloud to your local database.</p>
+        <div id="wiz-summary" style="padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:16px; font-size:13px;">
+          <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Cloud URL</span><span id="wiz-sum-cloud" style="color:var(--text);"></span></div>
+          <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Enterprise</span><span id="wiz-sum-enterprise" style="color:var(--text);"></span></div>
+          <div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Property</span><span id="wiz-sum-property" style="color:var(--text);"></span></div>
+          <div style="display:flex; justify-content:space-between; padding:4px 0;"><span style="color:var(--text-muted);">Device</span><span id="wiz-sum-device" style="color:var(--text);"></span></div>
+        </div>
+        <div id="wiz-sync-progress" style="display:none; margin-bottom:16px;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+            <div class="refresh-indicator"></div>
+            <span style="color:var(--accent); font-size:14px;" id="wiz-sync-status-text">Syncing configuration...</span>
+          </div>
+          <div style="background:var(--bg); border-radius:4px; height:8px; overflow:hidden;">
+            <div id="wiz-sync-bar" style="background:var(--accent); height:100%; width:0%; transition:width 0.5s ease;"></div>
+          </div>
+          <p style="color:var(--text-muted); font-size:12px; margin:6px 0 0;" id="wiz-sync-detail"></p>
+        </div>
+        <div id="wiz-sync-complete" style="display:none; text-align:center; padding:16px 0;">
+          <div style="font-size:48px; margin-bottom:8px;">&#10003;</div>
+          <p style="color:var(--success); font-size:16px; font-weight:600; margin:0 0 4px;">Setup Complete!</p>
+          <p style="color:var(--text-muted); font-size:13px; margin:0;">Your LFS is ready. POS terminals can now connect.</p>
+        </div>
+        <div id="wiz-step5-buttons" style="display:flex; gap:8px;">
+          <button id="wiz-btn-back-4" style="flex:1; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-card); color:var(--text); font-size:14px; cursor:pointer;">Back</button>
+          <button id="wiz-btn-start-sync" data-testid="button-wiz-start-sync" style="flex:2; padding:10px; border:none; border-radius:8px; background:var(--success); color:white; font-size:14px; cursor:pointer; font-weight:600;">Start Sync</button>
+        </div>
+        <button id="wiz-btn-finish" data-testid="button-wiz-finish" style="display:none; width:100%; padding:12px; border:none; border-radius:8px; background:var(--primary); color:white; font-size:14px; cursor:pointer; font-weight:600; margin-top:8px;">Open Admin Dashboard</button>
+      </div>
+
+      <p id="wizard-error" style="color:var(--danger); font-size:13px; margin:8px 0 0; display:none;"></p>
     </div>
   </div>
 
@@ -323,15 +418,55 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      const wizardState = {
+        step: 1,
+        cloudUrl: '',
+        enterpriseCode: '',
+        enterpriseName: '',
+        enterpriseId: '',
+        authToken: '',
+        email: '',
+        properties: [],
+        selectedProperty: null,
+        deviceType: 'service_host',
+        deviceName: '',
+      };
+
+      function showWizard() {
+        document.getElementById('wizard-overlay').style.display = 'flex';
+      }
+      function hideWizard() {
+        document.getElementById('wizard-overlay').style.display = 'none';
+      }
+      function wizardError(msg) {
+        const el = document.getElementById('wizard-error');
+        if (msg) { el.textContent = msg; el.style.display = 'block'; }
+        else { el.style.display = 'none'; }
+      }
+      function wizardGoTo(step) {
+        wizardState.step = step;
+        for (let i = 1; i <= 5; i++) {
+          const el = document.getElementById(`wizard-step-${i}`);
+          if (el) el.style.display = i === step ? 'block' : 'none';
+        }
+        document.getElementById('wizard-step-label').textContent = `Step ${step} of 5`;
+        const titles = ['Connect to Cloud', 'Authenticate', 'Select Property', 'Device Setup', 'Initial Sync'];
+        document.getElementById('wizard-title').textContent = titles[step - 1] || 'First-Run Setup';
+        const bars = document.querySelectorAll('.wizard-progress-bar');
+        bars.forEach((bar, i) => {
+          bar.style.background = i < step ? 'var(--accent)' : 'var(--border)';
+        });
+        wizardError(null);
+      }
+
       async function checkSetupStatus() {
         try {
           const res = await fetch(`${API_BASE}/api/lfs/admin/setup-status`);
           if (res.ok) {
             const status = await res.json();
             if (status.needsSetup) {
-              document.getElementById('login-form').style.display = 'none';
-              document.getElementById('setup-form').style.display = 'block';
-              showLoginOverlay();
+              showWizard();
+              wizardGoTo(1);
               return;
             }
           }
@@ -340,40 +475,198 @@
       }
       checkSetupStatus();
 
-      document.getElementById('setup-btn').addEventListener('click', async () => {
-        const apiKey = document.getElementById('setup-api-key').value.trim();
-        const cloudUrl = document.getElementById('setup-cloud-url').value.trim();
-        const propertyId = document.getElementById('setup-property-id').value.trim();
-        const errorEl = document.getElementById('login-error');
-        errorEl.style.display = 'none';
+      document.getElementById('wiz-btn-validate-cloud').addEventListener('click', async () => {
+        const cloudUrl = document.getElementById('wiz-cloud-url').value.trim().replace(/\/+$/, '');
+        const code = document.getElementById('wiz-enterprise-code').value.trim();
+        const statusEl = document.getElementById('wiz-cloud-status');
+        wizardError(null);
 
-        if (apiKey.length < 16) {
-          errorEl.textContent = 'API key must be at least 16 characters';
-          errorEl.style.display = 'block';
-          return;
-        }
+        if (!cloudUrl) { wizardError('Enter the Cloud POS URL'); return; }
+        if (!code) { wizardError('Enter the enterprise code'); return; }
+
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'var(--bg)';
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.textContent = 'Connecting to cloud...';
 
         try {
-          const res = await fetch(`${API_BASE}/api/lfs/admin/setup`, {
+          const res = await fetch(`${API_BASE}/api/lfs/first-run/validate-cloud`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ apiKey, cloudUrl: cloudUrl || undefined, propertyId: propertyId || undefined }),
-            credentials: 'include',
+            body: JSON.stringify({ cloudUrl, enterpriseCode: code }),
           });
-          if (res.ok) {
-            adminApiKey = apiKey;
-            hideLoginOverlay();
-            showToast('Setup complete! LFS server configured.');
-            refreshAll();
+          const data = await res.json();
+          if (res.ok && data.valid) {
+            wizardState.cloudUrl = cloudUrl;
+            wizardState.enterpriseCode = code;
+            wizardState.enterpriseName = data.enterpriseName || code;
+            wizardState.enterpriseId = data.enterpriseId || '';
+            statusEl.style.background = 'rgba(0,200,100,0.1)';
+            statusEl.style.color = 'var(--success)';
+            statusEl.innerHTML = `&#10003; Connected to <strong>${wizardState.enterpriseName}</strong>`;
+            setTimeout(() => wizardGoTo(2), 800);
           } else {
-            const data = await res.json().catch(() => ({}));
-            errorEl.textContent = data.error || 'Setup failed';
-            errorEl.style.display = 'block';
+            statusEl.style.background = 'rgba(255,60,60,0.1)';
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = data.error || 'Could not connect to cloud server';
           }
         } catch (e) {
-          errorEl.textContent = 'Connection error';
-          errorEl.style.display = 'block';
+          statusEl.style.background = 'rgba(255,60,60,0.1)';
+          statusEl.style.color = 'var(--danger)';
+          statusEl.textContent = 'Connection failed — check the URL and try again';
         }
+      });
+
+      document.getElementById('wiz-btn-back-1').addEventListener('click', () => wizardGoTo(1));
+      document.getElementById('wiz-btn-auth').addEventListener('click', async () => {
+        const email = document.getElementById('wiz-email').value.trim();
+        const password = document.getElementById('wiz-password').value.trim();
+        wizardError(null);
+
+        if (!email || !password) { wizardError('Enter your email and password'); return; }
+
+        try {
+          const res = await fetch(`${API_BASE}/api/lfs/first-run/auth`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cloudUrl: wizardState.cloudUrl, email, password }),
+          });
+          const data = await res.json();
+          if (res.ok && data.token) {
+            wizardState.authToken = data.token;
+            wizardState.email = email;
+            const propRes = await fetch(`${API_BASE}/api/lfs/first-run/properties`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cloudUrl: wizardState.cloudUrl, token: data.token, enterpriseId: wizardState.enterpriseId }),
+            });
+            const propData = await propRes.json();
+            if (propRes.ok && propData.properties) {
+              wizardState.properties = propData.properties;
+              const select = document.getElementById('wiz-property');
+              select.innerHTML = '';
+              propData.properties.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = p.name || p.id;
+                select.appendChild(opt);
+              });
+              wizardGoTo(3);
+            } else {
+              wizardError(propData.error || 'Failed to load properties');
+            }
+          } else {
+            wizardError(data.error || 'Authentication failed');
+          }
+        } catch (e) {
+          wizardError('Connection error — check your credentials');
+        }
+      });
+
+      document.getElementById('wiz-btn-back-2').addEventListener('click', () => wizardGoTo(2));
+      document.getElementById('wiz-property').addEventListener('change', () => {
+        const sel = document.getElementById('wiz-property').value;
+        const prop = wizardState.properties.find(p => p.id === sel);
+        const info = document.getElementById('wiz-property-info');
+        if (prop) {
+          info.style.display = 'block';
+          info.innerHTML = `<strong>${prop.name}</strong><br>ID: ${prop.id}${prop.address ? '<br>' + prop.address : ''}`;
+        } else {
+          info.style.display = 'none';
+        }
+      });
+      document.getElementById('wiz-btn-select-property').addEventListener('click', () => {
+        const sel = document.getElementById('wiz-property').value;
+        if (!sel) { wizardError('Select a property'); return; }
+        wizardState.selectedProperty = wizardState.properties.find(p => p.id === sel);
+        const hostname = location.hostname || 'LFS-Server';
+        document.getElementById('wiz-device-name').value = hostname;
+        wizardGoTo(4);
+      });
+
+      document.getElementById('wiz-btn-back-3').addEventListener('click', () => wizardGoTo(3));
+      document.getElementById('wiz-btn-select-device').addEventListener('click', () => {
+        wizardState.deviceType = document.getElementById('wiz-device-type').value;
+        wizardState.deviceName = document.getElementById('wiz-device-name').value.trim() || 'LFS-Server';
+        document.getElementById('wiz-sum-cloud').textContent = wizardState.cloudUrl;
+        document.getElementById('wiz-sum-enterprise').textContent = wizardState.enterpriseName;
+        document.getElementById('wiz-sum-property').textContent = wizardState.selectedProperty?.name || '';
+        document.getElementById('wiz-sum-device').textContent = `${wizardState.deviceName} (${wizardState.deviceType})`;
+        wizardGoTo(5);
+      });
+
+      document.getElementById('wiz-btn-back-4').addEventListener('click', () => wizardGoTo(4));
+      document.getElementById('wiz-btn-start-sync').addEventListener('click', async () => {
+        const progressEl = document.getElementById('wiz-sync-progress');
+        const bar = document.getElementById('wiz-sync-bar');
+        const statusText = document.getElementById('wiz-sync-status-text');
+        const detailText = document.getElementById('wiz-sync-detail');
+        const completeEl = document.getElementById('wiz-sync-complete');
+        const buttonsEl = document.getElementById('wiz-step5-buttons');
+        const finishBtn = document.getElementById('wiz-btn-finish');
+        wizardError(null);
+
+        progressEl.style.display = 'block';
+        buttonsEl.style.display = 'none';
+        bar.style.width = '10%';
+        statusText.textContent = 'Saving configuration...';
+        detailText.textContent = 'Writing cloud URL and credentials to local database';
+
+        try {
+          const res = await fetch(`${API_BASE}/api/lfs/first-run/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              cloudUrl: wizardState.cloudUrl,
+              enterpriseCode: wizardState.enterpriseCode,
+              enterpriseId: wizardState.enterpriseId,
+              enterpriseName: wizardState.enterpriseName,
+              propertyId: wizardState.selectedProperty?.id,
+              propertyName: wizardState.selectedProperty?.name,
+              deviceType: wizardState.deviceType,
+              deviceName: wizardState.deviceName,
+              authToken: wizardState.authToken,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Save failed');
+
+          bar.style.width = '40%';
+          statusText.textContent = 'Syncing configuration from cloud...';
+          detailText.textContent = 'Downloading enterprise, property, and RVC config';
+
+          if (data.apiKey) adminApiKey = data.apiKey;
+
+          await new Promise(r => setTimeout(r, 1500));
+          bar.style.width = '70%';
+          statusText.textContent = 'Syncing menu data...';
+          detailText.textContent = 'Downloading menu items, modifiers, and pricing';
+
+          await new Promise(r => setTimeout(r, 1500));
+          bar.style.width = '90%';
+          statusText.textContent = 'Syncing employees...';
+          detailText.textContent = 'Downloading employee PINs and permissions';
+
+          await new Promise(r => setTimeout(r, 1000));
+          bar.style.width = '100%';
+          statusText.textContent = 'Complete!';
+          detailText.textContent = '';
+
+          await new Promise(r => setTimeout(r, 500));
+          progressEl.style.display = 'none';
+          completeEl.style.display = 'block';
+          finishBtn.style.display = 'block';
+        } catch (e) {
+          progressEl.style.display = 'none';
+          buttonsEl.style.display = 'flex';
+          wizardError(e.message || 'Sync failed — check connection and try again');
+        }
+      });
+
+      document.getElementById('wiz-btn-finish').addEventListener('click', () => {
+        hideWizard();
+        showToast('LFS setup complete! Dashboard is ready.');
+        refreshAll();
       });
 
       document.getElementById('login-btn').addEventListener('click', async () => {
