@@ -1,0 +1,46 @@
+PS C:\CloudPOS-LFS> cmd /c "C:\CloudPOS-LFS\start-lfs.bat"
+Checking PostgreSQL connection...
+ERROR: Cannot connect to PostgreSQL.
+Verify PostgreSQL is running and LFS_DATABASE_URL is correct in .env
+Press any key to continue . . .
+PS C:\CloudPOS-LFS> cd C:\CloudPOS-LFS
+>> .\runtime\node.exe -e "const{Pool}=require('./node_modules/pg');const p=new Pool({connectionString:'postgresql://lfs_user:AsVcp5d5vxidYCdRvHAVhBq4@localhost:5432/cloud_pos_lfs',connectionTimeoutMillis:5000});p.query('SELECT 1').then(()=>{console.log('OK');p.end()}).catch(e=>{console.log('FAIL: '+e.message);p.end()})"
+node:internal/modules/cjs/loader:1147
+  throw err;
+  ^
+
+Error: Cannot find module 'xtend/mutable'
+Require stack:
+- C:\CloudPOS-LFS\node_modules\pg\node_modules\postgres-interval\index.js
+- C:\CloudPOS-LFS\node_modules\pg\node_modules\pg-types\lib\textParsers.js
+- C:\CloudPOS-LFS\node_modules\pg\node_modules\pg-types\index.js
+- C:\CloudPOS-LFS\node_modules\pg\lib\defaults.js
+- C:\CloudPOS-LFS\node_modules\pg\lib\utils.js
+- C:\CloudPOS-LFS\node_modules\pg\lib\client.js
+- C:\CloudPOS-LFS\node_modules\pg\lib\index.js
+- C:\CloudPOS-LFS\[eval]
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1144:15)
+    at Module._load (node:internal/modules/cjs/loader:985:27)
+    at Module.require (node:internal/modules/cjs/loader:1235:19)
+    at require (node:internal/modules/helpers:176:18)
+    at Object.<anonymous> (C:\CloudPOS-LFS\node_modules\pg\node_modules\postgres-interval\index.js:3:14)
+    at Module._compile (node:internal/modules/cjs/loader:1376:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)
+    at Module.load (node:internal/modules/cjs/loader:1207:32)
+    at Module._load (node:internal/modules/cjs/loader:1023:12)
+    at Module.require (node:internal/modules/cjs/loader:1235:19) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'C:\\CloudPOS-LFS\\node_modules\\pg\\node_modules\\postgres-interval\\index.js',
+    'C:\\CloudPOS-LFS\\node_modules\\pg\\node_modules\\pg-types\\lib\\textParsers.js',
+    'C:\\CloudPOS-LFS\\node_modules\\pg\\node_modules\\pg-types\\index.js',
+    'C:\\CloudPOS-LFS\\node_modules\\pg\\lib\\defaults.js',
+    'C:\\CloudPOS-LFS\\node_modules\\pg\\lib\\utils.js',
+    'C:\\CloudPOS-LFS\\node_modules\\pg\\lib\\client.js',
+    'C:\\CloudPOS-LFS\\node_modules\\pg\\lib\\index.js',
+    'C:\\CloudPOS-LFS\\[eval]'
+  ]
+}
+
+Node.js v20.11.1
+PS C:\CloudPOS-LFS>
