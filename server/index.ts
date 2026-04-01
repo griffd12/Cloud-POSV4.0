@@ -127,27 +127,18 @@ app.get("/health", async (_req, res) => {
         "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
       );
       const tableCount = parseInt(tableCheck.rows[0]?.count || "0", 10);
-      if (tableCount === 0) {
-        log("Empty database detected — running schema initialization...", "lfs");
-        const { execSync } = await import("child_process");
-        try {
-          execSync("npx drizzle-kit push --force", {
-            cwd: process.cwd(),
-            stdio: "pipe",
-            timeout: 60000,
-            env: { ...process.env },
-          });
-          log("Schema initialization complete", "lfs");
-        } catch (schemaErr: unknown) {
-          const schemaMsg = schemaErr instanceof Error ? schemaErr.message : "Unknown error";
-          log(`Schema initialization via drizzle-kit failed: ${schemaMsg}`, "lfs");
-          log("Attempting direct table creation...", "lfs");
-          const { migrate } = await import("./lfs-schema-init");
-          await migrate(pool);
-          log("Schema initialization complete (direct method)", "lfs");
-        }
+      const EXPECTED_TABLE_COUNT = 147;
+      if (tableCount < EXPECTED_TABLE_COUNT) {
+        log(`Database has ${tableCount}/${EXPECTED_TABLE_COUNT} tables — running schema migration...`, "lfs");
+        const { migrate } = await import("./lfs-schema-init");
+        await migrate(pool);
+        const recheck = await pool.query(
+          "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        );
+        const newCount = parseInt(recheck.rows[0]?.count || "0", 10);
+        log(`Schema migration complete — ${newCount} tables now present`, "lfs");
       } else {
-        log(`Database has ${tableCount} tables — schema already initialized`, "lfs");
+        log(`Database has ${tableCount} tables — schema up to date`, "lfs");
       }
     } catch (initErr: unknown) {
       const initMsg = initErr instanceof Error ? initErr.message : "Unknown error";
