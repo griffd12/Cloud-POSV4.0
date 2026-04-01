@@ -200,8 +200,8 @@ set NODE_ENV=production
 if not defined PORT set PORT=3001
 
 if exist "%SCRIPT_DIR%.env" (
-  for /f "usebackq tokens=1,* delims==" %%a in ("%SCRIPT_DIR%.env") do (
-    set "%%a=%%b"
+  for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%SCRIPT_DIR%.env") do (
+    if not "%%a"=="" set "%%a=%%b"
   )
 )
 

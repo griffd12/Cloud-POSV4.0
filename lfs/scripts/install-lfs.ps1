@@ -4,8 +4,8 @@
     One-click installer for the Cloud POS Local Failover Server.
 .DESCRIPTION
     Installs PostgreSQL 17 (if needed), creates the LFS database and user,
-    initializes the schema, writes the .env configuration, installs LFS
-    as a Windows Service, and opens the admin dashboard for first-run setup.
+    initializes the schema, writes the .env configuration, sets up auto-start
+    via Scheduled Task, and opens the admin dashboard for first-run setup.
 .PARAMETER InstallDir
     The directory where the LFS package is extracted. Defaults to current directory.
 .PARAMETER Port
@@ -249,32 +249,23 @@ Set-Content -Path $envFile -Value $envContent -Encoding UTF8
 Write-Host "[OK] Configuration written to .env" -ForegroundColor Green
 
 Write-Host ""
-Write-Host "Step 4: Schema Initialization" -ForegroundColor Cyan
-Write-Host "=============================" -ForegroundColor Cyan
-Write-Host "  The LFS server will auto-initialize the database schema on first boot." -ForegroundColor Gray
-Write-Host "[OK] Schema initialization will run at first startup" -ForegroundColor Green
+Write-Host "Step 4: Create Data Directories" -ForegroundColor Cyan
+Write-Host "================================" -ForegroundColor Cyan
+
+$dataDir = Join-Path $InstallDir "data"
+$logDir = Join-Path $InstallDir "logs"
+New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+Write-Host "[OK] Created data/ and logs/ directories" -ForegroundColor Green
 
 Write-Host ""
-Write-Host "Step 5: Windows Service Installation" -ForegroundColor Cyan
-Write-Host "=====================================" -ForegroundColor Cyan
+Write-Host "Step 5: Service Wrapper" -ForegroundColor Cyan
+Write-Host "=======================" -ForegroundColor Cyan
 
-$serviceScript = Join-Path $InstallDir "scripts\install-windows-service.ps1"
-if (Test-Path $serviceScript) {
-    & $serviceScript -InstallDir $InstallDir -Port $Port -AdminPort $AdminPort
-} else {
-    Write-Host "Service install script not found. Installing directly..." -ForegroundColor Yellow
-
-    $ServiceName = "CloudPOS-LFS"
-    $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if ($existingService) {
-        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-        sc.exe delete $ServiceName | Out-Null
-        Start-Sleep -Seconds 1
-    }
-
-    $wrapperScript = Join-Path $InstallDir "service-wrapper.cjs"
-    $wrapperContent = @"
+$wrapperScript = Join-Path $InstallDir "service-wrapper.cjs"
+$portStr = $Port.ToString()
+$adminPortStr = $AdminPort.ToString()
+$wrapperContent = @'
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -299,8 +290,8 @@ if (fs.existsSync(envFile)) {
 
 process.env.DB_MODE = 'local';
 process.env.NODE_ENV = 'production';
-process.env.PORT = process.env.PORT || '$Port';
-process.env.LFS_ADMIN_PORT = process.env.LFS_ADMIN_PORT || '$AdminPort';
+process.env.PORT = process.env.PORT || '%%LFS_PORT%%';
+process.env.LFS_ADMIN_PORT = process.env.LFS_ADMIN_PORT || '%%LFS_ADMIN_PORT%%';
 
 const logDir = path.join(installDir, 'logs');
 if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
@@ -366,20 +357,45 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-"@
-    Set-Content -Path $wrapperScript -Value $wrapperContent -Encoding UTF8
-
-    $binPath = "`"$nodePath`" `"$wrapperScript`""
-    sc.exe create $ServiceName binPath= $binPath start= auto DisplayName= "Cloud POS Local Failover Server" | Out-Null
-    sc.exe description $ServiceName "Cloud POS Local Failover Server - provides offline POS capability" | Out-Null
-    sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/10000/restart/30000 | Out-Null
-
-    Write-Host "[OK] Windows service installed" -ForegroundColor Green
-}
+'@
+$wrapperContent = $wrapperContent.Replace('%%LFS_PORT%%', $portStr)
+$wrapperContent = $wrapperContent.Replace('%%LFS_ADMIN_PORT%%', $adminPortStr)
+Set-Content -Path $wrapperScript -Value $wrapperContent -Encoding UTF8
+Write-Host "[OK] Service wrapper created" -ForegroundColor Green
 
 Write-Host ""
-Write-Host "Step 6: Firewall Configuration" -ForegroundColor Cyan
-Write-Host "===============================" -ForegroundColor Cyan
+Write-Host "Step 6: Auto-Start Setup" -ForegroundColor Cyan
+Write-Host "========================" -ForegroundColor Cyan
+
+$ServiceName = "CloudPOS-LFS"
+
+$existingTask = Get-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
+if ($existingTask) {
+    Stop-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $ServiceName -Confirm:$false
+    Write-Host "  Removed existing scheduled task" -ForegroundColor Gray
+}
+
+$existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($existingService) {
+    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    sc.exe delete $ServiceName 2>$null | Out-Null
+    Start-Sleep -Seconds 1
+    Write-Host "  Removed old service registration" -ForegroundColor Gray
+}
+
+$taskAction = New-ScheduledTaskAction -Execute $nodePath -Argument "`"$wrapperScript`"" -WorkingDirectory $InstallDir
+$taskTrigger = New-ScheduledTaskTrigger -AtStartup
+$taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 3
+$taskPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+Register-ScheduledTask -TaskName $ServiceName -Action $taskAction -Trigger $taskTrigger -Settings $taskSettings -Principal $taskPrincipal -Description "Cloud POS Local Failover Server - provides offline POS capability" | Out-Null
+Write-Host "[OK] Scheduled task '$ServiceName' registered (auto-starts at boot)" -ForegroundColor Green
+
+Write-Host ""
+Write-Host "Step 7: Firewall Rules" -ForegroundColor Cyan
+Write-Host "======================" -ForegroundColor Cyan
 
 $fwRuleApi = Get-NetFirewallRule -DisplayName "CloudPOS-LFS-API" -ErrorAction SilentlyContinue
 if (-not $fwRuleApi) {
@@ -398,40 +414,18 @@ if (-not $fwRuleAdmin) {
 }
 
 Write-Host ""
-Write-Host "Step 7: Starting LFS Service" -ForegroundColor Cyan
-Write-Host "============================" -ForegroundColor Cyan
+Write-Host "Step 8: Starting LFS Server" -ForegroundColor Cyan
+Write-Host "===========================" -ForegroundColor Cyan
 
-Start-Service -Name "CloudPOS-LFS" -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 5
+Start-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
+Write-Host "  Waiting for server to start..." -ForegroundColor Gray
+Start-Sleep -Seconds 6
 
-$svc = Get-Service -Name "CloudPOS-LFS" -ErrorAction SilentlyContinue
-if ($svc -and $svc.Status -eq 'Running') {
-    Write-Host "[OK] LFS service is running!" -ForegroundColor Green
+$nodeProc = Get-Process -Name "node" -ErrorAction SilentlyContinue
+if ($nodeProc) {
+    Write-Host "[OK] LFS server is running!" -ForegroundColor Green
 } else {
-    Write-Host "WARNING: Service may still be starting. Check logs at: $(Join-Path $InstallDir 'logs')" -ForegroundColor Yellow
-}
-
-Write-Host ""
-Write-Host "Step 8: System Tray Indicator" -ForegroundColor Cyan
-Write-Host "=============================" -ForegroundColor Cyan
-
-$trayScript = Join-Path $InstallDir "scripts\lfs-tray.ps1"
-if (Test-Path $trayScript) {
-    $startupDir = [Environment]::GetFolderPath("Startup")
-    $shortcutPath = Join-Path $startupDir "CloudPOS-LFS-Tray.lnk"
-    $shell = New-Object -ComObject WScript.Shell
-    $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = "powershell.exe"
-    $shortcut.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$trayScript`" -ApiPort $Port -AdminPort $AdminPort"
-    $shortcut.WorkingDirectory = $InstallDir
-    $shortcut.Description = "Cloud POS LFS System Tray Indicator"
-    $shortcut.Save()
-    Write-Host "[OK] Tray indicator configured to start on login" -ForegroundColor Green
-
-    Start-Process powershell.exe -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$trayScript`" -ApiPort $Port -AdminPort $AdminPort" -WindowStyle Hidden
-    Write-Host "[OK] Tray indicator started" -ForegroundColor Green
-} else {
-    Write-Host "Tray indicator script not found, skipping" -ForegroundColor Gray
+    Write-Host "  Server may still be starting. Check logs at: $(Join-Path $InstallDir 'logs')" -ForegroundColor Yellow
 }
 
 Write-Host ""
