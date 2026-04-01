@@ -39,23 +39,25 @@ Do NOT extract to a temporary folder or the desktop. The LFS service runs from t
 
 ### Step 2: Run the One-Click Installer
 
-Open **PowerShell as Administrator** (right-click PowerShell → "Run as administrator").
+1. Open **PowerShell as Administrator** (right-click PowerShell → "Run as administrator").
 
-**Important:** Windows blocks scripts downloaded from the internet by default. 
-Run this command first to allow the installer to run (applies only to the current
-PowerShell window):
+2. Allow script execution (Windows blocks downloaded scripts by default).
+   Copy and paste this command, then press **Y** when prompted:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-Then navigate to the scripts folder and run the installer. Note the `.\` prefix — 
-PowerShell requires it to run scripts from the current directory:
+3. Navigate to the **main LFS folder** (not the scripts subfolder) and run the installer:
 
 ```powershell
-cd C:\CloudPOS-LFS\scripts
-.\install-lfs.ps1
+cd C:\CloudPOS-LFS
+.\scripts\install-lfs.ps1
 ```
+
+**You must run the installer from the main `C:\CloudPOS-LFS` folder.** The installer
+looks for `server.cjs` and other files in the current directory. Running it from the
+`scripts` subfolder will fail.
 
 The installer will automatically:
 
