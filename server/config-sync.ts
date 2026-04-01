@@ -298,7 +298,10 @@ export class ConfigSyncService {
             await tx.execute(sql.raw(`RELEASE SAVEPOINT row_sp`));
           } catch (e: unknown) {
             failedRows++;
-            try { await tx.execute(sql.raw(`ROLLBACK TO SAVEPOINT row_sp`)); } catch {}
+            try {
+              await tx.execute(sql.raw(`ROLLBACK TO SAVEPOINT row_sp`));
+              await tx.execute(sql.raw(`RELEASE SAVEPOINT row_sp`));
+            } catch {}
             const err = e as { message?: string };
             log(`Failed to sync row in ${tableName} (id=${values.id}): ${err.message}`, "lfs-sync");
           }
