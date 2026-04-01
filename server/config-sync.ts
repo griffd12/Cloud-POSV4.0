@@ -331,13 +331,24 @@ export class ConfigSyncService {
     const newCount = Number((countResult.rows?.[0] as Record<string, unknown>)?.cnt || rows.length);
 
     if (failedRows > 0) {
-      await db
-        .insert(lfsSyncStatus)
-        .values({ tableName, lastSyncedAt: syncStatusRows.length > 0 ? syncStatusRows[0].lastSyncedAt! : new Date(0), recordCount: newCount })
-        .onConflictDoUpdate({
-          target: lfsSyncStatus.tableName,
-          set: { recordCount: newCount },
-        });
+      const preservedSyncTime = syncStatusRows.length > 0 ? syncStatusRows[0].lastSyncedAt : null;
+      if (preservedSyncTime) {
+        await db
+          .insert(lfsSyncStatus)
+          .values({ tableName, lastSyncedAt: preservedSyncTime, recordCount: newCount })
+          .onConflictDoUpdate({
+            target: lfsSyncStatus.tableName,
+            set: { recordCount: newCount },
+          });
+      } else {
+        await db
+          .insert(lfsSyncStatus)
+          .values({ tableName, recordCount: newCount })
+          .onConflictDoUpdate({
+            target: lfsSyncStatus.tableName,
+            set: { recordCount: newCount },
+          });
+      }
     } else {
       await db
         .insert(lfsSyncStatus)
