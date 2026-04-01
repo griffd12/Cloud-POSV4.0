@@ -96,6 +96,36 @@ function getTableColumns(tableName: string): string[] {
   }
 }
 
+function getArrayColumns(tableName: string): Set<string> {
+  const table = getSchemaTable(tableName);
+  if (!table) return new Set();
+  try {
+    const config = getTableConfig(table);
+    const arrayCols = new Set<string>();
+    for (const col of config.columns) {
+      if ((col as any).columnType === "PgArray" || (col as any).baseColumn) {
+        arrayCols.add(col.name);
+      }
+    }
+    return arrayCols;
+  } catch {
+    return new Set();
+  }
+}
+
+function toPostgresArrayLiteral(arr: any[]): string {
+  if (arr.length === 0) return "{}";
+  const escaped = arr.map((item) => {
+    if (item === null || item === undefined) return "NULL";
+    const str = String(item);
+    if (str === "" || /[{},"\\\s]/.test(str) || str.toUpperCase() === "NULL") {
+      return '"' + str.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+    }
+    return str;
+  });
+  return "{" + escaped.join(",") + "}";
+}
+
 export class ConfigSyncService {
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
   private isSyncing = false;
@@ -145,14 +175,26 @@ export class ConfigSyncService {
     this.isSyncing = true;
 
     try {
+      const failedTables: string[] = [];
       for (const table of CONFIG_TABLES) {
-        await this.syncTable(table);
+        try {
+          await this.syncTable(table);
+        } catch (e: unknown) {
+          const err = e as { message?: string };
+          failedTables.push(table);
+          log(`Table sync failed for ${table}: ${err.message}`, "lfs-sync");
+        }
       }
       await this.initOfflineCheckRangesFromWorkstations();
       this.lastSyncAt = new Date().toISOString();
-      this.lastSyncError = null;
       this.syncCount++;
-      log(`Config sync completed (#${this.syncCount})`, "lfs-sync");
+      if (failedTables.length > 0) {
+        this.lastSyncError = `${failedTables.length} tables failed: ${failedTables.join(", ")}`;
+        log(`Config sync completed with errors (#${this.syncCount}): ${this.lastSyncError}`, "lfs-sync");
+      } else {
+        this.lastSyncError = null;
+        log(`Config sync completed (#${this.syncCount})`, "lfs-sync");
+      }
     } catch (e: unknown) {
       const err = e as { message?: string };
       this.lastSyncError = err.message || "unknown error";
@@ -229,6 +271,7 @@ export class ConfigSyncService {
 
     const validColumns = getTableColumns(tableName);
     const filteredColumns = columns.filter((c) => validColumns.includes(c));
+    const arrayCols = getArrayColumns(tableName);
 
     if (!rows || !rows.length) {
       if (!incremental) {
@@ -247,16 +290,22 @@ export class ConfigSyncService {
     }
 
     if (!incremental) {
-      await db.transaction(async (tx) => {
-        await tx.execute(sql.raw(`DELETE FROM "${tableName}"`));
-        for (const row of rows) {
-          const values: Record<string, unknown> = {};
-          for (const col of filteredColumns) {
-            values[col] = row[col] ?? null;
+      try {
+        await db.transaction(async (tx) => {
+          await tx.execute(sql.raw(`DELETE FROM "${tableName}"`));
+          for (const row of rows) {
+            const values: Record<string, unknown> = {};
+            for (const col of filteredColumns) {
+              values[col] = row[col] ?? null;
+            }
+            await this.insertRowTx(tx, tableName, filteredColumns, values, arrayCols);
           }
-          await this.insertRowTx(tx, tableName, filteredColumns, values);
-        }
-      });
+        });
+      } catch (e: unknown) {
+        const err = e as { message?: string };
+        log(`Full sync FAILED for ${tableName} (all ${rows.length} rows rolled back): ${err.message}`, "lfs-sync");
+        throw e;
+      }
     } else {
       for (const row of rows) {
         const values: Record<string, unknown> = {};
@@ -265,9 +314,9 @@ export class ConfigSyncService {
         }
         try {
           if (values.id) {
-            await this.upsertRow(tableName, filteredColumns, values);
+            await this.upsertRow(tableName, filteredColumns, values, arrayCols);
           } else {
-            await this.insertRow(tableName, filteredColumns, values);
+            await this.insertRow(tableName, filteredColumns, values, arrayCols);
           }
         } catch (e: unknown) {
           const err = e as { message?: string };
@@ -288,13 +337,28 @@ export class ConfigSyncService {
       });
   }
 
-  private toSqlValue(v: any): any {
+  private toSqlValue(v: any, isArrayCol: boolean = false): any {
     if (v === null || v === undefined) return null;
+    if (isArrayCol) {
+      if (Array.isArray(v)) {
+        return toPostgresArrayLiteral(v);
+      }
+      if (typeof v === "string") {
+        if (v.startsWith("{")) return v;
+        if (v.startsWith("[")) {
+          try {
+            const parsed = JSON.parse(v);
+            if (Array.isArray(parsed)) return toPostgresArrayLiteral(parsed);
+          } catch {}
+        }
+      }
+      return v;
+    }
     if (typeof v === "object") return JSON.stringify(v);
     return v;
   }
 
-  private async upsertRow(tableName: string, columns: string[], values: Record<string, unknown>): Promise<void> {
+  private async upsertRow(tableName: string, columns: string[], values: Record<string, unknown>, arrayCols: Set<string>): Promise<void> {
     const setClauses = columns
       .filter((c) => c !== "id")
       .map((c) => `"${c}" = EXCLUDED."${c}"`)
@@ -303,7 +367,7 @@ export class ConfigSyncService {
 
     const chunks = [];
     for (const c of columns) {
-      chunks.push(sql`${this.toSqlValue(values[c])}`);
+      chunks.push(sql`${this.toSqlValue(values[c], arrayCols.has(c))}`);
     }
 
     const valueSql = sql.join(chunks, sql`, `);
@@ -312,12 +376,12 @@ export class ConfigSyncService {
     );
   }
 
-  private async insertRow(tableName: string, columns: string[], values: Record<string, unknown>): Promise<void> {
+  private async insertRow(tableName: string, columns: string[], values: Record<string, unknown>, arrayCols: Set<string>): Promise<void> {
     const colNames = columns.map((c) => `"${c}"`).join(", ");
 
     const chunks = [];
     for (const c of columns) {
-      chunks.push(sql`${this.toSqlValue(values[c])}`);
+      chunks.push(sql`${this.toSqlValue(values[c], arrayCols.has(c))}`);
     }
 
     const valueSql = sql.join(chunks, sql`, `);
@@ -326,12 +390,12 @@ export class ConfigSyncService {
     );
   }
 
-  private async insertRowTx(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], tableName: string, columns: string[], values: Record<string, unknown>): Promise<void> {
+  private async insertRowTx(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], tableName: string, columns: string[], values: Record<string, unknown>, arrayCols: Set<string>): Promise<void> {
     const colNames = columns.map((c) => `"${c}"`).join(", ");
 
     const chunks = [];
     for (const c of columns) {
-      chunks.push(sql`${this.toSqlValue(values[c])}`);
+      chunks.push(sql`${this.toSqlValue(values[c], arrayCols.has(c))}`);
     }
 
     const valueSql = sql.join(chunks, sql`, `);

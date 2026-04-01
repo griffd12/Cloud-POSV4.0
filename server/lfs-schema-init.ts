@@ -2361,11 +2361,29 @@ export async function migrate(pool: pg.Pool): Promise<void> {
     )`);
 
     await client.query(`CREATE TABLE IF NOT EXISTS lfs_offline_sequence (
-      id VARCHAR DEFAULT gen_random_uuid() PRIMARY KEY,
-      table_name TEXT NOT NULL,
-      last_value BIGINT DEFAULT 0,
-      prefix TEXT
+      workstation_id VARCHAR PRIMARY KEY,
+      current_number INTEGER NOT NULL DEFAULT 0,
+      range_start INTEGER NOT NULL DEFAULT 0,
+      range_end INTEGER NOT NULL DEFAULT 0
     )`);
+
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'lfs_offline_sequence' AND column_name = 'table_name'
+        ) THEN
+          DROP TABLE lfs_offline_sequence;
+          CREATE TABLE lfs_offline_sequence (
+            workstation_id VARCHAR PRIMARY KEY,
+            current_number INTEGER NOT NULL DEFAULT 0,
+            range_start INTEGER NOT NULL DEFAULT 0,
+            range_end INTEGER NOT NULL DEFAULT 0
+          );
+        END IF;
+      END $$;
+    `);
 
     await client.query(`CREATE TABLE IF NOT EXISTS lfs_transaction_journal (
       id VARCHAR DEFAULT gen_random_uuid() PRIMARY KEY,
