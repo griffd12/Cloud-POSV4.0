@@ -289,22 +289,30 @@ export class ConfigSyncService {
       return;
     }
 
+    let failedRows = 0;
+
     if (!incremental) {
-      try {
-        await db.transaction(async (tx) => {
-          await tx.execute(sql.raw(`DELETE FROM "${tableName}"`));
-          for (const row of rows) {
-            const values: Record<string, unknown> = {};
-            for (const col of filteredColumns) {
-              values[col] = row[col] ?? null;
-            }
-            await this.insertRowTx(tx, tableName, filteredColumns, values, arrayCols);
+      await db.transaction(async (tx) => {
+        await tx.execute(sql.raw(`DELETE FROM "${tableName}"`));
+        for (const row of rows) {
+          const values: Record<string, unknown> = {};
+          for (const col of filteredColumns) {
+            values[col] = row[col] ?? null;
           }
-        });
-      } catch (e: unknown) {
-        const err = e as { message?: string };
-        log(`Full sync FAILED for ${tableName} (all ${rows.length} rows rolled back): ${err.message}`, "lfs-sync");
-        throw e;
+          try {
+            await tx.execute(sql.raw(`SAVEPOINT row_sp`));
+            await this.insertRowTx(tx, tableName, filteredColumns, values, arrayCols);
+            await tx.execute(sql.raw(`RELEASE SAVEPOINT row_sp`));
+          } catch (e: unknown) {
+            failedRows++;
+            try { await tx.execute(sql.raw(`ROLLBACK TO SAVEPOINT row_sp`)); } catch {}
+            const err = e as { message?: string };
+            log(`Failed to sync row in ${tableName} (id=${values.id}): ${err.message}`, "lfs-sync");
+          }
+        }
+      });
+      if (failedRows > 0) {
+        log(`${tableName}: ${failedRows}/${rows.length} rows failed during full sync (will retry next cycle)`, "lfs-sync");
       }
     } else {
       for (const row of rows) {
@@ -319,6 +327,7 @@ export class ConfigSyncService {
             await this.insertRow(tableName, filteredColumns, values, arrayCols);
           }
         } catch (e: unknown) {
+          failedRows++;
           const err = e as { message?: string };
           log(`Failed to sync row in ${tableName} (id=${values.id}): ${err.message}`, "lfs-sync");
         }
@@ -328,13 +337,23 @@ export class ConfigSyncService {
     const countResult = await db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM "${tableName}"`));
     const newCount = Number((countResult.rows?.[0] as Record<string, unknown>)?.cnt || rows.length);
 
-    await db
-      .insert(lfsSyncStatus)
-      .values({ tableName, lastSyncedAt: new Date(), recordCount: newCount })
-      .onConflictDoUpdate({
-        target: lfsSyncStatus.tableName,
-        set: { lastSyncedAt: new Date(), recordCount: newCount },
-      });
+    if (failedRows > 0) {
+      await db
+        .insert(lfsSyncStatus)
+        .values({ tableName, lastSyncedAt: syncStatusRows.length > 0 ? syncStatusRows[0].lastSyncedAt! : new Date(0), recordCount: newCount })
+        .onConflictDoUpdate({
+          target: lfsSyncStatus.tableName,
+          set: { recordCount: newCount },
+        });
+    } else {
+      await db
+        .insert(lfsSyncStatus)
+        .values({ tableName, lastSyncedAt: new Date(), recordCount: newCount })
+        .onConflictDoUpdate({
+          target: lfsSyncStatus.tableName,
+          set: { lastSyncedAt: new Date(), recordCount: newCount },
+        });
+    }
   }
 
   private toSqlValue(v: any, isArrayCol: boolean = false): any {
