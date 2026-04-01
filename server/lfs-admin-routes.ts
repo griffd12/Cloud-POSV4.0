@@ -766,6 +766,11 @@ export function startLfsAdminServer(_mainApp: Express) {
   proxyGet("/api/lfs/capabilities");
   proxyPost("/api/lfs/reconcile-saf");
 
+  proxyPost("/api/lfs/first-run/validate-cloud");
+  proxyPost("/api/lfs/first-run/auth");
+  proxyPost("/api/lfs/first-run/properties");
+  proxyPost("/api/lfs/first-run/save");
+
   adminApp.listen(adminPort, "0.0.0.0", () => {
     console.log(`[lfs-admin] Admin dashboard available at http://localhost:${adminPort}`);
     captureLog(`[admin] Admin dashboard started on port ${adminPort}`);
