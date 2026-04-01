@@ -416,8 +416,22 @@ export function registerLfsAdminRoutes(app: Express) {
               } catch (lookupErr: unknown) {
                 captureLog(`[admin] Enterprise lookup failed: ${lookupErr instanceof Error ? lookupErr.message : "unknown"}`);
               }
+              if (!lfsEnterpriseId && cloudUrl) {
+                try {
+                  const propRes = await fetch(`${cloudUrl}/api/properties/${lfsPropertyId}`, {
+                    signal: AbortSignal.timeout(8000),
+                  });
+                  if (propRes.ok) {
+                    const propData = await propRes.json() as { enterpriseId?: string };
+                    lfsEnterpriseId = propData.enterpriseId || "";
+                    captureLog(`[admin] Enterprise scope resolved via cloud fallback: ${lfsEnterpriseId}`);
+                  }
+                } catch (cloudErr: unknown) {
+                  captureLog(`[admin] Cloud fallback lookup failed: ${cloudErr instanceof Error ? cloudErr.message : "unknown"}`);
+                }
+              }
               if (!lfsEnterpriseId) {
-                res.status(403).json({ error: "Cannot verify enterprise scope. Data not yet synced." });
+                res.status(403).json({ error: "Cannot verify enterprise scope. Data not yet synced and cloud unreachable." });
                 return;
               }
               if (userEnterpriseId !== lfsEnterpriseId) {
