@@ -69,7 +69,7 @@ export default function LoginPage() {
   useDeviceReload();
   useDeviceHeartbeat(true);
 
-  const { enterpriseId, clearDeviceConfig } = useDeviceContext();
+  const { clearDeviceConfig } = useDeviceContext();
 
   const [selectedRvcId, setSelectedRvcId] = useState<string>("");
   const [pin, setPin] = useState("");
@@ -99,14 +99,10 @@ export default function LoginPage() {
     enabled: !workstationId,
   });
 
-  // Fetch all workstations for selection when no workstation is set (filtered by enterprise if set)
   const { data: allWorkstations = [], isLoading: workstationsLoading } = useQuery<Workstation[]>({
-    queryKey: ["/api/workstations", { enterpriseId }],
+    queryKey: ["/api/workstations"],
     queryFn: async () => {
-      const url = enterpriseId 
-        ? `/api/workstations?enterpriseId=${enterpriseId}` 
-        : "/api/workstations";
-      const response = await failoverFetch(url, { headers: getAuthHeaders() });
+      const response = await failoverFetch("/api/workstations", { headers: getAuthHeaders() });
       if (!response.ok) throw new Error("Failed to fetch workstations");
       return response.json();
     },

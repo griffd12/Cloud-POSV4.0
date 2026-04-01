@@ -3667,13 +3667,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/workstations", async (req, res) => {
     const propertyId = req.query.propertyId as string | undefined;
-    const enterpriseId = await getEnforcedEnterpriseId(req);
+    const isLfsMode = process.env.DB_MODE === "local";
     
     let data = await storage.getWorkstations(propertyId);
     
-    if (enterpriseId && !propertyId) {
-      const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
-      data = effectiveConfig.filterByEnterpriseScope(data, enterpriseId, propertyIds, rvcIds);
+    if (!isLfsMode) {
+      const enterpriseId = await getEnforcedEnterpriseId(req);
+      if (enterpriseId && !propertyId) {
+        const { propertyIds, rvcIds } = await getEnterpriseFilterSets(enterpriseId);
+        data = effectiveConfig.filterByEnterpriseScope(data, enterpriseId, propertyIds, rvcIds);
+      }
     }
     
     res.json(data);
