@@ -63,7 +63,7 @@ if (-not (Test-Path $envFile)) {
     $envExample = Join-Path $InstallDir ".env.example"
     if (Test-Path $envExample) {
         Copy-Item $envExample $envFile
-        Write-Host "Created .env from .env.example — please configure it before starting." -ForegroundColor Yellow
+        Write-Host "Created .env from .env.example - please configure it before starting." -ForegroundColor Yellow
     }
 }
 
