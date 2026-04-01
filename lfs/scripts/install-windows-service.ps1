@@ -68,7 +68,7 @@ if (-not (Test-Path $envFile)) {
 }
 
 $wrapperScript = Join-Path $InstallDir "service-wrapper.cjs"
-$wrapperContent = @"
+$wrapperContent = @'
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -93,8 +93,8 @@ if (fs.existsSync(envFile)) {
 
 process.env.DB_MODE = 'local';
 process.env.NODE_ENV = 'production';
-process.env.PORT = process.env.PORT || '$Port';
-process.env.LFS_ADMIN_PORT = process.env.LFS_ADMIN_PORT || '$AdminPort';
+process.env.PORT = process.env.PORT || '%%LFS_PORT%%';
+process.env.LFS_ADMIN_PORT = process.env.LFS_ADMIN_PORT || '%%LFS_ADMIN_PORT%%';
 
 const logDir = path.join(installDir, 'logs');
 if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
@@ -160,7 +160,9 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-"@
+'@
+$wrapperContent = $wrapperContent.Replace('%%LFS_PORT%%', $Port.ToString())
+$wrapperContent = $wrapperContent.Replace('%%LFS_ADMIN_PORT%%', $AdminPort.ToString())
 Set-Content -Path $wrapperScript -Value $wrapperContent -Encoding UTF8
 
 $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue

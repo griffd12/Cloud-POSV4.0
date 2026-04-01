@@ -1,0 +1,83 @@
+Windows PowerShell
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+Install the latest PowerShell for new features and improvements! https://aka.ms/PSWindows
+
+PS C:\WINDOWS\system32> cd C:\CloudPOS-LFS
+>> powershell -ExecutionPolicy Bypass -File .\scripts\install-lfs.ps1
+
+==========================================
+ Cloud POS - LFS One-Click Installer
+==========================================
+
+[OK] Bundled Node.js: v20.11.1
+
+Step 1: PostgreSQL Installation
+================================
+[OK] PostgreSQL service already running: postgresql-x64-17
+
+Step 2: Database Setup
+======================
+Enter the PostgreSQL superuser (postgres) password:
+************
+Creating database user 'lfs_user'...
+[OK] Database user ready
+Creating database 'cloud_pos_lfs'...
+[OK] Database ready
+
+Step 3: Configuration
+=====================
+[OK] Configuration written to .env
+
+Step 4: Schema Initialization
+=============================
+  The LFS server will auto-initialize the database schema on first boot.
+[OK] Schema initialization will run at first startup
+
+Step 5: Windows Service Installation
+=====================================
+At C:\CloudPOS-LFS\scripts\install-windows-service.ps1:76 char:49
++ const installDir = path.dirname(process.argv[1] || __filename);
++                                                 ~~
+The token '||' is not a valid statement separator in this version.
+At C:\CloudPOS-LFS\scripts\install-windows-service.ps1:77 char:37
++ const envFile = path.join(installDir, '.env');
++                                     ~
+Missing argument in parameter list.
+At C:\CloudPOS-LFS\scripts\install-windows-service.ps1:80 char:40
++   const lines = fs.readFileSync(envFile, 'utf8').split('\n');
++                                        ~
+Missing argument in parameter list.
+At C:\CloudPOS-LFS\scripts\install-windows-service.ps1:82 char:31
++     const trimmed = line.trim();
++                               ~
+An expression was expected after '('.
+At C:\CloudPOS-LFS\scripts\install-windows-service.ps1:83 char:17
++     if (trimmed && !trimmed.startsWith('#')) {
++                 ~~
+The token '&&' is not a valid statement separator in this version.
+At C:\CloudPOS-LFS\scripts\install-windows-service.ps1:86 char:41
++         const key = trimmed.substring(0, eqIdx).trim();
++                                         ~
+Missing expression after ','.
+At C:\CloudPOS-LFS\scripts\install-windows-service.ps1:86 char:42
++         const key = trimmed.substring(0, eqIdx).trim();
++                                          ~~~~~
+Unexpected token 'eqIdx' in expression or statement.
+At C:\CloudPOS-LFS\scripts\install-windows-service.ps1:86 char:41
++         const key = trimmed.substring(0, eqIdx).trim();
++                                         ~
+Missing closing ')' in expression.
+At C:\CloudPOS-LFS\scripts\install-windows-service.ps1:85 char:22
++       if (eqIdx > 0) {
++                      ~
+Missing closing '}' in statement block or type definition.
+At C:\CloudPOS-LFS\scripts\install-windows-service.ps1:83 char:46
++     if (trimmed && !trimmed.startsWith('#')) {
++                                              ~
+Missing closing '}' in statement block or type definition.
+Not all parse errors were reported.  Correct the reported errors and try again.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : InvalidEndOfLine
+
+PS C:\CloudPOS-LFS>
