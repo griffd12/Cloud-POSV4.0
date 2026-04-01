@@ -41,11 +41,12 @@ Do NOT extract to a temporary folder or the desktop. The LFS service runs from t
 
 Open **PowerShell as Administrator** (right-click PowerShell → "Run as administrator").
 
-**Important:** If this is your first time running PowerShell scripts, you may need to
-allow script execution. Run this command first (one-time setup):
+**Important:** Windows blocks scripts downloaded from the internet by default. 
+Run this command first to allow the installer to run (applies only to the current
+PowerShell window):
 
 ```powershell
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
 Then navigate to the scripts folder and run the installer. Note the `.\` prefix — 
