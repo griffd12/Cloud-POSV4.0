@@ -38,6 +38,10 @@ export async function migrate(pool: pg.Pool): Promise<void> {
       timezone VARCHAR DEFAULT 'America/Los_Angeles',
       currency VARCHAR DEFAULT 'USD',
       tax_id VARCHAR,
+      business_date_rollover_time TEXT DEFAULT '04:00',
+      business_date_mode TEXT DEFAULT 'auto',
+      current_business_date TEXT,
+      sign_in_logo_url TEXT,
       status VARCHAR DEFAULT 'active',
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
@@ -259,13 +263,9 @@ export async function migrate(pool: pg.Pool): Promise<void> {
     );
 
     CREATE TABLE IF NOT EXISTS lfs_sync_status (
-      id SERIAL PRIMARY KEY,
-      table_name VARCHAR NOT NULL UNIQUE,
-      last_sync_at TIMESTAMP,
-      record_count INTEGER DEFAULT 0,
-      sync_hash VARCHAR,
-      created_at TIMESTAMP DEFAULT NOW(),
-      updated_at TIMESTAMP DEFAULT NOW()
+      table_name TEXT PRIMARY KEY,
+      last_synced_at TIMESTAMP,
+      record_count INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS lfs_offline_sequence (

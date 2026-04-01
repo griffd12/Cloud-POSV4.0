@@ -1,0 +1,26 @@
+1:10:33 PM [express] GET /api/lfs/capabilities 200 in 229ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+11:10:33 PM [express] GET /api/lfs/payment-status 200 in 48ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+11:10:33 PM [express] GET /api/lfs/admin/journal/pending 200 in 4ms :: {"entries":[],"count":0}
+11:10:33 PM [express] GET /api/lfs/sync/pending-settlements 500 in 197ms :: {"error":"relation \"check_payments\" does not exist"}
+11:10:34 PM [express] POST /api/lfs/admin/check-update 200 in 181ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":null,"currentVersion":"4.0.0","autoUpdateEnabled":true}
+11:11:03 PM [express] GET /api/health 200 in 1ms :: {"status":"ok","mode":"local","database":"postgresql","uptimeSeconds":1114,"timestamp":"2026-04-01T06:11:03.289Z","sync":{"lastSyncAt":null,"lastSyncError":"column \"last_synced_at\" does not exist","syncCount":0,"isSyncing":false}}
+11:11:03 PM [express] GET /api/lfs/capabilities 200 in 202ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+11:11:03 PM [express] GET /api/lfs/payment-status 200 in 202ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+11:11:03 PM [express] GET /api/lfs/admin/journal/pending 200 in 3ms :: {"entries":[],"count":0}
+11:11:03 PM [express] GET /api/lfs/sync/pending-settlements 500 in 172ms :: {"error":"relation \"check_payments\" does not exist"}
+11:11:04 PM [express] POST /api/lfs/admin/check-update 200 in 268ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":null,"currentVersion":"4.0.0","autoUpdateEnabled":true}
+11:11:15 PM [lfs-sync] Config sync error: column "last_synced_at" does not exist
+11:11:33 PM [express] GET /api/health 200 in 2ms :: {"status":"ok","mode":"local","database":"postgresql","uptimeSeconds":1144,"timestamp":"2026-04-01T06:11:33.292Z","sync":{"lastSyncAt":null,"lastSyncError":"column \"last_synced_at\" does not exist","syncCount":0,"isSyncing":false}}
+11:11:33 PM [express] GET /api/lfs/capabilities 200 in 279ms :: {"mode":"local","features":{"payments":true,"kds":true,"printing":true,"onlineOrdering":false,"reporting":false},"internetAvailable":true,"cloudReachable":true,"cloudUrl":"https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev","propertyId":"b0c038b1-5c55-4c63-85fe-5ea9dc64a767","paymentCapabilities":{"cashPayments":true,"semiIntegratedTerminals":true,"cloudGatewayPayments":true,"storeAndForward":true}}
+11:11:33 PM [express] GET /api/lfs/payment-status 200 in 49ms :: {"localMode":true,"cloudReachable":true,"internetAvailable":true,"cashAvailable":true,"cardAvailable":true,"cardMode":"online","message":"Processing payments normally via cloud"}
+11:11:33 PM [express] GET /api/lfs/admin/journal/pending 200 in 2ms :: {"entries":[],"count":0}
+11:11:33 PM [express] GET /api/lfs/sync/pending-settlements 500 in 267ms :: {"error":"relation \"check_payments\" does not exist"}
+11:11:34 PM [express] POST /api/lfs/admin/check-update 200 in 62ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":null,"currentVersion":"4.0.0","autoUpdateEnabled":true}
+11:11:42 PM [express] POST /api/lfs/admin/check-update 200 in 199ms :: {"lastCheckAt":null,"latestVersion":"4.0.0","updateAvailable":false,"downloadUrl":null,"lastError":null,"currentVersion":"4.0.0","autoUpdateEnabled":true}
+2026-04-01T05:52:29.352Z [startup] LFS server started on port 3001
+2026-04-01T05:52:29.361Z [admin] Admin dashboard started on port 3002
+2026-04-01T06:01:15.285Z [admin] API key registered with cloud for property b0c038b1-5c55-4c63-85fe-5ea9dc64a767
+2026-04-01T06:01:15.296Z [admin] First-run setup completed: https://7c25787c-567d-4d98-8151-1125794025a5-00-o90cqt9u859u.spock.replit.dev / property b0c038b1-5c55-4c63-85fe-5ea9dc64a767
+2026-04-01T06:01:15.470Z [admin] Initial config sync completed after first-run setup
+2026-04-01T06:02:12.833Z [admin] Enterprise lookup failed: column "business_date_rollover_time" does not exist
+2026-04-01T06:02:26.505Z [admin] Enterprise lookup failed: column "business_date_rollover_time" does not exist
