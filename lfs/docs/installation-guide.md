@@ -51,9 +51,9 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 3. Navigate to the **main LFS folder** (not the scripts subfolder) and run the installer:
 
 ```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 cd C:\CloudPOS-LFS
 .\scripts\install-lfs.ps1
-```
 
 **You must run the installer from the main `C:\CloudPOS-LFS` folder.** The installer
 looks for `server.cjs` and other files in the current directory. Running it from the
