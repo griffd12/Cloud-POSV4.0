@@ -496,11 +496,11 @@
             body: JSON.stringify({ cloudUrl, enterpriseCode: code }),
           });
           const data = await res.json();
-          if (res.ok && data.valid) {
+          if (res.ok && data.ok) {
             wizardState.cloudUrl = cloudUrl;
             wizardState.enterpriseCode = code;
-            wizardState.enterpriseName = data.enterpriseName || code;
-            wizardState.enterpriseId = data.enterpriseId || '';
+            wizardState.enterpriseName = data.enterprise?.name || code;
+            wizardState.enterpriseId = data.enterprise?.id || '';
             statusEl.style.background = 'rgba(0,200,100,0.1)';
             statusEl.style.color = 'var(--success)';
             statusEl.innerHTML = `&#10003; Connected to <strong>${wizardState.enterpriseName}</strong>`;
@@ -532,16 +532,16 @@
             body: JSON.stringify({ cloudUrl: wizardState.cloudUrl, email, password }),
           });
           const data = await res.json();
-          if (res.ok && data.token) {
-            wizardState.authToken = data.token;
+          if (res.ok && data.ok) {
+            wizardState.authToken = data.user?.token || data.user?.sessionToken || '';
             wizardState.email = email;
             const propRes = await fetch(`${API_BASE}/api/lfs/first-run/properties`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ cloudUrl: wizardState.cloudUrl, token: data.token, enterpriseId: wizardState.enterpriseId }),
+              body: JSON.stringify({ cloudUrl: wizardState.cloudUrl, enterpriseId: wizardState.enterpriseId }),
             });
             const propData = await propRes.json();
-            if (propRes.ok && propData.properties) {
+            if (propRes.ok && propData.ok && propData.properties) {
               wizardState.properties = propData.properties;
               const select = document.getElementById('wiz-property');
               select.innerHTML = '';
@@ -625,7 +625,7 @@
               propertyName: wizardState.selectedProperty?.name,
               deviceType: wizardState.deviceType,
               deviceName: wizardState.deviceName,
-              authToken: wizardState.authToken,
+              sessionToken: wizardState.authToken,
             }),
           });
           const data = await res.json();
@@ -694,8 +694,9 @@
           } else {
             const data = await res.json().catch(() => ({}));
             if (data.needsSetup) {
-              document.getElementById('login-form').style.display = 'none';
-              document.getElementById('setup-form').style.display = 'block';
+              hideLoginOverlay();
+              showWizard();
+              wizardGoTo(1);
             }
             errorEl.textContent = data.error || 'Authentication failed';
             errorEl.style.display = 'block';
@@ -725,8 +726,9 @@
           } else {
             const data = await res.json().catch(() => ({}));
             if (data.needsSetup) {
-              document.getElementById('login-form').style.display = 'none';
-              document.getElementById('setup-form').style.display = 'block';
+              hideLoginOverlay();
+              showWizard();
+              wizardGoTo(1);
             }
             errorEl.textContent = data.error || 'Invalid API key';
             errorEl.style.display = 'block';
@@ -757,9 +759,6 @@
 
       document.getElementById('login-api-key').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') document.getElementById('login-apikey-btn').click();
-      });
-      document.getElementById('setup-api-key').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') document.getElementById('setup-btn').click();
       });
     });
 
