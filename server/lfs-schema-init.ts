@@ -2556,10 +2556,12 @@ export async function migrate(pool: pg.Pool): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_transaction_journal_entity ON transaction_journal (entity_type, entity_id);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_transaction_journal_created ON transaction_journal (created_at);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_transaction_journal_property ON transaction_journal (property_id);`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS wsb_property_service_unique ON workstation_service_bindings (property_id, service_type) WHERE active = true;`);
 
 
     // ========================================================================
     // LFS-ONLY TABLE (not in Drizzle schema)
+    // Handles both old shape (id, version, applied_at, description) and new
     // ========================================================================
 
     await client.query(`CREATE TABLE IF NOT EXISTS lfs_schema_version (
@@ -2567,8 +2569,27 @@ export async function migrate(pool: pg.Pool): Promise<void> {
       applied_at TIMESTAMP DEFAULT now()
     );`);
 
+    await client.query(`
+      DO $$ BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'lfs_schema_version' AND column_name = 'id'
+        ) THEN
+          ALTER TABLE lfs_schema_version DROP CONSTRAINT IF EXISTS lfs_schema_version_pkey;
+          ALTER TABLE lfs_schema_version DROP COLUMN id;
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'lfs_schema_version' AND column_name = 'description'
+        ) THEN
+          ALTER TABLE lfs_schema_version DROP COLUMN description;
+        END IF;
+      END $$;
+    `);
+
     // ========================================================================
     // SELF-HEALING: Fix constraints on installs upgrading from schema v3
+    // Adds missing PRIMARY KEY, UNIQUE, and NOT NULL constraints
     // ========================================================================
 
     await client.query(`
@@ -2599,6 +2620,71 @@ export async function migrate(pool: pg.Pool): Promise<void> {
           SELECT 1 FROM pg_constraint WHERE conrelid = 'lfs_offline_sequence'::regclass AND contype = 'p'
         ) THEN
           ALTER TABLE lfs_offline_sequence ADD PRIMARY KEY (workstation_id);
+        END IF;
+      EXCEPTION WHEN undefined_table THEN NULL;
+      END $$;
+    `);
+
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'check_locks'::regclass AND contype = 'u'
+            AND conname = 'check_locks_check_id_unique'
+        ) THEN
+          ALTER TABLE check_locks ADD CONSTRAINT check_locks_check_id_unique UNIQUE (check_id);
+        END IF;
+      EXCEPTION WHEN undefined_table THEN NULL;
+      END $$;
+    `);
+
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'enterprises'::regclass AND contype = 'u'
+            AND conname = 'enterprises_code_unique'
+        ) THEN
+          ALTER TABLE enterprises ADD CONSTRAINT enterprises_code_unique UNIQUE (code);
+        END IF;
+      EXCEPTION WHEN undefined_table THEN NULL;
+      END $$;
+    `);
+
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'transaction_journal'::regclass AND contype = 'u'
+            AND conname = 'transaction_journal_event_id_unique'
+        ) THEN
+          ALTER TABLE transaction_journal ADD CONSTRAINT transaction_journal_event_id_unique UNIQUE (event_id);
+        END IF;
+      EXCEPTION WHEN undefined_table THEN NULL;
+      END $$;
+    `);
+
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'devices'::regclass AND contype = 'u'
+            AND conname = 'devices_device_id_unique'
+        ) THEN
+          ALTER TABLE devices ADD CONSTRAINT devices_device_id_unique UNIQUE (device_id);
+        END IF;
+      EXCEPTION WHEN undefined_table THEN NULL;
+      END $$;
+    `);
+
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'emc_users'::regclass AND contype = 'u'
+            AND conname = 'emc_users_email_unique'
+        ) THEN
+          ALTER TABLE emc_users ADD CONSTRAINT emc_users_email_unique UNIQUE (email);
         END IF;
       EXCEPTION WHEN undefined_table THEN NULL;
       END $$;
