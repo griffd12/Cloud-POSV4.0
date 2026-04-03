@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import { failoverFetch } from "@/lib/queryClient";
+import { connectionManager } from "@/lib/connection-manager";
 
 const DEVICE_TYPE_KEY = "pos_device_type";
 const DEVICE_TYPE_EXPLICIT_KEY = "pos_device_type_explicit";
@@ -177,6 +178,7 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
   const [enterpriseId, setEnterpriseId] = useState<string | null>(getStoredEnterpriseId);
 
   const setServerConfig = useCallback((url: string, code: string, id: string) => {
+    connectionManager.cloudServerUrl = url;
     localStorage.setItem(SERVER_URL_KEY, url);
     localStorage.setItem(ENTERPRISE_CODE_KEY, code);
     localStorage.setItem(ENTERPRISE_ID_KEY, id);
@@ -192,6 +194,7 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (serverUrl && enterpriseCode && enterpriseId) {
+      connectionManager.cloudServerUrl = serverUrl;
       setIsLfsConfigLoading(false);
       return;
     }
@@ -207,6 +210,7 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
           const url = data.cloudUrl;
           const code = data.enterpriseCode;
           const id = data.enterpriseId;
+          connectionManager.cloudServerUrl = url;
           localStorage.setItem(SERVER_URL_KEY, url);
           localStorage.setItem(ENTERPRISE_CODE_KEY, code);
           localStorage.setItem(ENTERPRISE_ID_KEY, id);
@@ -310,6 +314,8 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(ENTERPRISE_ID_KEY);
     localStorage.removeItem("pos_workstation_id");
     localStorage.removeItem("pos_selected_rvc");
+    connectionManager.localServerUrl = null;
+    localStorage.removeItem("cloud_server_url");
     setDeviceType(null);
     setHasExplicitDeviceType(false);
     setLinkedDeviceId(null);

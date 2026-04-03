@@ -65,9 +65,6 @@ class ConnectionManager {
   }
 
   getBaseUrl(): string {
-    if (this.localServerUrl) {
-      return this.localServerUrl;
-    }
     return window.location.origin;
   }
 
