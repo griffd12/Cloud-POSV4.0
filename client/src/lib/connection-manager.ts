@@ -18,6 +18,7 @@ class ConnectionManager {
   private syncProgress: { phase: string; current: number; total: number } | null = null;
   private syncInProgress = false;
   private lastSyncAttempt = 0;
+  private _isLfsMode: boolean | null = null;
 
   get currentState(): ConnectionState {
     return this.state;
@@ -105,11 +106,18 @@ class ConnectionManager {
 
   private async checkHealth(): Promise<void> {
     try {
-      const cloudUrl = this.cloudServerUrl;
-      const res = await fetch(`${cloudUrl}/api/health`, {
+      const res = await fetch("/api/health", {
         signal: AbortSignal.timeout(4000),
       });
       if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data?.mode === "local") {
+          this._isLfsMode = true;
+          this.consecutiveFailures = 0;
+          this.setState("cloud-online");
+          return;
+        }
+
         this.consecutiveFailures = 0;
         if (this.state === "cloud-offline" && !this.syncInProgress) {
           this.setState("reconnecting");
@@ -129,6 +137,10 @@ class ConnectionManager {
     } catch {
       this.handleHealthFailure();
     }
+  }
+
+  get isLfsMode(): boolean {
+    return this._isLfsMode === true;
   }
 
   private handleHealthFailure(): void {

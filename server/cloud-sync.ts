@@ -3,6 +3,7 @@ import {
   getPendingJournalEntries,
   markJournalEntrySynced,
   markJournalEntryFailed,
+  markJournalEntryDeadLetter,
   getPendingJournalCount,
 } from "./transaction-journal";
 import { log } from "./index";
@@ -62,8 +63,7 @@ async function syncBatchToCloud(): Promise<{ synced: number; failed: number }> {
   const retryableEntries = entries.filter((e) => (e.retryCount || 0) < MAX_RETRIES);
 
   for (const dead of exhaustedEntries) {
-    await markJournalEntryFailed(dead.id, `DEAD_LETTER: exceeded ${MAX_RETRIES} retries. Last error: ${dead.syncError || "unknown"}`);
-    await markJournalEntrySynced(dead.id);
+    await markJournalEntryDeadLetter(dead.id, `Exceeded ${MAX_RETRIES} retries. Last error: ${dead.syncError || "unknown"}`);
     log(`Dead-lettered entry ${dead.eventId} (${dead.entityType}/${dead.operationType}) after ${dead.retryCount} retries: ${dead.syncError || "unknown"}`, "cloud-sync");
   }
 

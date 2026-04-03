@@ -183,6 +183,16 @@ export async function markJournalEntryFailed(id: string, error: string): Promise
     .where(eq(transactionJournal.id, id));
 }
 
+export async function markJournalEntryDeadLetter(id: string, error: string): Promise<void> {
+  await db
+    .update(transactionJournal)
+    .set({
+      journalStatus: "dead_letter",
+      syncError: error,
+    })
+    .where(eq(transactionJournal.id, id));
+}
+
 export async function voidJournalEntry(eventId: string): Promise<void> {
   await db
     .update(transactionJournal)

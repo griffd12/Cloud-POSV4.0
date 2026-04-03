@@ -677,20 +677,10 @@ export function registerLfsAdminRoutes(app: Express) {
 
   app.get("/api/lfs/admin/journal/pending", async (_req: Request, res: Response) => {
     try {
-      const { storage } = await import("./storage");
-      const s = storage as {
-        getPendingTransactions?: () => unknown[];
-        getPendingTransactionCount?: () => number;
-      };
-      if (s.getPendingTransactions) {
-        const entries = s.getPendingTransactions();
-        res.json({ entries, count: entries.length });
-      } else if (s.getPendingTransactionCount) {
-        const count = s.getPendingTransactionCount();
-        res.json({ entries: [], count });
-      } else {
-        res.json({ entries: [], count: 0 });
-      }
+      const { getPendingJournalEntries, getPendingJournalCount } = await import("./transaction-journal");
+      const count = await getPendingJournalCount();
+      const entries = await getPendingJournalEntries(50);
+      res.json({ entries, count });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ entries: [], count: 0, error: msg });
