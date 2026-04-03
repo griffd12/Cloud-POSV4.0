@@ -2565,7 +2565,7 @@ export async function migrate(pool: pg.Pool): Promise<void> {
     // ========================================================================
 
     await client.query(`CREATE TABLE IF NOT EXISTS lfs_schema_version (
-      version INTEGER NOT NULL,
+      version INTEGER NOT NULL UNIQUE,
       applied_at TIMESTAMP DEFAULT now()
     );`);
 
