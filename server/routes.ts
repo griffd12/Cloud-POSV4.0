@@ -6117,10 +6117,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Payment is already voided" });
       }
       
+      const voidFields = { paymentStatus: "voided" as const };
       const { result: updatedPayment } = await journalWriteAtomic(
         "void", "check_payment", paymentId, "PATCH", `/api/check-payments/${paymentId}/void`,
         async (parentEventId) => {
-          const voidFields = { paymentStatus: "voided" as const };
           const voidedPayment = await storage.updateCheckPayment(paymentId, voidFields);
 
           const check = await storage.getCheck(payment.checkId);
@@ -6197,10 +6197,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Payment is not voided" });
       }
       
+      const restoreFields = { paymentStatus: "completed" as const };
       const { result: updatedPayment } = await journalWriteAtomic(
         "restore", "check_payment", paymentId, "PATCH", `/api/check-payments/${paymentId}/restore`,
         async (parentEventId) => {
-          const restoreFields = { paymentStatus: "completed" as const };
           const restoredPayment = await storage.updateCheckPayment(paymentId, restoreFields);
 
           const check = await storage.getCheck(payment.checkId);

@@ -1271,7 +1271,7 @@ async function syncEntity(
       if (operationType === "create") {
         const { id: localId, checkNumber: _offlineCheckNum, ...insertData } = dataWithOfflineId;
         if (!insertData.status) insertData.status = "open";
-        if (!insertData.subTotal) insertData.subTotal = "0";
+        if (!insertData.subtotal) insertData.subtotal = "0";
         if (!insertData.taxTotal) insertData.taxTotal = "0";
         if (!insertData.total) insertData.total = "0";
         const rvcId = insertData.rvcId as string;
