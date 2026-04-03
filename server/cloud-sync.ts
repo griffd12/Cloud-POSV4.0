@@ -84,11 +84,17 @@ async function syncBatchToCloud(): Promise<{ synced: number; failed: number }> {
     if (isADelete && isBDelete) {
       const aEnt = ENTITY_SYNC_ORDER[a.entityType] ?? 99;
       const bEnt = ENTITY_SYNC_ORDER[b.entityType] ?? 99;
-      return bEnt - aEnt;
+      if (aEnt !== bEnt) return bEnt - aEnt;
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return aTime - bTime;
     }
     const aEnt = ENTITY_SYNC_ORDER[a.entityType] ?? 99;
     const bEnt = ENTITY_SYNC_ORDER[b.entityType] ?? 99;
-    return aEnt - bEnt;
+    if (aEnt !== bEnt) return aEnt - bEnt;
+    const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return aTime - bTime;
   });
 
   let synced = 0;
@@ -118,6 +124,10 @@ async function syncBatchToCloud(): Promise<{ synced: number; failed: number }> {
       });
 
       if (res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (body?.result?.skipped && body?.result?.reason === "empty update payload") {
+          log(`Skipped empty update: ${entry.entityType}/${entry.operationType} (event ${entry.eventId})`, "cloud-sync");
+        }
         await markJournalEntrySynced(entry.id);
         synced++;
       } else {

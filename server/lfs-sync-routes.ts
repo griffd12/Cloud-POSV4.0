@@ -1081,6 +1081,24 @@ async function remapCheckIdAsync(payload: Record<string, unknown>): Promise<Reco
   return payload;
 }
 
+const IMMUTABLE_SYNC_FIELDS = new Set([
+  "id", "offlineTransactionId", "createdAt", "checkId", "check_id", "updatedAt",
+]);
+
+function cleanUpdatePayload(
+  raw: Record<string, unknown>,
+  extraStrip?: string[],
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (v === undefined) continue;
+    if (IMMUTABLE_SYNC_FIELDS.has(k)) continue;
+    if (extraStrip && extraStrip.includes(k)) continue;
+    result[k] = v;
+  }
+  return result;
+}
+
 async function syncEntity(
   entityType: string,
   operationType: string,
@@ -1110,7 +1128,7 @@ async function syncEntity(
       } else if (operationType === "update") {
         const id = dataWithOfflineId.id as string;
         const cloudId = await resolveCloudId(id);
-        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, ...updateData } = dataWithOfflineId;
+        const updateData = cleanUpdatePayload(dataWithOfflineId);
         if (Object.keys(updateData).length === 0) {
           return { id: cloudId, skipped: true, reason: "empty update payload" };
         }
@@ -1135,7 +1153,7 @@ async function syncEntity(
       } else if (operationType === "update") {
         const rawId = remapped.id as string;
         const cloudId = await resolveCloudId(rawId);
-        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, checkId: _ci, ...updateData } = remapped;
+        const updateData = cleanUpdatePayload(remapped);
         if (Object.keys(updateData).length === 0) {
           return { id: cloudId, skipped: true, reason: "empty update payload" };
         }
@@ -1160,7 +1178,7 @@ async function syncEntity(
       } else if (operationType === "update") {
         const id = remapped.id as string;
         const cloudId = await resolveCloudId(id);
-        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, checkId: _ci, ...updateData } = remapped;
+        const updateData = cleanUpdatePayload(remapped);
         if (Object.keys(updateData).length === 0) {
           return { id: cloudId, skipped: true, reason: "empty update payload" };
         }
@@ -1270,7 +1288,7 @@ async function syncEntity(
       } else if (operationType === "update") {
         const id = dataWithOfflineId.id as string;
         const cloudId = await resolveCloudId(id);
-        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, ...updateData } = dataWithOfflineId;
+        const updateData = cleanUpdatePayload(dataWithOfflineId);
         if (Object.keys(updateData).length === 0) {
           return { id: cloudId, skipped: true, reason: "empty update payload" };
         }
@@ -1315,7 +1333,7 @@ async function syncEntity(
       } else if (operationType === "update") {
         const rawId = remapped.id as string;
         const cloudId = await resolveCloudId(rawId);
-        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, checkId: _ci, ...updateData } = remapped;
+        const updateData = cleanUpdatePayload(remapped);
         if (Object.keys(updateData).length === 0) {
           return { id: cloudId, skipped: true, reason: "empty update payload" };
         }
@@ -1371,7 +1389,7 @@ async function syncEntity(
       } else if (operationType === "update") {
         const rawId = dataWithOfflineId.id as string;
         const cloudId = await resolveCloudId(rawId);
-        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, ...updateData } = dataWithOfflineId;
+        const updateData = cleanUpdatePayload(dataWithOfflineId);
         if (Object.keys(updateData).length === 0) {
           return { id: cloudId, skipped: true, reason: "empty update payload" };
         }
@@ -1396,7 +1414,10 @@ async function syncEntity(
       if (operationType === "update") {
         const rawId = dataWithOfflineId.id as string;
         const cloudId = await resolveCloudId(rawId);
-        const { id: _id, ...updateData } = dataWithOfflineId;
+        const updateData = cleanUpdatePayload(dataWithOfflineId);
+        if (Object.keys(updateData).length === 0) {
+          return { id: cloudId, skipped: true, reason: "empty update payload" };
+        }
         return await storage.updateGiftCard(cloudId, updateData);
       }
       throw new Error(`Unsupported operation for gift_card: ${operationType}`);
@@ -1405,7 +1426,10 @@ async function syncEntity(
       if (operationType === "update") {
         const rawId = dataWithOfflineId.id as string;
         const cloudId = await resolveCloudId(rawId);
-        const { id: _id, ...updateData } = dataWithOfflineId;
+        const updateData = cleanUpdatePayload(dataWithOfflineId);
+        if (Object.keys(updateData).length === 0) {
+          return { id: cloudId, skipped: true, reason: "empty update payload" };
+        }
         return await storage.updateLoyaltyMember(cloudId, updateData);
       }
       throw new Error(`Unsupported operation for loyalty_member: ${operationType}`);
@@ -1414,7 +1438,10 @@ async function syncEntity(
       if (operationType === "update") {
         const rawId = dataWithOfflineId.id as string;
         const cloudId = await resolveCloudId(rawId);
-        const { id: _id, ...updateData } = dataWithOfflineId;
+        const updateData = cleanUpdatePayload(dataWithOfflineId);
+        if (Object.keys(updateData).length === 0) {
+          return { id: cloudId, skipped: true, reason: "empty update payload" };
+        }
         return await storage.updateLoyaltyMember(cloudId, updateData);
       }
       throw new Error(`Unsupported operation for loyalty_enrollment: ${operationType}`);
@@ -1423,7 +1450,10 @@ async function syncEntity(
       if (operationType === "update") {
         const rawId = dataWithOfflineId.id as string;
         const cloudId = await resolveCloudId(rawId);
-        const { id: _id, ...updateData } = dataWithOfflineId;
+        const updateData = cleanUpdatePayload(dataWithOfflineId);
+        if (Object.keys(updateData).length === 0) {
+          return { id: cloudId, skipped: true, reason: "empty update payload" };
+        }
         return await storage.updateOnlineOrder(cloudId, updateData);
       }
       throw new Error(`Unsupported operation for online_order: ${operationType}`);
