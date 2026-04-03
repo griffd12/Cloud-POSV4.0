@@ -114,7 +114,7 @@ class ConnectionManager {
         if (data?.mode === "local") {
           this._isLfsMode = true;
           this.consecutiveFailures = 0;
-          this.setState("cloud-online");
+          await this.checkLfsCloudStatus();
           return;
         }
 
@@ -136,6 +136,26 @@ class ConnectionManager {
       }
     } catch {
       this.handleHealthFailure();
+    }
+  }
+
+  private async checkLfsCloudStatus(): Promise<void> {
+    try {
+      const capRes = await fetch("/api/lfs/capabilities", {
+        signal: AbortSignal.timeout(4000),
+      });
+      if (capRes.ok) {
+        const caps = await capRes.json();
+        if (caps.cloudReachable) {
+          this.setState("cloud-online");
+        } else {
+          this.setState("cloud-degraded");
+        }
+      } else {
+        this.setState("cloud-online");
+      }
+    } catch {
+      this.setState("cloud-online");
     }
   }
 
