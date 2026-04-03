@@ -7852,36 +7852,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         payload: { propertyId },
       }, 'all');
 
-      // Attempt to notify LFS to clear its local sales data
-      try {
-        const lfsUrl = process.env.LFS_URL || "http://192.168.1.4:3001";
-        const lfsApiKey = process.env.LFS_API_KEY;
-        if (lfsApiKey) {
-          const lfsRes = await fetch(`${lfsUrl}/api/lfs/sync/clear-sales-data`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-lfs-api-key": lfsApiKey },
-            body: JSON.stringify({ propertyId }),
-            signal: AbortSignal.timeout(10000),
-          });
-          if (lfsRes.ok) {
-            console.log(`[clear-sales-data] LFS notified successfully for property ${propertyId}`);
-          } else {
-            console.warn(`[clear-sales-data] LFS returned ${lfsRes.status} — queuing for next sync`);
-            const { queueLfsCommand } = await import("./lfs-sync-routes");
-            await queueLfsCommand("clear-sales-data", propertyId);
-          }
-        } else {
-          console.warn("[clear-sales-data] No LFS_API_KEY configured — skipping LFS notification");
-        }
-      } catch (lfsErr: unknown) {
-        const lfsErrMsg = lfsErr instanceof Error ? lfsErr.message : "Unknown error";
-        console.warn(`[clear-sales-data] Could not reach LFS (${lfsErrMsg}) — queuing for next sync`);
-        try {
-          const { queueLfsCommand } = await import("./lfs-sync-routes");
-          await queueLfsCommand("clear-sales-data", propertyId);
-        } catch (_e) { /* fallback: LFS can manually clear via admin dashboard */ }
-      }
-      
       // Create audit log entry for this action (recorded AFTER clearing)
       await storage.createAuditLog({
         rvcId: null,
@@ -7900,10 +7870,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         managerApprovalId: null,
       });
       
+      // Send response immediately — don't block on LFS notification
       res.json({
         success: true,
         message: "All sales data has been cleared",
         deleted: result.deleted,
+      });
+
+      // Queue LFS clear command in background (LFS picks it up on next sync cycle)
+      // This runs AFTER the response is sent so the browser never times out
+      setImmediate(async () => {
+        try {
+          const lfsUrl = process.env.LFS_URL || "http://192.168.1.4:3001";
+          const lfsApiKey = process.env.LFS_API_KEY;
+          if (lfsApiKey) {
+            const lfsRes = await fetch(`${lfsUrl}/api/lfs/sync/clear-sales-data`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-lfs-api-key": lfsApiKey },
+              body: JSON.stringify({ propertyId }),
+              signal: AbortSignal.timeout(5000),
+            });
+            if (lfsRes.ok) {
+              console.log(`[clear-sales-data] LFS notified successfully for property ${propertyId}`);
+            } else {
+              console.warn(`[clear-sales-data] LFS returned ${lfsRes.status} — queuing for next sync`);
+              const { queueLfsCommand } = await import("./lfs-sync-routes");
+              await queueLfsCommand("clear-sales-data", propertyId);
+            }
+          } else {
+            const { queueLfsCommand } = await import("./lfs-sync-routes");
+            await queueLfsCommand("clear-sales-data", propertyId);
+            console.log("[clear-sales-data] No LFS_API_KEY — queued for LFS next sync");
+          }
+        } catch (lfsErr: unknown) {
+          const lfsErrMsg = lfsErr instanceof Error ? lfsErr.message : "Unknown error";
+          console.warn(`[clear-sales-data] Could not reach LFS (${lfsErrMsg}) — queuing for next sync`);
+          try {
+            const { queueLfsCommand } = await import("./lfs-sync-routes");
+            await queueLfsCommand("clear-sales-data", propertyId);
+          } catch (_e) { /* LFS can manually clear via admin dashboard */ }
+        }
       });
     } catch (error: any) {
       console.error("Sales reset error:", error);
