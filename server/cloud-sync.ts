@@ -58,9 +58,19 @@ async function syncBatchToCloud(): Promise<{ synced: number; failed: number }> {
   }
 
   const MAX_RETRIES = 10;
+  const exhaustedEntries = entries.filter((e) => (e.retryCount || 0) >= MAX_RETRIES);
   const retryableEntries = entries.filter((e) => (e.retryCount || 0) < MAX_RETRIES);
+
+  for (const dead of exhaustedEntries) {
+    await markJournalEntryFailed(dead.id, `DEAD_LETTER: exceeded ${MAX_RETRIES} retries. Last error: ${dead.syncError || "unknown"}`);
+    await markJournalEntrySynced(dead.id);
+    log(`Dead-lettered entry ${dead.eventId} (${dead.entityType}/${dead.operationType}) after ${dead.retryCount} retries: ${dead.syncError || "unknown"}`, "cloud-sync");
+  }
+
   if (retryableEntries.length === 0) {
-    log(`All ${entries.length} pending entries exceeded retry limit (${MAX_RETRIES})`, "cloud-sync");
+    if (exhaustedEntries.length > 0) {
+      log(`Dead-lettered ${exhaustedEntries.length} entries, no retryable entries in batch`, "cloud-sync");
+    }
     return { synced: 0, failed: 0 };
   }
 
