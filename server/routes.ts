@@ -5665,8 +5665,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             () => storage.updatePaymentTransaction(paymentTransactionId!, { checkPaymentId: payment?.id }),
             { checkPaymentId: payment?.id }
           );
-        } catch (linkError: any) {
-          console.error("Failed to link payment_transaction to check_payment:", linkError.message);
+        } catch (linkError: unknown) {
+          const le = linkError as { message?: string };
+          console.error("Failed to link payment_transaction to check_payment:", le.message);
         }
       }
 
@@ -5674,14 +5675,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         try {
           const rvcForProp = await storage.getRvc(checkForBiz?.rvcId || "");
           const cashTxId = crypto.randomUUID();
+          const cashTxPayload = {
+            propertyId: rvcForProp?.propertyId || "", drawerId: resolvedDrawerId!,
+            assignmentId: resolvedDrawerAssignmentId!, employeeId,
+            transactionType: "sale" as const, amount, businessDate: businessDate!, checkId,
+          };
           await journalWriteAtomic(
             "create", "cash_transaction", cashTxId, "POST", "/api/cash-transactions",
-            () => storage.createCashTransaction({
-              propertyId: rvcForProp?.propertyId || "", drawerId: resolvedDrawerId!,
-              assignmentId: resolvedDrawerAssignmentId!, employeeId,
-              transactionType: "sale", amount, businessDate: businessDate!, checkId,
-            }),
-            { propertyId: rvcForProp?.propertyId, transactionType: "sale", amount, checkId }
+            () => storage.createCashTransaction(cashTxPayload),
+            cashTxPayload
           );
         } catch (e) {
           console.error("Failed to create cash_transaction for sale:", e);
@@ -6118,9 +6120,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { result: updatedPayment } = await journalWriteAtomic(
         "void", "check_payment", paymentId, "PATCH", `/api/check-payments/${paymentId}/void`,
         async (parentEventId) => {
-          const voidedPayment = await storage.updateCheckPayment(paymentId, {
-            paymentStatus: "voided",
-          });
+          const voidFields = { paymentStatus: "voided" as const };
+          const voidedPayment = await storage.updateCheckPayment(paymentId, voidFields);
 
           const check = await storage.getCheck(payment.checkId);
           if (check) {
@@ -6165,7 +6166,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
           return voidedPayment;
         },
-        { reason, employeeId, managerId }
+        { ...voidFields, reason, employeeId, managerId }
       );
 
       broadcastPaymentUpdate(payment.checkId);
@@ -6199,9 +6200,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { result: updatedPayment } = await journalWriteAtomic(
         "restore", "check_payment", paymentId, "PATCH", `/api/check-payments/${paymentId}/restore`,
         async (parentEventId) => {
-          const restoredPayment = await storage.updateCheckPayment(paymentId, {
-            paymentStatus: "completed",
-          });
+          const restoreFields = { paymentStatus: "completed" as const };
+          const restoredPayment = await storage.updateCheckPayment(paymentId, restoreFields);
 
           const check = await storage.getCheck(payment.checkId);
           if (check) {
@@ -6243,7 +6243,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
           return restoredPayment;
         },
-        { employeeId: req.body.employeeId }
+        { ...restoreFields, employeeId: req.body.employeeId }
       );
 
       broadcastPaymentUpdate(payment.checkId);
@@ -7471,17 +7471,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             if (activeAssignment) {
               try {
                 const refundCashTxId = crypto.randomUUID();
+                const refundCashTxPayload = {
+                  propertyId: rvcForCash!.propertyId!, drawerId: activeAssignment.drawerId,
+                  assignmentId: activeAssignment.id, employeeId: processedByEmployeeId,
+                  transactionType: "refund" as const,
+                  amount: (-parseFloat(rp.amount)).toFixed(2),
+                  businessDate: businessDate || originalCheck.businessDate || new Date().toISOString().split("T")[0],
+                  checkId: originalCheckId,
+                };
                 await journalWriteAtomic(
                   "create", "cash_transaction", refundCashTxId, "POST", "/api/cash-transactions",
-                  () => storage.createCashTransaction({
-                    propertyId: rvcForCash!.propertyId!, drawerId: activeAssignment.drawerId,
-                    assignmentId: activeAssignment.id, employeeId: processedByEmployeeId,
-                    transactionType: "refund",
-                    amount: (-parseFloat(rp.amount)).toFixed(2),
-                    businessDate: businessDate || originalCheck.businessDate || new Date().toISOString().split("T")[0],
-                    checkId: originalCheckId,
-                  }),
-                  { transactionType: "refund", amount: rp.amount, checkId: originalCheckId }
+                  () => storage.createCashTransaction(refundCashTxPayload),
+                  refundCashTxPayload
                 );
               } catch (e) {
                 console.error("Failed to create cash_transaction for refund:", e);
