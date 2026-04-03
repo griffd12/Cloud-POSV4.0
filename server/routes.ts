@@ -6897,14 +6897,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
+      const updateFields = {
+        unitPrice: newPrice.toFixed(2),
+        taxableAmount: newTaxableAmount.toFixed(2),
+        taxAmount: newTaxAmount,
+      };
       const { result: updatedItem } = await journalWriteAtomic(
         "update", "check_item", itemId, "POST", `/api/check-items/${itemId}/price-override`,
-        () => storage.updateCheckItem(itemId, {
-          unitPrice: newPrice.toFixed(2),
-          taxableAmount: newTaxableAmount.toFixed(2),
-          taxAmount: newTaxAmount,
-        }),
-        { oldPrice: item.unitPrice, newPrice, reason, employeeId }
+        () => storage.updateCheckItem(itemId, updateFields),
+        { ...updateFields, reason, employeeId, oldUnitPrice: item.unitPrice }
       );
 
       // Recalculate check totals

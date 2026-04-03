@@ -179,6 +179,7 @@ export class ConfigSyncService {
         }
       }
       await this.initOfflineCheckRangesFromWorkstations();
+      await this.pollPendingCommands();
       this.lastSyncAt = new Date().toISOString();
       this.syncCount++;
       if (failedTables.length > 0) {
@@ -232,6 +233,35 @@ export class ConfigSyncService {
     } catch (e: unknown) {
       const err = e as { message?: string };
       log(`Failed to initialize offline check ranges: ${err.message}`, "lfs-sync");
+    }
+  }
+
+  private async pollPendingCommands(): Promise<void> {
+    try {
+      const url = `${this.config.cloudBaseUrl}/api/lfs/sync/pending-commands?propertyId=${this.config.propertyId}`;
+      const resp = await fetch(url, {
+        headers: { "x-lfs-api-key": this.config.apiKey },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json() as { ok: boolean; commands: Array<{ command: string; propertyId: string }> };
+      if (!data.ok || !data.commands?.length) return;
+      for (const cmd of data.commands) {
+        log(`Executing pending command: ${cmd.command} for property ${cmd.propertyId}`, "lfs-sync");
+        if (cmd.command === "clear-sales-data") {
+          try {
+            const { storage } = await import("./storage");
+            await storage.clearSalesData(cmd.propertyId);
+            log(`clear-sales-data completed for property ${cmd.propertyId}`, "lfs-sync");
+          } catch (cmdErr: unknown) {
+            const ce = cmdErr as { message?: string };
+            log(`clear-sales-data failed: ${ce.message}`, "lfs-sync");
+          }
+        }
+      }
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      log(`Pending commands poll failed: ${err.message}`, "lfs-sync");
     }
   }
 

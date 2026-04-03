@@ -614,6 +614,36 @@ function registerLfsLocalRoutes(app: Express) {
       res.status(500).json({ error: msg });
     }
   });
+
+  app.post("/api/lfs/sync/clear-sales-data", async (req: Request, res: Response) => {
+    try {
+      const propertyId = req.body?.propertyId || process.env.LFS_PROPERTY_ID;
+      if (!propertyId) {
+        return res.status(400).json({ error: "propertyId is required" });
+      }
+      const apiKey = req.headers["x-lfs-api-key"];
+      const expectedKey = process.env.LFS_API_KEY;
+      if (expectedKey && apiKey !== expectedKey) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      const result = await storage.clearSalesData(propertyId);
+      const { db: dbRef } = await import("./db");
+      const { sql: sqlDrizzle } = await import("drizzle-orm");
+      try {
+        await dbRef.execute(
+          sqlDrizzle`DELETE FROM transaction_journal WHERE synced = true AND property_id = ${propertyId}`
+        );
+      } catch (journalErr) {
+        console.error("[LFS-Local] Failed to purge synced journal entries:", journalErr);
+      }
+      console.log(`[LFS-Local] clear-sales-data completed for property ${propertyId}: ${result.deleted} records deleted`);
+      res.json({ ok: true, deleted: result.deleted, propertyId });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      console.error("[LFS-Local] clear-sales-data failed:", msg);
+      res.status(500).json({ error: msg });
+    }
+  });
 }
 
 const idRemapCache = new Map<string, string>();
