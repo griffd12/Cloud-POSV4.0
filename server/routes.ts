@@ -658,7 +658,7 @@ async function sendItemsToKds(
         id: ticketId, checkId, roundId: round.id, kdsDeviceId: data.kdsDeviceId,
         orderDeviceId: data.orderDeviceId, stationType: data.stationType, rvcId: check.rvcId, status: "active",
       }),
-      { checkId, roundId: round.id, kdsDeviceId: data.kdsDeviceId, stationType: data.stationType }
+      { checkId, roundId: round.id, kdsDeviceId: data.kdsDeviceId, orderDeviceId: data.orderDeviceId, stationType: data.stationType, rvcId: check.rvcId, status: "active" }
     );
     for (const item of data.items) {
       await journalWriteAtomic(
@@ -676,7 +676,7 @@ async function sendItemsToKds(
       () => storage.createKdsTicket({
         id: fallbackTicketId, checkId, roundId: round.id, rvcId: check.rvcId, status: "active",
       }),
-      { checkId, roundId: round.id, rvcId: check.rvcId }
+      { checkId, roundId: round.id, rvcId: check.rvcId, status: "active" }
     );
     for (const item of unroutedItems) {
       await journalWriteAtomic(
@@ -914,7 +914,7 @@ async function getOrCreateRoutedPreviewTicket(
       orderDeviceId: orderDeviceId, stationType: stationType, status: "active", isPreview: true,
       paid: false,
     }),
-    { checkId, rvcId, kdsDeviceId, stationType, isPreview: true }
+    { checkId, rvcId, kdsDeviceId, orderDeviceId, stationType, status: "active", isPreview: true, paid: false }
   );
   return ticket;
 }
@@ -4443,7 +4443,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           id: pregenDiscountId, checkId, discountId, discountName: discount.name,
           amount: discountAmount.toFixed(2), employeeId, managerApprovalId: approvedByEmployeeId || null,
         }),
-        { checkId, discountId, discountAmount, employeeId }
+        { checkId, discountId, discountName: discount.name, amount: discountAmount.toFixed(2), employeeId, managerApprovalId: approvedByEmployeeId || null }
       );
 
       // Recalculate check totals
@@ -4617,7 +4617,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         businessDate: check.originBusinessDate || new Date().toISOString().split("T")[0],
         originDeviceId: req.body.originDeviceId || null,
       }),
-      { checkId: check.id, serviceChargeId: serviceCharge.id, amount }
+      {
+        checkId: check.id, enterpriseId: property?.enterpriseId || "",
+        propertyId: rvc?.propertyId || "", rvcId: check.rvcId,
+        serviceChargeId: serviceCharge.id, nameAtSale: serviceCharge.name,
+        codeAtSale: serviceCharge.code, isTaxableAtSale: serviceCharge.isTaxable,
+        taxRateAtSale: taxRateAtSale?.toString() || null,
+        amount: amount.toFixed(2), taxableAmount: taxableAmount.toFixed(2),
+        taxAmount: taxAmount.toFixed(2), autoApplied: req.body.autoApplied || false,
+        appliedByEmployeeId: req.body.employeeId || null,
+        businessDate: check.originBusinessDate || new Date().toISOString().split("T")[0],
+        originDeviceId: req.body.originDeviceId || null,
+      }
     );
 
     await recalculateCheckTotals(check.id);
@@ -4944,7 +4955,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             originBusinessDate: businessDate, businessDate,
             testMode: testMode || false, originDeviceId: originDeviceId || null,
           }),
-          { rvcId, employeeId, orderType, businessDate },
+          { rvcId, employeeId, orderType, status: "open", originBusinessDate: businessDate, businessDate, testMode: testMode || false, originDeviceId: originDeviceId || null },
           undefined, workstationId, rvc?.propertyId
         );
 
@@ -5027,7 +5038,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           itemStatus: itemStatus || "active", sent: false, voided: false,
           businessDate, ...taxSnapshot,
         }),
-        { checkId, menuItemId, unitPrice, quantity: itemQuantity }
+        { checkId, menuItemId, menuItemName, unitPrice, modifiers: modifiers || [], quantity: itemQuantity, itemStatus: itemStatus || "active", sent: false, voided: false, businessDate, ...taxSnapshot }
       );
 
       res.status(201).json(item);
@@ -5209,7 +5220,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           () => storage.updateCheckItem(item.id, {
             voided: true, voidReason: reason || "Transaction cancelled", voidedAt: new Date(),
           }),
-          { voided: true, voidReason: reason || "Transaction cancelled" }
+          { voided: true, voidReason: reason || "Transaction cancelled", voidedAt: new Date().toISOString() }
         );
         voidedItems.push(voidedItem);
         
@@ -5467,7 +5478,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         () => storage.updateCheckItem(itemId, {
           voided: true, voidReason: reason, voidedByEmployeeId: employeeId, voidedAt: new Date(),
         }),
-        { reason, employeeId }
+        { voided: true, voidReason: reason, voidedByEmployeeId: employeeId, voidedAt: new Date().toISOString() }
       );
 
       await journalWriteAtomic(
@@ -5644,7 +5655,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           paymentTransactionId: paymentTransactionId || null, paymentStatus,
           paymentAttemptId: idempotencyKey || undefined,
         }),
-        { checkId, tenderId, amount, tipAmount, paymentStatus }
+        { checkId, tenderId, tenderName: tender.name, amount, tipAmount: tipAmount || undefined, employeeId, businessDate, paymentTransactionId: paymentTransactionId || null, paymentStatus, paymentAttemptId: idempotencyKey || undefined }
       );
 
       if (paymentTransactionId) {
@@ -5743,7 +5754,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           () => storage.updateCheck(checkId, {
             status: "closed", closedAt: new Date(), businessDate, tipTotal: tipTotal.toFixed(2),
           }),
-          { status: "closed", businessDate }
+          { status: "closed", closedAt: new Date().toISOString(), businessDate, tipTotal: tipTotal.toFixed(2) }
         );
 
         // Activate any pending gift cards and process reloads on this check
@@ -6470,7 +6481,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         "create", "check_split", sourceCheckId, "POST", `/api/checks/${sourceCheckId}/split`,
         async (parentEventId) => {
       for (const targetIndex of Array.from(targetIndices)) {
-        const newCheck = await storage.createCheckAtomic(sourceCheck.rvcId, {
+        const splitCheckData = {
           rvcId: sourceCheck.rvcId,
           employeeId: sourceCheck.employeeId,
           orderType: sourceCheck.orderType,
@@ -6478,7 +6489,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           businessDate,
           tableNumber: sourceCheck.tableNumber,
           guestCount: 1,
-        });
+        };
+        const newCheck = await storage.createCheckAtomic(sourceCheck.rvcId, splitCheckData);
+        await recordCompoundJournalEntry(
+          parentEventId, "create", "check", newCheck.id,
+          "POST", `/api/checks/split-new`,
+          splitCheckData
+        );
         newChecks.push({ index: targetIndex, check: newCheck });
       }
 
@@ -6508,6 +6525,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           const newQtyOriginal = Math.max(1, Math.round(originalQty * originalShare));
           const newPriceOriginal = originalPrice * originalShare;
 
+          await recordCompoundJournalEntry(
+            parentEventId, "update", "check_item", op.itemId,
+            "PATCH", `/api/check-items/${op.itemId}/split-resize`,
+            { quantity: newQtyOriginal, unitPrice: newPriceOriginal.toFixed(2) }
+          );
           await storage.updateCheckItem(op.itemId, {
             quantity: newQtyOriginal,
             unitPrice: newPriceOriginal.toFixed(2),
@@ -6549,9 +6571,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               taxableAmount: newTaxableAmount.toFixed(2),
             };
             
-            // Also update the ORIGINAL item's tax snapshot proportionally
             const originalRemainingTaxable = originalTaxable * (1 - shareRatio);
             const originalRemainingTax = item.taxModeAtSale === "add_on" ? originalRemainingTaxable * taxRate : 0;
+            await recordCompoundJournalEntry(
+              parentEventId, "update", "check_item", op.itemId,
+              "PATCH", `/api/check-items/${op.itemId}/split-tax-adjust`,
+              { taxAmount: originalRemainingTax.toFixed(2), taxableAmount: originalRemainingTaxable.toFixed(2) }
+            );
             await storage.updateCheckItem(op.itemId, {
               taxAmount: originalRemainingTax.toFixed(2),
               taxableAmount: originalRemainingTaxable.toFixed(2),
@@ -6571,7 +6597,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             );
           }
 
-          const newItem = await storage.createCheckItem({
+          const splitItemData = {
             checkId: targetCheck.id,
             menuItemId: item.menuItemId,
             menuItemName: `${item.menuItemName} (shared)`,
@@ -6579,13 +6605,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             modifiers: item.modifiers || [],
             quantity: sharedQty,
             itemStatus: "active",
-            sent: item.sent, // Keep original sent status (items must be sent before splitting)
-            roundId: item.roundId, // Keep original round reference
+            sent: item.sent,
+            roundId: item.roundId,
             voided: false,
             businessDate,
-            // Tax snapshot - inherited from original or calculated fresh
             ...taxSnapshot,
-          });
+          };
+          const newItem = await storage.createCheckItem(splitItemData);
+          await recordCompoundJournalEntry(
+            parentEventId, "create", "check_item", newItem.id,
+            "POST", `/api/checks/${targetCheck.id}/items/split-share`,
+            splitItemData
+          );
 
           results.push({
             type: "share",
@@ -6739,7 +6770,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             await recordCompoundJournalEntry(
               parentEventId, "update", "check", sourceId,
               "PATCH", `/api/checks/${sourceId}/close-after-merge`,
-              { status: "closed", reason: "Closed after merge into " + targetCheckId }
+              { status: "closed", closedAt: new Date().toISOString(), reason: "Closed after merge into " + targetCheckId }
             );
             await storage.updateCheck(sourceId, {
               status: "closed",
@@ -6947,7 +6978,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { result: reopenedCheck } = await journalWriteAtomic(
         "update", "check", id, "POST", `/api/checks/${id}/reopen`,
         () => storage.updateCheck(id, { status: "open", closedAt: null }),
-        { employeeId }
+        { status: "open", closedAt: null }
       );
 
       // Log the action
@@ -11559,7 +11590,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           id: pregenPunchId, propertyId, employeeId, punchType: "clock_in",
           actualTimestamp: now, businessDate, jobCodeId, notes, source: "pos",
         }),
-        { propertyId, employeeId, punchType: "clock_in", businessDate }
+        { propertyId, employeeId, punchType: "clock_in", actualTimestamp: now.toISOString(), businessDate, jobCodeId, notes, source: "pos" }
       );
 
       await storage.recalculateTimecard(employeeId, businessDate);
@@ -11617,7 +11648,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           id: pregenOutPunchId, propertyId, employeeId, punchType: "clock_out",
           actualTimestamp: now, businessDate, notes, source: "pos",
         }),
-        { propertyId, employeeId, punchType: "clock_out", businessDate }
+        { propertyId, employeeId, punchType: "clock_out", actualTimestamp: now.toISOString(), businessDate, notes, source: "pos" }
       );
 
       await storage.recalculateTimecard(employeeId, businessDate);
@@ -11759,7 +11790,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           punchType: "break_start", actualTimestamp: now, businessDate, source: "pos",
           notes: `${breakType === "meal" ? "Meal" : "Rest"} break (${scheduledMinutes} min)`,
         }),
-        { propertyId, employeeId, punchType: "break_start", breakType, businessDate }
+        { propertyId, employeeId, jobCodeId: lastPunch.jobCodeId, punchType: "break_start", actualTimestamp: now.toISOString(), businessDate, source: "pos", notes: `${breakType === "meal" ? "Meal" : "Rest"} break (${scheduledMinutes} min)` }
       );
 
       // Create break session record
@@ -11817,7 +11848,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           actualTimestamp: now, businessDate, source: "pos",
           notes: `Break ended after ${breakMinutes} minutes`,
         }),
-        { propertyId, employeeId, punchType: "break_end", businessDate }
+        { propertyId, employeeId, punchType: "break_end", actualTimestamp: now.toISOString(), businessDate, source: "pos", notes: `Break ended after ${breakMinutes} minutes` }
       );
 
       // Update break session
@@ -11886,7 +11917,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           editedById || undefined, editReason,
           editedByEmcUserId || undefined, editedByDisplayName || undefined
         ),
-        { actualTimestamp, editedById, editReason }
+        { actualTimestamp, editedById, editedByEmcUserId, editedByDisplayName, editReason }
       );
 
       if (!punch) {
@@ -19858,7 +19889,7 @@ connect();
       const { result: transaction } = await journalWriteAtomic(
         "create", "cash_transaction", cashTxId, "POST", "/api/cash-transactions",
         () => storage.createCashTransaction(req.body),
-        { transactionType: req.body.transactionType, amount: req.body.amount, drawerId: req.body.drawerId }
+        { propertyId: req.body.propertyId, drawerId: req.body.drawerId, assignmentId: req.body.assignmentId, employeeId: req.body.employeeId, transactionType: req.body.transactionType, amount: req.body.amount, businessDate: req.body.businessDate, checkId: req.body.checkId, notes: req.body.notes, referenceNumber: req.body.referenceNumber }
       );
       
       if (req.body.assignmentId) {
@@ -21715,7 +21746,7 @@ connect();
           currentPoints: pointsAfter,
           lifetimePoints: lifetimeAfter,
         }),
-        { points, pointsBefore, pointsAfter, employeeId }
+        { currentPoints: pointsAfter, lifetimePoints: lifetimeAfter }
       );
 
       const transaction = await storage.createLoyaltyTransaction({
@@ -21874,7 +21905,7 @@ connect();
             loyaltyPointsEarned: pointsEarned,
           });
         },
-        { customerId, checkId, pointsEarned, pointsBefore, pointsAfter, employeeId }
+        { currentPoints: pointsAfter, lifetimePoints: lifetimeAfter, lastVisitAt: new Date().toISOString() }
       );
 
       const transaction = await storage.createLoyaltyTransaction({
@@ -22008,7 +22039,7 @@ connect();
         () => storage.updateLoyaltyMember(member.id, {
           currentPoints: pointsAfter,
         }),
-        { customerId, rewardId, checkId, pointsCost, pointsBefore, pointsAfter }
+        { currentPoints: pointsAfter }
       );
 
       const redemption = await storage.createLoyaltyRedemption({

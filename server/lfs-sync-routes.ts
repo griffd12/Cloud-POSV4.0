@@ -1015,6 +1015,33 @@ function registerLfsCloudRoutes(app: Express) {
       res.status(500).json({ error: msg });
     }
   });
+
+  app.post("/api/lfs/sync/clear-sales-data", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
+      const propertyId = scopedPropertyId || req.body.propertyId;
+      if (!propertyId) {
+        return res.status(400).json({ error: "propertyId is required" });
+      }
+      const result = await storage.clearSalesData(propertyId);
+      const { db: dbRef } = await import("./db");
+      const { sql: sqlDrizzle } = await import("drizzle-orm");
+      try {
+        await dbRef.execute(
+          sqlDrizzle`DELETE FROM transaction_journal WHERE synced = true AND property_id = ${propertyId}`
+        );
+      } catch (journalErr) {
+        console.error("[LFS] Failed to purge synced journal entries:", journalErr);
+      }
+      recordLfsSyncActivity(req, "clear-sales-data", "down", 1, "success");
+      res.json({ ok: true, deleted: result.deleted, propertyId });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      recordLfsSyncActivity(req, "clear-sales-data", "down", 0, "error", msg);
+      res.status(500).json({ error: msg });
+    }
+  });
 }
 
 async function storeDurableRemap(localId: string, cloudId: string): Promise<void> {
@@ -1109,6 +1136,10 @@ async function syncEntity(
     case "check": {
       if (operationType === "create") {
         const { id: localId, checkNumber: _offlineCheckNum, ...insertData } = dataWithOfflineId;
+        if (!insertData.status) insertData.status = "open";
+        if (!insertData.subTotal) insertData.subTotal = "0";
+        if (!insertData.taxTotal) insertData.taxTotal = "0";
+        if (!insertData.total) insertData.total = "0";
         const rvcId = insertData.rvcId as string;
         const createFn = typeof (storage as unknown as Record<string, unknown>).createCheckAtomic === "function"
           ? (storage as unknown as Record<string, Function>).createCheckAtomic.bind(storage)
@@ -1140,6 +1171,15 @@ async function syncEntity(
       const remapped = await remapCheckIdAsync(dataWithOfflineId);
       if (operationType === "create") {
         const { id: localId, ...insertData } = remapped;
+        if (!insertData.menuItemName && insertData.menuItemId) {
+          try {
+            const menuItem = await storage.getMenuItem(insertData.menuItemId as string);
+            if (menuItem) insertData.menuItemName = menuItem.name;
+          } catch (_e) { /* best effort */ }
+        }
+        if (!insertData.menuItemName) insertData.menuItemName = "Unknown Item";
+        if (!insertData.itemStatus) insertData.itemStatus = "ordered";
+        if (insertData.quantity === undefined) insertData.quantity = 1;
         const created = await storage.createCheckItem(insertData as Parameters<typeof storage.createCheckItem>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
@@ -1166,13 +1206,13 @@ async function syncEntity(
       if (operationType === "create") {
         const { id: localId, ...insertData } = remapped;
         if (!insertData.tenderName && insertData.tenderId) {
-          const tender = await storage.getTender(insertData.tenderId as string);
-          if (tender) {
-            insertData.tenderName = tender.name;
-          } else {
-            insertData.tenderName = "Unknown";
-          }
+          try {
+            const tender = await storage.getTender(insertData.tenderId as string);
+            if (tender) insertData.tenderName = tender.name;
+          } catch (_e) { /* best effort */ }
         }
+        if (!insertData.tenderName) insertData.tenderName = "Unknown";
+        if (!insertData.paymentStatus) insertData.paymentStatus = "completed";
         const created = await storage.createPayment(insertData as Parameters<typeof storage.createPayment>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
@@ -1211,6 +1251,13 @@ async function syncEntity(
       const remapped = await remapCheckIdAsync(dataWithOfflineId);
       if (operationType === "create") {
         const { id: localId, ...insertData } = remapped;
+        if (!insertData.discountName && insertData.discountId) {
+          try {
+            const discount = await storage.getDiscount(insertData.discountId as string);
+            if (discount) insertData.discountName = discount.name;
+          } catch (_e) { /* best effort */ }
+        }
+        if (!insertData.discountName) insertData.discountName = "Unknown Discount";
         const created = await storage.createCheckDiscount(insertData as Parameters<typeof storage.createCheckDiscount>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
@@ -1283,6 +1330,8 @@ async function syncEntity(
     case "time_punch": {
       if (operationType === "create") {
         const { id: localId, ...insertData } = dataWithOfflineId;
+        if (!insertData.source) insertData.source = "pos";
+        if (!insertData.actualTimestamp) insertData.actualTimestamp = new Date();
         const created = await storage.createTimePunch(insertData as Parameters<typeof storage.createTimePunch>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
