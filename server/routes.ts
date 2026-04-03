@@ -7849,7 +7849,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         payload: { propertyId },
       }, 'all');
 
-      // Attempt to notify LFS to clear its local sales data (best-effort)
+      // Attempt to notify LFS to clear its local sales data
       try {
         const lfsUrl = process.env.LFS_URL || "http://192.168.1.4:3001";
         const lfsApiKey = process.env.LFS_API_KEY;
@@ -7863,13 +7863,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           if (lfsRes.ok) {
             console.log(`[clear-sales-data] LFS notified successfully for property ${propertyId}`);
           } else {
-            console.warn(`[clear-sales-data] LFS returned ${lfsRes.status} — LFS admin can manually clear via dashboard`);
+            console.warn(`[clear-sales-data] LFS returned ${lfsRes.status} — queuing for next sync`);
+            const { queueLfsCommand } = await import("./lfs-sync-routes");
+            queueLfsCommand("clear-sales-data", propertyId);
           }
         } else {
           console.warn("[clear-sales-data] No LFS_API_KEY configured — skipping LFS notification");
         }
       } catch (lfsErr: any) {
-        console.warn(`[clear-sales-data] Could not reach LFS (${lfsErr.message}) — LFS admin can manually clear via dashboard`);
+        console.warn(`[clear-sales-data] Could not reach LFS (${lfsErr.message}) — queuing for next sync`);
+        try {
+          const { queueLfsCommand } = await import("./lfs-sync-routes");
+          queueLfsCommand("clear-sales-data", propertyId);
+        } catch (_e) { /* fallback: LFS can manually clear via admin dashboard */ }
       }
       
       // Create audit log entry for this action (recorded AFTER clearing)

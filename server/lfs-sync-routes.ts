@@ -9,6 +9,22 @@ import { getCloudSyncStatus } from "./cloud-sync";
 
 const isLocalMode = process.env.DB_MODE === "local";
 
+const pendingLfsCommands: Array<{ command: string; propertyId: string; createdAt: Date }> = [];
+
+export function queueLfsCommand(command: string, propertyId: string) {
+  pendingLfsCommands.push({ command, propertyId, createdAt: new Date() });
+}
+
+export function drainLfsCommands(propertyId: string): Array<{ command: string; propertyId: string }> {
+  const matching: Array<{ command: string; propertyId: string }> = [];
+  for (let i = pendingLfsCommands.length - 1; i >= 0; i--) {
+    if (pendingLfsCommands[i].propertyId === propertyId) {
+      matching.push(pendingLfsCommands.splice(i, 1)[0]);
+    }
+  }
+  return matching.reverse();
+}
+
 interface LfsAuthenticatedRequest extends Request {
   lfsPropertyId?: string;
   lfsConfigId?: string;
@@ -1039,6 +1055,22 @@ function registerLfsCloudRoutes(app: Express) {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       recordLfsSyncActivity(req, "clear-sales-data", "down", 0, "error", msg);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.get("/api/lfs/sync/pending-commands", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
+      const propertyId = scopedPropertyId || (req.query.propertyId as string);
+      if (!propertyId) {
+        return res.status(400).json({ error: "propertyId is required" });
+      }
+      const commands = drainLfsCommands(propertyId);
+      res.json({ ok: true, commands });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });
     }
   });
