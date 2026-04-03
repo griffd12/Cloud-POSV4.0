@@ -6136,9 +6136,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               await recordCompoundJournalEntry(
                 parentEventId, "update", "check", check.id,
                 "PATCH", `/api/checks/${check.id}/reopen-after-void`,
-                { status: "open", reason: "Reopened after payment void" }
+                { status: "open", closedAt: null, reason: "Reopened after payment void" }
               );
-              await storage.updateCheck(check.id, { status: "open" });
+              await storage.updateCheck(check.id, { status: "open", closedAt: null });
             }
 
             await storage.createAuditLog({
@@ -6214,12 +6214,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             const isFullyPaid = newPaidAmount >= total;
 
             if (check.status === "open" && isFullyPaid) {
+              const closedAt = new Date();
               await recordCompoundJournalEntry(
                 parentEventId, "update", "check", check.id,
                 "PATCH", `/api/checks/${check.id}/close-after-restore`,
-                { status: "closed", reason: "Closed after payment restore" }
+                { status: "closed", closedAt: closedAt.toISOString(), reason: "Closed after payment restore" }
               );
-              await storage.updateCheck(check.id, { status: "closed", closedAt: new Date() });
+              await storage.updateCheck(check.id, { status: "closed", closedAt });
               broadcastCheckUpdate(check.id, "closed", check.rvcId);
             }
 

@@ -63,14 +63,14 @@ export async function fetchPendingLfsCommands(propertyId: string): Promise<Array
   }
 }
 
-export async function ackLfsCommands(commandIds: number[]): Promise<void> {
+export async function ackLfsCommands(commandIds: number[], propertyId: string): Promise<void> {
   if (commandIds.length === 0) return;
   await ensureLfsCommandTable();
   try {
     const { db: dbRef } = await import("./db");
     const { sql: sqlDrizzle } = await import("drizzle-orm");
     await dbRef.execute(
-      sqlDrizzle`UPDATE lfs_pending_commands SET executed = TRUE WHERE id = ANY(${commandIds})`
+      sqlDrizzle`UPDATE lfs_pending_commands SET executed = TRUE WHERE id = ANY(${commandIds}) AND property_id = ${propertyId}`
     );
   } catch (e) {
     console.error("[LFS] Failed to ack commands:", e);
@@ -1159,11 +1159,17 @@ function registerLfsCloudRoutes(app: Express) {
 
   app.post("/api/lfs/sync/ack-commands", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
+      const propertyId = scopedPropertyId || req.body?.propertyId;
+      if (!propertyId) {
+        return res.status(400).json({ error: "propertyId is required" });
+      }
       const commandIds = req.body?.commandIds as number[] | undefined;
       if (!commandIds || !Array.isArray(commandIds) || commandIds.length === 0) {
         return res.status(400).json({ error: "commandIds array is required" });
       }
-      await ackLfsCommands(commandIds);
+      await ackLfsCommands(commandIds, propertyId);
       res.json({ ok: true, acknowledged: commandIds.length });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";

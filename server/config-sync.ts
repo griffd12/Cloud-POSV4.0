@@ -276,7 +276,7 @@ export class ConfigSyncService {
           await fetch(ackUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-lfs-api-key": this.config.apiKey },
-            body: JSON.stringify({ commandIds: succeededIds }),
+            body: JSON.stringify({ commandIds: succeededIds, propertyId: this.config.propertyId }),
             signal: AbortSignal.timeout(10000),
           });
         } catch (_ackErr) {
