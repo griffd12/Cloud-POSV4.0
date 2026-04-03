@@ -1165,6 +1165,14 @@ async function syncEntity(
       const remapped = await remapCheckIdAsync(dataWithOfflineId);
       if (operationType === "create") {
         const { id: localId, ...insertData } = remapped;
+        if (!insertData.tenderName && insertData.tenderId) {
+          const tender = await storage.getTender(insertData.tenderId as string);
+          if (tender) {
+            insertData.tenderName = tender.name;
+          } else {
+            insertData.tenderName = "Unknown";
+          }
+        }
         const created = await storage.createPayment(insertData as Parameters<typeof storage.createPayment>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
