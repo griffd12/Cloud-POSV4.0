@@ -5794,7 +5794,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                       });
                       return null;
                     },
-                    { checkId, giftCardId: pendingCard.id }
+                    { status: "active", currentBalance: pendingCard.initialBalance, activatedAt: new Date().toISOString(), activatedById: employeeId }
                   );
                   console.log("Activated gift card:", pendingCard.cardNumber);
                 }
@@ -5831,7 +5831,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                       });
                       return null;
                     },
-                    { checkId, giftCardId: reloadCard.id }
+                    { currentBalance: newBalance }
                   );
                   console.log("Reloaded gift card:", reloadCard.cardNumber, "New balance:", newBalance);
                 }
@@ -7848,6 +7848,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         type: 'sales_data_cleared',
         payload: { propertyId },
       }, 'all');
+
+      // Attempt to notify LFS to clear its local sales data (best-effort)
+      try {
+        const lfsUrl = process.env.LFS_URL || "http://192.168.1.4:3001";
+        const lfsApiKey = process.env.LFS_API_KEY;
+        if (lfsApiKey) {
+          const lfsRes = await fetch(`${lfsUrl}/api/lfs/sync/clear-sales-data`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-lfs-api-key": lfsApiKey },
+            body: JSON.stringify({ propertyId }),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (lfsRes.ok) {
+            console.log(`[clear-sales-data] LFS notified successfully for property ${propertyId}`);
+          } else {
+            console.warn(`[clear-sales-data] LFS returned ${lfsRes.status} — LFS admin can manually clear via dashboard`);
+          }
+        } else {
+          console.warn("[clear-sales-data] No LFS_API_KEY configured — skipping LFS notification");
+        }
+      } catch (lfsErr: any) {
+        console.warn(`[clear-sales-data] Could not reach LFS (${lfsErr.message}) — LFS admin can manually clear via dashboard`);
+      }
       
       // Create audit log entry for this action (recorded AFTER clearing)
       await storage.createAuditLog({
@@ -22453,7 +22476,7 @@ connect();
         () => storage.updateGiftCard(giftCard.id, {
           currentBalance: newBalance,
         }),
-        { cardNumber, amount, checkId, currentBalance: giftCard.currentBalance, newBalance }
+        { currentBalance: newBalance }
       );
 
       const transaction = await storage.createGiftCardTransaction({

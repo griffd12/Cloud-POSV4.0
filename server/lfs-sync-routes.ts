@@ -1275,6 +1275,13 @@ async function syncEntity(
       const remapped = await remapCheckIdAsync(dataWithOfflineId);
       if (operationType === "create") {
         const { id: localId, ...insertData } = remapped;
+        if (!insertData.nameAtSale && insertData.serviceChargeId) {
+          try {
+            const sc = await storage.getServiceCharge(insertData.serviceChargeId as string);
+            if (sc) insertData.nameAtSale = sc.name;
+          } catch (_e) { /* best effort */ }
+        }
+        if (!insertData.nameAtSale) insertData.nameAtSale = "Unknown Service Charge";
         const created = await storage.createCheckServiceCharge(insertData as Parameters<typeof storage.createCheckServiceCharge>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
@@ -1377,6 +1384,7 @@ async function syncEntity(
       const remapped = await remapCheckIdAsync(dataWithOfflineId);
       if (operationType === "create") {
         const { id: localId, ...insertData } = remapped;
+        if (!insertData.status) insertData.status = "active";
         const created = await storage.createKdsTicket(insertData as Parameters<typeof storage.createKdsTicket>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
