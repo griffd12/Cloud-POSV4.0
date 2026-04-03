@@ -7871,8 +7871,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         } else {
           console.warn("[clear-sales-data] No LFS_API_KEY configured — skipping LFS notification");
         }
-      } catch (lfsErr: any) {
-        console.warn(`[clear-sales-data] Could not reach LFS (${lfsErr.message}) — queuing for next sync`);
+      } catch (lfsErr: unknown) {
+        const lfsErrMsg = lfsErr instanceof Error ? lfsErr.message : "Unknown error";
+        console.warn(`[clear-sales-data] Could not reach LFS (${lfsErrMsg}) — queuing for next sync`);
         try {
           const { queueLfsCommand } = await import("./lfs-sync-routes");
           await queueLfsCommand("clear-sales-data", propertyId);

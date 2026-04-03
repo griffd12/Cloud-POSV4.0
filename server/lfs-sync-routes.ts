@@ -44,7 +44,7 @@ export async function queueLfsCommand(command: string, propertyId: string) {
   }
 }
 
-export async function drainLfsCommands(propertyId: string): Promise<Array<{ command: string; propertyId: string }>> {
+export async function fetchPendingLfsCommands(propertyId: string): Promise<Array<{ id: number; command: string; propertyId: string }>> {
   await ensureLfsCommandTable();
   try {
     const { db: dbRef } = await import("./db");
@@ -52,32 +52,28 @@ export async function drainLfsCommands(propertyId: string): Promise<Array<{ comm
     const result = await dbRef.execute(
       sqlDrizzle`SELECT id, command, property_id FROM lfs_pending_commands WHERE property_id = ${propertyId} AND executed = FALSE ORDER BY id`
     );
-    const rows = result.rows || [];
-    if (rows.length > 0) {
-      const ids = rows.map((r: Record<string, unknown>) => r.id as number);
-      await dbRef.execute(
-        sqlDrizzle`UPDATE lfs_pending_commands SET executed = TRUE WHERE id = ANY(${ids})`
-      );
-    }
-    return rows.map((r: Record<string, unknown>) => ({
+    return (result.rows || []).map((r: Record<string, unknown>) => ({
+      id: r.id as number,
       command: r.command as string,
       propertyId: r.property_id as string,
     }));
   } catch (e) {
-    console.error("[LFS] Failed to drain commands:", e);
+    console.error("[LFS] Failed to fetch pending commands:", e);
     return [];
   }
 }
 
-export async function markCommandFailed(propertyId: string, command: string): Promise<void> {
+export async function ackLfsCommands(commandIds: number[]): Promise<void> {
+  if (commandIds.length === 0) return;
+  await ensureLfsCommandTable();
   try {
     const { db: dbRef } = await import("./db");
     const { sql: sqlDrizzle } = await import("drizzle-orm");
     await dbRef.execute(
-      sqlDrizzle`UPDATE lfs_pending_commands SET executed = FALSE WHERE id = (SELECT id FROM lfs_pending_commands WHERE property_id = ${propertyId} AND command = ${command} AND executed = TRUE ORDER BY id DESC LIMIT 1)`
+      sqlDrizzle`UPDATE lfs_pending_commands SET executed = TRUE WHERE id = ANY(${commandIds})`
     );
   } catch (e) {
-    console.error("[LFS] Failed to mark command as failed:", e);
+    console.error("[LFS] Failed to ack commands:", e);
   }
 }
 
@@ -1153,8 +1149,22 @@ function registerLfsCloudRoutes(app: Express) {
       if (!propertyId) {
         return res.status(400).json({ error: "propertyId is required" });
       }
-      const commands = await drainLfsCommands(propertyId);
+      const commands = await fetchPendingLfsCommands(propertyId);
       res.json({ ok: true, commands });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.post("/api/lfs/sync/ack-commands", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const commandIds = req.body?.commandIds as number[] | undefined;
+      if (!commandIds || !Array.isArray(commandIds) || commandIds.length === 0) {
+        return res.status(400).json({ error: "commandIds array is required" });
+      }
+      await ackLfsCommands(commandIds);
+      res.json({ ok: true, acknowledged: commandIds.length });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });

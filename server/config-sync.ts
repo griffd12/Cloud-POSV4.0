@@ -244,8 +244,10 @@ export class ConfigSyncService {
         signal: AbortSignal.timeout(10000),
       });
       if (!resp.ok) return;
-      const data = await resp.json() as { ok: boolean; commands: Array<{ command: string; propertyId: string }> };
+      const data = await resp.json() as { ok: boolean; commands: Array<{ id: number; command: string; propertyId: string }> };
       if (!data.ok || !data.commands?.length) return;
+
+      const succeededIds: number[] = [];
       for (const cmd of data.commands) {
         log(`Executing pending command: ${cmd.command} for property ${cmd.propertyId}`, "lfs-sync");
         if (cmd.command === "clear-sales-data") {
@@ -259,17 +261,26 @@ export class ConfigSyncService {
             } catch (_journalErr) {
               log(`clear-sales-data: journal purge failed (non-critical)`, "lfs-sync");
             }
+            succeededIds.push(cmd.id);
             log(`clear-sales-data completed for property ${cmd.propertyId}`, "lfs-sync");
           } catch (cmdErr: unknown) {
             const ce = cmdErr as { message?: string };
             log(`clear-sales-data failed, will retry next sync: ${ce.message}`, "lfs-sync");
-            try {
-              const { markCommandFailed } = await import("./lfs-sync-routes");
-              await markCommandFailed(cmd.propertyId, cmd.command);
-            } catch (_revertErr) {
-              log(`Failed to revert command status for retry`, "lfs-sync");
-            }
           }
+        }
+      }
+
+      if (succeededIds.length > 0) {
+        try {
+          const ackUrl = `${this.config.cloudBaseUrl}/api/lfs/sync/ack-commands`;
+          await fetch(ackUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-lfs-api-key": this.config.apiKey },
+            body: JSON.stringify({ commandIds: succeededIds }),
+            signal: AbortSignal.timeout(10000),
+          });
+        } catch (_ackErr) {
+          log(`Failed to ACK commands on cloud (will re-execute next sync)`, "lfs-sync");
         }
       }
     } catch (e: unknown) {
