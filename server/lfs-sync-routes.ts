@@ -50,15 +50,34 @@ export async function drainLfsCommands(propertyId: string): Promise<Array<{ comm
     const { db: dbRef } = await import("./db");
     const { sql: sqlDrizzle } = await import("drizzle-orm");
     const result = await dbRef.execute(
-      sqlDrizzle`UPDATE lfs_pending_commands SET executed = TRUE WHERE property_id = ${propertyId} AND executed = FALSE RETURNING command, property_id`
+      sqlDrizzle`SELECT id, command, property_id FROM lfs_pending_commands WHERE property_id = ${propertyId} AND executed = FALSE ORDER BY id`
     );
-    return (result.rows || []).map((r: any) => ({
+    const rows = result.rows || [];
+    if (rows.length > 0) {
+      const ids = rows.map((r: Record<string, unknown>) => r.id as number);
+      await dbRef.execute(
+        sqlDrizzle`UPDATE lfs_pending_commands SET executed = TRUE WHERE id = ANY(${ids})`
+      );
+    }
+    return rows.map((r: Record<string, unknown>) => ({
       command: r.command as string,
       propertyId: r.property_id as string,
     }));
   } catch (e) {
     console.error("[LFS] Failed to drain commands:", e);
     return [];
+  }
+}
+
+export async function markCommandFailed(propertyId: string, command: string): Promise<void> {
+  try {
+    const { db: dbRef } = await import("./db");
+    const { sql: sqlDrizzle } = await import("drizzle-orm");
+    await dbRef.execute(
+      sqlDrizzle`UPDATE lfs_pending_commands SET executed = FALSE WHERE id = (SELECT id FROM lfs_pending_commands WHERE property_id = ${propertyId} AND command = ${command} AND executed = TRUE ORDER BY id DESC LIMIT 1)`
+    );
+  } catch (e) {
+    console.error("[LFS] Failed to mark command as failed:", e);
   }
 }
 

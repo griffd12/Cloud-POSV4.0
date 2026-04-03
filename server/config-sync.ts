@@ -262,7 +262,13 @@ export class ConfigSyncService {
             log(`clear-sales-data completed for property ${cmd.propertyId}`, "lfs-sync");
           } catch (cmdErr: unknown) {
             const ce = cmdErr as { message?: string };
-            log(`clear-sales-data failed: ${ce.message}`, "lfs-sync");
+            log(`clear-sales-data failed, will retry next sync: ${ce.message}`, "lfs-sync");
+            try {
+              const { markCommandFailed } = await import("./lfs-sync-routes");
+              await markCommandFailed(cmd.propertyId, cmd.command);
+            } catch (_revertErr) {
+              log(`Failed to revert command status for retry`, "lfs-sync");
+            }
           }
         }
       }
