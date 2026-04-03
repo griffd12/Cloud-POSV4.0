@@ -2385,18 +2385,30 @@ export async function migrate(pool: pg.Pool): Promise<void> {
       END $$;
     `);
 
-    await client.query(`CREATE TABLE IF NOT EXISTS lfs_transaction_journal (
+    await client.query(`CREATE TABLE IF NOT EXISTS transaction_journal (
       id VARCHAR DEFAULT gen_random_uuid() PRIMARY KEY,
-      table_name TEXT NOT NULL,
-      record_id VARCHAR NOT NULL,
-      operation TEXT NOT NULL,
-      data JSONB,
+      event_id VARCHAR NOT NULL UNIQUE,
+      operation_type TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      http_method TEXT NOT NULL,
+      endpoint TEXT NOT NULL,
+      payload JSONB,
+      offline_transaction_id TEXT,
+      workstation_id VARCHAR,
+      property_id VARCHAR,
+      journal_status TEXT DEFAULT 'completed',
       synced BOOLEAN DEFAULT false,
-      created_at TIMESTAMP DEFAULT now(),
       synced_at TIMESTAMP,
-      error_message TEXT,
-      retry_count INTEGER DEFAULT 0
+      sync_error TEXT,
+      retry_count INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT now()
     )`);
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_transaction_journal_synced ON transaction_journal (synced)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_transaction_journal_entity ON transaction_journal (entity_type, entity_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_transaction_journal_created ON transaction_journal (created_at)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_transaction_journal_property ON transaction_journal (property_id)`);
 
     await client.query(`CREATE TABLE IF NOT EXISTS lfs_config_cache (
       id VARCHAR DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -2432,13 +2444,24 @@ export async function migrate(pool: pg.Pool): Promise<void> {
     )`);
 
     await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'lfs_transaction_journal')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'transaction_journal') THEN
+          RAISE NOTICE 'Dropping obsolete lfs_transaction_journal (replaced by transaction_journal)';
+          DROP TABLE lfs_transaction_journal;
+        END IF;
+      END $$;
+    `);
+
+    await client.query(`
       INSERT INTO lfs_schema_version (id, version, description)
-      VALUES (1, 2, 'Full cloud-parity schema with LFS tables')
-      ON CONFLICT (id) DO UPDATE SET version = 2, applied_at = now(), description = 'Full cloud-parity schema with LFS tables'
+      VALUES (1, 3, 'Fixed transaction_journal table + indexes')
+      ON CONFLICT (id) DO UPDATE SET version = 3, applied_at = now(), description = 'Fixed transaction_journal table + indexes'
     `);
 
     await client.query("COMMIT");
-    console.log("[LFS] Schema migration complete — all tables created");
+    console.log("[LFS] Schema migration complete (v3) — all tables created");
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
