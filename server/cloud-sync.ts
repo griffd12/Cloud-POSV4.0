@@ -57,7 +57,14 @@ async function syncBatchToCloud(): Promise<{ synced: number; failed: number }> {
     return { synced: 0, failed: 0 };
   }
 
-  const sorted = [...entries].sort((a, b) => {
+  const MAX_RETRIES = 10;
+  const retryableEntries = entries.filter((e) => (e.retryCount || 0) < MAX_RETRIES);
+  if (retryableEntries.length === 0) {
+    log(`All ${entries.length} pending entries exceeded retry limit (${MAX_RETRIES})`, "cloud-sync");
+    return { synced: 0, failed: 0 };
+  }
+
+  const sorted = [...retryableEntries].sort((a, b) => {
     const aOp = a.operationType || "create";
     const bOp = b.operationType || "create";
     const isADelete = aOp === "delete";
@@ -105,6 +112,11 @@ async function syncBatchToCloud(): Promise<{ synced: number; failed: number }> {
         synced++;
       } else {
         const errText = await res.text().catch(() => "Unknown error");
+        const isFkViolation = errText.includes("violates foreign key") || errText.includes("23503");
+        const isEmptyUpdate = errText.includes("empty SET") || errText.includes("syntax error");
+        if (isFkViolation || isEmptyUpdate) {
+          log(`Retryable error for ${entry.entityType}/${entry.operationType} (event ${entry.eventId}): ${errText.slice(0, 120)}`, "cloud-sync");
+        }
         await markJournalEntryFailed(entry.id, `HTTP ${res.status}: ${errText}`);
         failed++;
       }
@@ -152,6 +164,7 @@ async function runSyncCycle(): Promise<void> {
 
 export function startCloudSyncProcess(): void {
   if (!isLocalMode) return;
+  if (syncIntervalHandle) return;
 
   const cloudUrl = process.env.LFS_CLOUD_URL;
   if (!cloudUrl) {
@@ -160,6 +173,10 @@ export function startCloudSyncProcess(): void {
   }
 
   log(`Cloud sync process starting (interval: ${SYNC_INTERVAL_MS}ms)`, "cloud-sync");
+
+  runSyncCycle().catch((e) => {
+    log(`Initial cloud sync cycle failed: ${e.message}`, "cloud-sync");
+  });
 
   syncIntervalHandle = setInterval(() => {
     runSyncCycle().catch((e) => {

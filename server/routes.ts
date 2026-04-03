@@ -17111,10 +17111,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             adapter = await getPaymentAdapter(terminal.paymentProcessorId);
           }
           
-          // Fall back to Stripe adapter for Stripe terminal models (backward compatibility)
           if (!adapter && terminal.model?.startsWith('stripe_')) {
             const { StripePaymentAdapter } = await import('./payments/adapters/stripe');
-            const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+            let stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+            if (!stripeSecretKey && process.env.DB_MODE === "local") {
+              try {
+                const property = terminal.propertyId ? await storage.getProperty(terminal.propertyId) : null;
+                const propId = property?.id || process.env.LFS_PROPERTY_ID;
+                const entId = property?.enterpriseId || process.env.LFS_ENTERPRISE_ID;
+                if (propId && entId) {
+                  const gwConfig = await storage.getMergedPaymentGatewayConfig(entId, propId);
+                  if (gwConfig) {
+                    const configAny = gwConfig as Record<string, unknown>;
+                    if (configAny.encryptedCredentials && typeof configAny.encryptedCredentials === "string") {
+                      try {
+                        const creds = JSON.parse(configAny.encryptedCredentials as string);
+                        if (creds.SECRET_KEY) stripeSecretKey = creds.SECRET_KEY;
+                      } catch {}
+                    }
+                    if (!stripeSecretKey && typeof configAny.secretKey === "string") {
+                      stripeSecretKey = configAny.secretKey;
+                    }
+                  }
+                }
+              } catch (e) {
+                console.warn("[LFS] Failed to resolve Stripe credentials from DB:", e instanceof Error ? e.message : e);
+              }
+            }
             if (stripeSecretKey) {
               adapter = new StripePaymentAdapter(
                 { SECRET_KEY: stripeSecretKey },

@@ -1110,7 +1110,10 @@ async function syncEntity(
       } else if (operationType === "update") {
         const id = dataWithOfflineId.id as string;
         const cloudId = await resolveCloudId(id);
-        const { id: _id, offlineTransactionId: _otxn, ...updateData } = dataWithOfflineId;
+        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, ...updateData } = dataWithOfflineId;
+        if (Object.keys(updateData).length === 0) {
+          return { id: cloudId, skipped: true, reason: "empty update payload" };
+        }
         return await storage.updateCheck(cloudId, updateData as Parameters<typeof storage.updateCheck>[1]);
       } else if (operationType === "delete") {
         const id = dataWithOfflineId.id as string;
@@ -1132,7 +1135,10 @@ async function syncEntity(
       } else if (operationType === "update") {
         const rawId = remapped.id as string;
         const cloudId = await resolveCloudId(rawId);
-        const { id: _id, offlineTransactionId: _otxn, ...updateData } = remapped;
+        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, checkId: _ci, ...updateData } = remapped;
+        if (Object.keys(updateData).length === 0) {
+          return { id: cloudId, skipped: true, reason: "empty update payload" };
+        }
         return await storage.updateCheckItem(cloudId, updateData as Parameters<typeof storage.updateCheckItem>[1]);
       } else if (operationType === "delete") {
         const rawId = remapped.id as string;
@@ -1154,7 +1160,10 @@ async function syncEntity(
       } else if (operationType === "update") {
         const id = remapped.id as string;
         const cloudId = await resolveCloudId(id);
-        const { id: _id, offlineTransactionId: _otxn, ...updateData } = remapped;
+        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, checkId: _ci, ...updateData } = remapped;
+        if (Object.keys(updateData).length === 0) {
+          return { id: cloudId, skipped: true, reason: "empty update payload" };
+        }
         return await storage.updateCheckPayment(cloudId, updateData as Parameters<typeof storage.updateCheckPayment>[1]);
       } else if (operationType === "delete" || operationType === "void") {
         const id = remapped.id as string;
@@ -1261,7 +1270,10 @@ async function syncEntity(
       } else if (operationType === "update") {
         const id = dataWithOfflineId.id as string;
         const cloudId = await resolveCloudId(id);
-        const { id: _id, offlineTransactionId: _otxn, ...updateData } = dataWithOfflineId;
+        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, ...updateData } = dataWithOfflineId;
+        if (Object.keys(updateData).length === 0) {
+          return { id: cloudId, skipped: true, reason: "empty update payload" };
+        }
         return await storage.updateTimePunch(cloudId, updateData as Parameters<typeof storage.updateTimePunch>[1]);
       }
       throw new Error(`Unsupported operation for time_punch: ${operationType}`);
@@ -1303,7 +1315,10 @@ async function syncEntity(
       } else if (operationType === "update") {
         const rawId = remapped.id as string;
         const cloudId = await resolveCloudId(rawId);
-        const { id: _id, offlineTransactionId: _otxn, ...updateData } = remapped;
+        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, checkId: _ci, ...updateData } = remapped;
+        if (Object.keys(updateData).length === 0) {
+          return { id: cloudId, skipped: true, reason: "empty update payload" };
+        }
         return await storage.updateKdsTicket(cloudId, updateData as Parameters<typeof storage.updateKdsTicket>[1]);
       }
       throw new Error(`Unsupported operation for kds_ticket: ${operationType}`);
@@ -1314,6 +1329,8 @@ async function syncEntity(
       if (operationType === "create") {
         await storage.createKdsTicketItem(kdsTicketId, checkItemId);
         return { kdsTicketId, checkItemId };
+      } else if (operationType === "update") {
+        return { kdsTicketId, checkItemId, skipped: true, reason: "kds_ticket_item has no updatable fields" };
       } else if (operationType === "delete") {
         await storage.removeKdsTicketItem(kdsTicketId, checkItemId);
         return { kdsTicketId, checkItemId, deleted: true };
@@ -1354,7 +1371,10 @@ async function syncEntity(
       } else if (operationType === "update") {
         const rawId = dataWithOfflineId.id as string;
         const cloudId = await resolveCloudId(rawId);
-        const { id: _id, offlineTransactionId: _otxn, ...updateData } = dataWithOfflineId;
+        const { id: _id, offlineTransactionId: _otxn, createdAt: _ca, ...updateData } = dataWithOfflineId;
+        if (Object.keys(updateData).length === 0) {
+          return { id: cloudId, skipped: true, reason: "empty update payload" };
+        }
         return await storage.updatePaymentTransaction(cloudId, updateData as Parameters<typeof storage.updatePaymentTransaction>[1]);
       }
       throw new Error(`Unsupported operation for payment_transaction: ${operationType}`);

@@ -26,5 +26,11 @@ const { Pool } = pg;
 
 export const pool = new Pool({ connectionString: getConnectionString() });
 
+if (isLocalMode) {
+  pool.on("connect", (client) => {
+    client.query("SET TIME ZONE 'UTC'").catch(() => {});
+  });
+}
+
 export const db = drizzle(pool, { schema });
 

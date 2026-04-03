@@ -304,8 +304,16 @@ export function registerLfsAdminRoutes(app: Express) {
 
       res.json({ ok: true, apiKey, message: "Configuration saved. Syncing data from cloud..." });
 
-      restartConfigSync().then(() => {
+      restartConfigSync().then(async () => {
         captureLog(`[admin] Initial config sync completed after first-run setup`);
+        try {
+          const { startCloudSyncProcess } = await import("./cloud-sync");
+          startCloudSyncProcess();
+          captureLog(`[admin] Cloud sync process started after first-run setup`);
+        } catch (csErr: unknown) {
+          const csMsg = csErr instanceof Error ? csErr.message : "Unknown error";
+          captureLog(`[admin] Failed to start cloud sync after first-run: ${csMsg}`);
+        }
       }).catch((err: unknown) => {
         const syncErr = err instanceof Error ? err.message : "Unknown sync error";
         captureLog(`[admin] Config sync failed after first-run: ${syncErr}`);

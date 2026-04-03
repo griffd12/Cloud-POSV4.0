@@ -3,7 +3,12 @@ import { connectionManager } from "@/lib/connection-manager";
 import { Wifi, WifiOff, RefreshCw, CloudOff } from "lucide-react";
 import { LfsModeBar } from "./lfs-mode-indicator";
 
-const isLfsMode = typeof window !== "undefined" && (window.location.search.includes("lfs=1") || localStorage.getItem("lfs_local_server_url") === window.location.origin);
+function detectLfsMode(): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.location.search.includes("lfs=1")) return true;
+  if (localStorage.getItem("lfs_local_server_url") === window.location.origin) return true;
+  return false;
+}
 
 function CloudOfflineBanner() {
   const [state, setState] = useState(connectionManager.currentState);
@@ -110,7 +115,24 @@ function CloudOfflineBanner() {
 }
 
 export function OfflineBanner() {
-  if (isLfsMode) {
+  const [lfsMode, setLfsMode] = useState(detectLfsMode);
+
+  useEffect(() => {
+    if (lfsMode) return;
+    let cancelled = false;
+    fetch("/api/health", { signal: AbortSignal.timeout(4000) })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled && data?.mode === "local") {
+          localStorage.setItem("lfs_local_server_url", window.location.origin);
+          setLfsMode(true);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [lfsMode]);
+
+  if (lfsMode) {
     return <LfsModeBar />;
   }
   return <CloudOfflineBanner />;
