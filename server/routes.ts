@@ -7866,7 +7866,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           } else {
             console.warn(`[clear-sales-data] LFS returned ${lfsRes.status} — queuing for next sync`);
             const { queueLfsCommand } = await import("./lfs-sync-routes");
-            queueLfsCommand("clear-sales-data", propertyId);
+            await queueLfsCommand("clear-sales-data", propertyId);
           }
         } else {
           console.warn("[clear-sales-data] No LFS_API_KEY configured — skipping LFS notification");
@@ -7875,7 +7875,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         console.warn(`[clear-sales-data] Could not reach LFS (${lfsErr.message}) — queuing for next sync`);
         try {
           const { queueLfsCommand } = await import("./lfs-sync-routes");
-          queueLfsCommand("clear-sales-data", propertyId);
+          await queueLfsCommand("clear-sales-data", propertyId);
         } catch (_e) { /* fallback: LFS can manually clear via admin dashboard */ }
       }
       

@@ -9,20 +9,57 @@ import { getCloudSyncStatus } from "./cloud-sync";
 
 const isLocalMode = process.env.DB_MODE === "local";
 
-const pendingLfsCommands: Array<{ command: string; propertyId: string; createdAt: Date }> = [];
+let lfsCommandTableReady = false;
 
-export function queueLfsCommand(command: string, propertyId: string) {
-  pendingLfsCommands.push({ command, propertyId, createdAt: new Date() });
+async function ensureLfsCommandTable(): Promise<void> {
+  if (lfsCommandTableReady) return;
+  try {
+    const { db: dbRef } = await import("./db");
+    const { sql: sqlDrizzle } = await import("drizzle-orm");
+    await dbRef.execute(sqlDrizzle`
+      CREATE TABLE IF NOT EXISTS lfs_pending_commands (
+        id SERIAL PRIMARY KEY,
+        command TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        executed BOOLEAN DEFAULT FALSE
+      )
+    `);
+    lfsCommandTableReady = true;
+  } catch (e) {
+    console.error("[LFS] Failed to create lfs_pending_commands table:", e);
+  }
 }
 
-export function drainLfsCommands(propertyId: string): Array<{ command: string; propertyId: string }> {
-  const matching: Array<{ command: string; propertyId: string }> = [];
-  for (let i = pendingLfsCommands.length - 1; i >= 0; i--) {
-    if (pendingLfsCommands[i].propertyId === propertyId) {
-      matching.push(pendingLfsCommands.splice(i, 1)[0]);
-    }
+export async function queueLfsCommand(command: string, propertyId: string) {
+  await ensureLfsCommandTable();
+  try {
+    const { db: dbRef } = await import("./db");
+    const { sql: sqlDrizzle } = await import("drizzle-orm");
+    await dbRef.execute(
+      sqlDrizzle`INSERT INTO lfs_pending_commands (command, property_id) VALUES (${command}, ${propertyId})`
+    );
+  } catch (e) {
+    console.error("[LFS] Failed to queue command:", e);
   }
-  return matching.reverse();
+}
+
+export async function drainLfsCommands(propertyId: string): Promise<Array<{ command: string; propertyId: string }>> {
+  await ensureLfsCommandTable();
+  try {
+    const { db: dbRef } = await import("./db");
+    const { sql: sqlDrizzle } = await import("drizzle-orm");
+    const result = await dbRef.execute(
+      sqlDrizzle`UPDATE lfs_pending_commands SET executed = TRUE WHERE property_id = ${propertyId} AND executed = FALSE RETURNING command, property_id`
+    );
+    return (result.rows || []).map((r: any) => ({
+      command: r.command as string,
+      propertyId: r.property_id as string,
+    }));
+  } catch (e) {
+    console.error("[LFS] Failed to drain commands:", e);
+    return [];
+  }
 }
 
 interface LfsAuthenticatedRequest extends Request {
@@ -1097,7 +1134,7 @@ function registerLfsCloudRoutes(app: Express) {
       if (!propertyId) {
         return res.status(400).json({ error: "propertyId is required" });
       }
-      const commands = drainLfsCommands(propertyId);
+      const commands = await drainLfsCommands(propertyId);
       res.json({ ok: true, commands });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";

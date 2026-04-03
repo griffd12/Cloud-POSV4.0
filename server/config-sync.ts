@@ -252,6 +252,13 @@ export class ConfigSyncService {
           try {
             const { storage } = await import("./storage");
             await storage.clearSalesData(cmd.propertyId);
+            try {
+              await db.execute(
+                sql`DELETE FROM transaction_journal WHERE synced = true AND property_id = ${cmd.propertyId}`
+              );
+            } catch (_journalErr) {
+              log(`clear-sales-data: journal purge failed (non-critical)`, "lfs-sync");
+            }
             log(`clear-sales-data completed for property ${cmd.propertyId}`, "lfs-sync");
           } catch (cmdErr: unknown) {
             const ce = cmdErr as { message?: string };

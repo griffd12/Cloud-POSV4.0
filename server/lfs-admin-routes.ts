@@ -612,6 +612,30 @@ export function registerLfsAdminRoutes(app: Express) {
     res.json({ logs: combined });
   });
 
+  app.post("/api/lfs/admin/clear-sales-data", async (req: Request, res: Response) => {
+    try {
+      const propertyId = req.body?.propertyId || process.env.LFS_PROPERTY_ID;
+      if (!propertyId) {
+        return res.status(400).json({ error: "propertyId is required" });
+      }
+      const { storage } = await import("./storage");
+      const result = await storage.clearSalesData(propertyId);
+      const { db: dbRef } = await import("./db");
+      const { sql: sqlDrizzle } = await import("drizzle-orm");
+      try {
+        await dbRef.execute(
+          sqlDrizzle`DELETE FROM transaction_journal WHERE synced = true AND property_id = ${propertyId}`
+        );
+      } catch (journalErr) {
+        console.error("[LFS-Admin] Failed to purge synced journal entries:", journalErr);
+      }
+      res.json({ ok: true, deleted: result.deleted, propertyId });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
   app.post("/api/lfs/admin/check-update", async (_req: Request, res: Response) => {
     try {
       const { getUpdateState } = await import("./lfs-auto-update");
