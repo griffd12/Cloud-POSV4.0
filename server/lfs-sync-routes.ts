@@ -1085,15 +1085,11 @@ const IMMUTABLE_SYNC_FIELDS = new Set([
   "id", "offlineTransactionId", "createdAt", "checkId", "check_id", "updatedAt",
 ]);
 
-function cleanUpdatePayload(
-  raw: Record<string, unknown>,
-  extraStrip?: string[],
-): Record<string, unknown> {
+function cleanUpdatePayload(raw: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {
     if (v === undefined) continue;
     if (IMMUTABLE_SYNC_FIELDS.has(k)) continue;
-    if (extraStrip && extraStrip.includes(k)) continue;
     result[k] = v;
   }
   return result;
