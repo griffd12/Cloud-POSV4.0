@@ -2443,16 +2443,7 @@ export async function migrate(pool: pg.Pool): Promise<void> {
       description TEXT
     )`);
 
-    await client.query(`
-      DO $$
-      BEGIN
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'lfs_transaction_journal')
-           AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'transaction_journal') THEN
-          RAISE NOTICE 'Dropping obsolete lfs_transaction_journal (replaced by transaction_journal)';
-          DROP TABLE lfs_transaction_journal;
-        END IF;
-      END $$;
-    `);
+    await client.query(`DROP TABLE IF EXISTS lfs_transaction_journal`);
 
     await client.query(`
       INSERT INTO lfs_schema_version (id, version, description)
