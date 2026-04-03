@@ -127,22 +127,17 @@ app.get("/health", async (_req, res) => {
         "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
       );
       const tableCount = parseInt(tableCheck.rows[0]?.count || "0", 10);
-      const EXPECTED_TABLE_COUNT = 147;
-      if (tableCount < EXPECTED_TABLE_COUNT) {
-        log(`Database has ${tableCount}/${EXPECTED_TABLE_COUNT} tables — running schema migration...`, "lfs");
-        const { migrate } = await import("./lfs-schema-init");
-        await migrate(pool);
-        const recheck = await pool.query(
-          "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
-        );
-        const newCount = parseInt(recheck.rows[0]?.count || "0", 10);
-        log(`Schema migration complete — ${newCount} tables now present`, "lfs");
-      } else {
-        log(`Database has ${tableCount} tables — schema up to date`, "lfs");
-      }
+      log(`Database has ${tableCount} tables — running schema migration...`, "lfs");
+      const { migrate } = await import("./lfs-schema-init");
+      await migrate(pool);
+      const recheck = await pool.query(
+        "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+      );
+      const newCount = parseInt(recheck.rows[0]?.count || "0", 10);
+      log(`Schema migration complete (v3) — ${newCount} tables present`, "lfs");
     } catch (initErr: unknown) {
       const initMsg = initErr instanceof Error ? initErr.message : "Unknown error";
-      log(`WARNING: Schema check failed — ${initMsg}`, "lfs");
+      log(`WARNING: Schema migration failed — ${initMsg}`, "lfs");
     }
   } else {
     log("Starting in CLOUD mode (PostgreSQL)", "cloud");
