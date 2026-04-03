@@ -2594,99 +2594,43 @@ export async function migrate(pool: pg.Pool): Promise<void> {
 
     await client.query(`
       DO $$ BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint WHERE conrelid = 'rvc_counters'::regclass AND contype = 'p'
-        ) THEN
-          ALTER TABLE rvc_counters ADD PRIMARY KEY (rvc_id);
+        IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'rvc_counters') THEN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conrelid = 'rvc_counters'::regclass AND contype = 'p'
+          ) THEN
+            DELETE FROM rvc_counters a USING rvc_counters b
+              WHERE a.ctid < b.ctid AND a.rvc_id = b.rvc_id;
+            ALTER TABLE rvc_counters ADD PRIMARY KEY (rvc_id);
+          END IF;
         END IF;
-      EXCEPTION WHEN undefined_table THEN NULL;
       END $$;
     `);
 
     await client.query(`
       DO $$ BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint WHERE conrelid = 'lfs_sync_status'::regclass AND contype = 'p'
-        ) THEN
-          ALTER TABLE lfs_sync_status ADD PRIMARY KEY (table_name);
+        IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'lfs_sync_status') THEN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conrelid = 'lfs_sync_status'::regclass AND contype = 'p'
+          ) THEN
+            DELETE FROM lfs_sync_status a USING lfs_sync_status b
+              WHERE a.ctid < b.ctid AND a.table_name = b.table_name;
+            ALTER TABLE lfs_sync_status ADD PRIMARY KEY (table_name);
+          END IF;
         END IF;
-      EXCEPTION WHEN undefined_table THEN NULL;
       END $$;
     `);
 
     await client.query(`
       DO $$ BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint WHERE conrelid = 'lfs_offline_sequence'::regclass AND contype = 'p'
-        ) THEN
-          ALTER TABLE lfs_offline_sequence ADD PRIMARY KEY (workstation_id);
+        IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'lfs_offline_sequence') THEN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conrelid = 'lfs_offline_sequence'::regclass AND contype = 'p'
+          ) THEN
+            DELETE FROM lfs_offline_sequence a USING lfs_offline_sequence b
+              WHERE a.ctid < b.ctid AND a.workstation_id = b.workstation_id;
+            ALTER TABLE lfs_offline_sequence ADD PRIMARY KEY (workstation_id);
+          END IF;
         END IF;
-      EXCEPTION WHEN undefined_table THEN NULL;
-      END $$;
-    `);
-
-    await client.query(`
-      DO $$ BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conrelid = 'check_locks'::regclass AND contype = 'u'
-            AND conname = 'check_locks_check_id_unique'
-        ) THEN
-          ALTER TABLE check_locks ADD CONSTRAINT check_locks_check_id_unique UNIQUE (check_id);
-        END IF;
-      EXCEPTION WHEN undefined_table THEN NULL;
-      END $$;
-    `);
-
-    await client.query(`
-      DO $$ BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conrelid = 'enterprises'::regclass AND contype = 'u'
-            AND conname = 'enterprises_code_unique'
-        ) THEN
-          ALTER TABLE enterprises ADD CONSTRAINT enterprises_code_unique UNIQUE (code);
-        END IF;
-      EXCEPTION WHEN undefined_table THEN NULL;
-      END $$;
-    `);
-
-    await client.query(`
-      DO $$ BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conrelid = 'transaction_journal'::regclass AND contype = 'u'
-            AND conname = 'transaction_journal_event_id_unique'
-        ) THEN
-          ALTER TABLE transaction_journal ADD CONSTRAINT transaction_journal_event_id_unique UNIQUE (event_id);
-        END IF;
-      EXCEPTION WHEN undefined_table THEN NULL;
-      END $$;
-    `);
-
-    await client.query(`
-      DO $$ BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conrelid = 'devices'::regclass AND contype = 'u'
-            AND conname = 'devices_device_id_unique'
-        ) THEN
-          ALTER TABLE devices ADD CONSTRAINT devices_device_id_unique UNIQUE (device_id);
-        END IF;
-      EXCEPTION WHEN undefined_table THEN NULL;
-      END $$;
-    `);
-
-    await client.query(`
-      DO $$ BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conrelid = 'emc_users'::regclass AND contype = 'u'
-            AND conname = 'emc_users_email_unique'
-        ) THEN
-          ALTER TABLE emc_users ADD CONSTRAINT emc_users_email_unique UNIQUE (email);
-        END IF;
-      EXCEPTION WHEN undefined_table THEN NULL;
       END $$;
     `);
 
