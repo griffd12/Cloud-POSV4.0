@@ -201,26 +201,20 @@ export async function voidJournalEntry(eventId: string): Promise<void> {
 }
 
 export async function requeueDeadLetters(): Promise<number> {
-  const deadLetters = await db
-    .select({ id: transactionJournal.id })
-    .from(transactionJournal)
+  const count = await getDeadLetterCount();
+  if (count === 0) return 0;
+
+  await db
+    .update(transactionJournal)
+    .set({
+      journalStatus: "completed",
+      synced: false,
+      retryCount: 0,
+      syncError: null,
+    })
     .where(eq(transactionJournal.journalStatus, "dead_letter"));
 
-  if (deadLetters.length === 0) return 0;
-
-  for (const entry of deadLetters) {
-    await db
-      .update(transactionJournal)
-      .set({
-        journalStatus: "completed",
-        synced: false,
-        retryCount: 0,
-        syncError: null,
-      })
-      .where(eq(transactionJournal.id, entry.id));
-  }
-
-  return deadLetters.length;
+  return count;
 }
 
 export async function getDeadLetterCount(): Promise<number> {
