@@ -758,7 +758,7 @@ async function recordLfsSyncActivity(req: Request, syncType: string, direction: 
 }
 
 function registerLfsCloudRoutes(app: Express) {
-  ensureCloudRemapTable().then(() => { remapTableReady = true; }).catch(() => {});
+  ensureCloudRemapTable().then(() => { remapTableReady = true; console.log("[LFS Sync] lfs_id_remap table ready"); }).catch((e) => { console.error("[LFS Sync] Failed to ensure remap table:", e); });
 
   app.get("/api/lfs/sync/:tableName", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
@@ -793,8 +793,13 @@ function registerLfsCloudRoutes(app: Express) {
 
       const entityType = entry.entity_type || entry.entityType;
       const operationType = entry.operation_type || entry.operationType;
-      const payload = typeof entry.payload === "string" ? JSON.parse(entry.payload) : entry.payload;
+      const rawPayload = typeof entry.payload === "string" ? JSON.parse(entry.payload) : entry.payload;
       const offlineTransactionId = entry.offline_transaction_id || entry.offlineTransactionId;
+      const entityId = entry.entity_id || entry.entityId;
+
+      const payload = (operationType === "update" || operationType === "delete") && entityId && !rawPayload.id
+        ? { ...rawPayload, id: entityId }
+        : rawPayload;
 
       if (offlineTransactionId && operationType === "create") {
         const existing = await checkDuplicate(entityType, offlineTransactionId);
@@ -837,8 +842,13 @@ function registerLfsCloudRoutes(app: Express) {
         try {
           const entityType = entry.entity_type || entry.entityType;
           const operationType = entry.operation_type || entry.operationType;
-          const payload = typeof entry.payload === "string" ? JSON.parse(entry.payload) : entry.payload;
+          const rawPayload = typeof entry.payload === "string" ? JSON.parse(entry.payload) : entry.payload;
           const offlineTransactionId = entry.offline_transaction_id || entry.offlineTransactionId;
+          const entityId = entry.entity_id || entry.entityId;
+
+          const payload = (operationType === "update" || operationType === "delete") && entityId && !rawPayload.id
+            ? { ...rawPayload, id: entityId }
+            : rawPayload;
 
           if (offlineTransactionId && operationType === "create") {
             const existing = await checkDuplicate(entityType as string, offlineTransactionId as string);
@@ -1258,7 +1268,7 @@ async function remapSyncedForeignKeys(payload: Record<string, unknown>): Promise
 }
 
 const IMMUTABLE_SYNC_FIELDS = new Set([
-  "id", "offlineTransactionId", "createdAt", "checkId", "check_id", "updatedAt",
+  "id", "offlineTransactionId", "createdAt", "updatedAt",
 ]);
 
 function cleanUpdatePayload(raw: Record<string, unknown>): Record<string, unknown> {
@@ -1284,18 +1294,12 @@ async function syncEntity(
   switch (entityType) {
     case "check": {
       if (operationType === "create") {
-        const { id: localId, checkNumber: _offlineCheckNum, ...insertData } = dataWithOfflineId;
+        const { id: localId, ...insertData } = dataWithOfflineId;
         if (!insertData.status) insertData.status = "open";
         if (!insertData.subtotal) insertData.subtotal = "0";
         if (!insertData.taxTotal) insertData.taxTotal = "0";
         if (!insertData.total) insertData.total = "0";
-        const rvcId = insertData.rvcId as string;
-        const createFn = typeof (storage as unknown as Record<string, unknown>).createCheckAtomic === "function"
-          ? (storage as unknown as Record<string, Function>).createCheckAtomic.bind(storage)
-          : null;
-        const created = createFn && rvcId
-          ? await createFn(rvcId, insertData)
-          : await storage.createCheck(insertData as Parameters<typeof storage.createCheck>[0]);
+        const created = await storage.createCheck(insertData as Parameters<typeof storage.createCheck>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
           await storeDurableRemap(localId, created.id);

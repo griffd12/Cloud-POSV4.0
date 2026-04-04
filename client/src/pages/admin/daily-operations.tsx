@@ -599,11 +599,19 @@ export default function DailyOperationsPage() {
   };
 
   const dateRangeParams = useMemo(() => {
-    const start = new Date(businessDate + "T00:00:00");
+    const dateStr = businessDate || formatLocalDate(new Date());
+    const start = new Date(dateStr + "T00:00:00");
+    if (isNaN(start.getTime())) {
+      const fallback = new Date();
+      fallback.setHours(0, 0, 0, 0);
+      const fallbackEnd = new Date();
+      fallbackEnd.setHours(23, 59, 59, 999);
+      return `startDate=${fallback.toISOString()}&endDate=${fallbackEnd.toISOString()}&businessDate=${formatLocalDate(new Date())}${effectivePropertyId ? `&propertyId=${effectivePropertyId}` : ''}`;
+    }
     start.setHours(0, 0, 0, 0);
-    const end = new Date(businessDate + "T23:59:59");
+    const end = new Date(dateStr + "T23:59:59");
     end.setHours(23, 59, 59, 999);
-    return `startDate=${start.toISOString()}&endDate=${end.toISOString()}&businessDate=${businessDate}${effectivePropertyId ? `&propertyId=${effectivePropertyId}` : ''}`;
+    return `startDate=${start.toISOString()}&endDate=${end.toISOString()}&businessDate=${dateStr}${effectivePropertyId ? `&propertyId=${effectivePropertyId}` : ''}`;
   }, [businessDate, effectivePropertyId]);
 
   const { data: tenderData } = useQuery<TenderDetailData>({

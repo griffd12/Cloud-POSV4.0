@@ -131,10 +131,12 @@
         <div class="card">
           <h2>Pending Sync-Back</h2>
           <div class="stat-row"><span class="stat-label">Journal Entries</span><span class="stat-value" id="pending-journal">—</span></div>
+          <div class="stat-row"><span class="stat-label">Dead-Lettered</span><span class="stat-value" id="dead-lettered">—</span></div>
           <div class="stat-row"><span class="stat-label">SAF Payments</span><span class="stat-value" id="pending-saf">—</span></div>
           <div class="stat-row"><span class="stat-label">Failed Settlements</span><span class="stat-value" id="failed-settlements">—</span></div>
           <div class="btn-group">
             <button class="btn" id="btn-reconcile-saf" data-testid="btn-reconcile-saf">Reconcile SAF</button>
+            <button class="btn primary" id="btn-requeue-dead" data-testid="btn-requeue-dead" style="display:none">Requeue Dead Letters</button>
           </div>
         </div>
 
@@ -840,6 +842,15 @@
 
       const journalData = await apiFetch('/api/lfs/admin/journal/pending');
       document.getElementById('pending-journal').textContent = journalData?.count ?? '—';
+      const deadCount = journalData?.deadLettered ?? 0;
+      document.getElementById('dead-lettered').textContent = deadCount;
+      const requeueBtn = document.getElementById('btn-requeue-dead');
+      if (deadCount > 0) {
+        requeueBtn.style.display = '';
+        requeueBtn.textContent = `Requeue Dead Letters (${deadCount})`;
+      } else {
+        requeueBtn.style.display = 'none';
+      }
 
       const pendingSettlements = await apiFetch('/api/lfs/sync/pending-settlements');
       if (pendingSettlements) {
@@ -1009,6 +1020,22 @@
       } catch { showToast('Reconciliation request failed', 'error'); }
       btn.disabled = false;
       btn.textContent = 'Reconcile SAF';
+      setTimeout(refreshOverview, 2000);
+    });
+
+    document.getElementById('btn-requeue-dead').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-requeue-dead');
+      btn.disabled = true;
+      btn.textContent = 'Requeueing...';
+      try {
+        const res = await apiFetch('/api/lfs/admin/journal/requeue-dead-letters', { method: 'POST' });
+        if (res) {
+          showToast(`Requeued ${res.requeued || 0} dead-lettered entries for retry`);
+        } else {
+          showToast('Requeue failed', 'error');
+        }
+      } catch { showToast('Requeue request failed', 'error'); }
+      btn.disabled = false;
       setTimeout(refreshOverview, 2000);
     });
 
