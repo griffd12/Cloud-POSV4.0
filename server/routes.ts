@@ -610,7 +610,7 @@ async function sendItemsToKds(
   const { result: round } = await journalWriteAtomic(
     "create", "round", roundId, "POST", `/api/checks/${checkId}/send`,
     () => storage.createRound({ id: roundId, checkId, roundNumber, sentByEmployeeId: employeeId }),
-    { checkId, roundNumber, sentByEmployeeId: employeeId }
+    { id: roundId, checkId, roundNumber, sentByEmployeeId: employeeId }
   );
 
   const updatedItems = [];
@@ -658,13 +658,13 @@ async function sendItemsToKds(
         id: ticketId, checkId, roundId: round.id, kdsDeviceId: data.kdsDeviceId,
         orderDeviceId: data.orderDeviceId, stationType: data.stationType, rvcId: check.rvcId, status: "active",
       }),
-      { checkId, roundId: round.id, kdsDeviceId: data.kdsDeviceId, orderDeviceId: data.orderDeviceId, stationType: data.stationType, rvcId: check.rvcId, status: "active" }
+      { id: ticketId, checkId, roundId: round.id, kdsDeviceId: data.kdsDeviceId, orderDeviceId: data.orderDeviceId, stationType: data.stationType, rvcId: check.rvcId, status: "active" }
     );
     for (const item of data.items) {
       await journalWriteAtomic(
         "create", "kds_ticket_item", `${kdsTicket.id}:${item.id}`, "POST", `/api/checks/${checkId}/send`,
         () => storage.createKdsTicketItem(kdsTicket.id, item.id),
-        { kdsTicketId: kdsTicket.id, checkItemId: item.id }
+        { id: `${kdsTicket.id}:${item.id}`, kdsTicketId: kdsTicket.id, checkItemId: item.id }
       );
     }
   }
@@ -676,13 +676,13 @@ async function sendItemsToKds(
       () => storage.createKdsTicket({
         id: fallbackTicketId, checkId, roundId: round.id, rvcId: check.rvcId, status: "active",
       }),
-      { checkId, roundId: round.id, rvcId: check.rvcId, status: "active" }
+      { id: fallbackTicketId, checkId, roundId: round.id, rvcId: check.rvcId, status: "active" }
     );
     for (const item of unroutedItems) {
       await journalWriteAtomic(
         "create", "kds_ticket_item", `${fallbackTicket.id}:${item.id}`, "POST", `/api/checks/${checkId}/send`,
         () => storage.createKdsTicketItem(fallbackTicket.id, item.id),
-        { kdsTicketId: fallbackTicket.id, checkItemId: item.id }
+        { id: `${fallbackTicket.id}:${item.id}`, kdsTicketId: fallbackTicket.id, checkItemId: item.id }
       );
     }
   }
@@ -878,7 +878,7 @@ async function addItemToRoutedPreviewTicket(
       await journalWriteAtomic(
         "create", "kds_ticket_item", `${previewTicket.id}:${item.id}`, "POST", `/api/checks/${checkId}/preview-item`,
         () => storage.createKdsTicketItem(previewTicket.id, item.id),
-        { kdsTicketId: previewTicket.id, checkItemId: item.id }
+        { id: `${previewTicket.id}:${item.id}`, kdsTicketId: previewTicket.id, checkItemId: item.id }
       );
     }
   } else {
@@ -886,7 +886,7 @@ async function addItemToRoutedPreviewTicket(
     await journalWriteAtomic(
       "create", "kds_ticket_item", `${previewTicket.id}:${item.id}`, "POST", `/api/checks/${checkId}/preview-item`,
       () => storage.createKdsTicketItem(previewTicket.id, item.id),
-      { kdsTicketId: previewTicket.id, checkItemId: item.id }
+      { id: `${previewTicket.id}:${item.id}`, kdsTicketId: previewTicket.id, checkItemId: item.id }
     );
   }
 }
@@ -914,7 +914,7 @@ async function getOrCreateRoutedPreviewTicket(
       orderDeviceId: orderDeviceId, stationType: stationType, status: "active", isPreview: true,
       paid: false,
     }),
-    { checkId, rvcId, kdsDeviceId, orderDeviceId, stationType, status: "active", isPreview: true, paid: false }
+    { id: previewTicketId, checkId, rvcId, kdsDeviceId, orderDeviceId, stationType, status: "active", isPreview: true, paid: false }
   );
   return ticket;
 }
@@ -1032,7 +1032,7 @@ async function finalizePreviewTicket(
   const { result: round } = await journalWriteAtomic(
     "create", "round", confirmRoundId, "POST", `/api/checks/${checkId}/confirm-preview`,
     () => storage.createRound({ id: confirmRoundId, checkId, roundNumber, sentByEmployeeId: employeeId }),
-    { checkId, roundNumber, sentByEmployeeId: employeeId }
+    { id: confirmRoundId, checkId, roundNumber, sentByEmployeeId: employeeId }
   );
 
   const updatedItems = [];
@@ -4443,7 +4443,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           id: pregenDiscountId, checkId, discountId, discountName: discount.name,
           amount: discountAmount.toFixed(2), employeeId, managerApprovalId: approvedByEmployeeId || null,
         }),
-        { checkId, discountId, discountName: discount.name, amount: discountAmount.toFixed(2), employeeId, managerApprovalId: approvedByEmployeeId || null }
+        { id: pregenDiscountId, checkId, discountId, discountName: discount.name, amount: discountAmount.toFixed(2), employeeId, managerApprovalId: approvedByEmployeeId || null }
       );
 
       // Recalculate check totals
@@ -4618,7 +4618,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         originDeviceId: req.body.originDeviceId || null,
       }),
       {
-        checkId: check.id, enterpriseId: property?.enterpriseId || "",
+        id: pregenScId, checkId: check.id, enterpriseId: property?.enterpriseId || "",
         propertyId: rvc?.propertyId || "", rvcId: check.rvcId,
         serviceChargeId: serviceCharge.id, nameAtSale: serviceCharge.name,
         codeAtSale: serviceCharge.code, isTaxableAtSale: serviceCharge.isTaxable,
@@ -4955,7 +4955,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             originBusinessDate: businessDate, businessDate,
             testMode: testMode || false, originDeviceId: originDeviceId || null,
           }),
-          { rvcId, employeeId, orderType, status: "open", originBusinessDate: businessDate, businessDate, testMode: testMode || false, originDeviceId: originDeviceId || null },
+          { id: pregenCheckId, rvcId, employeeId, orderType, status: "open", originBusinessDate: businessDate, businessDate, testMode: testMode || false, originDeviceId: originDeviceId || null },
           undefined, workstationId, rvc?.propertyId
         );
 
@@ -5038,7 +5038,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           itemStatus: itemStatus || "active", sent: false, voided: false,
           businessDate, ...taxSnapshot,
         }),
-        { checkId, menuItemId, menuItemName, unitPrice, modifiers: modifiers || [], quantity: itemQuantity, itemStatus: itemStatus || "active", sent: false, voided: false, businessDate, ...taxSnapshot }
+        { id: pregenItemId, checkId, menuItemId, menuItemName, unitPrice, modifiers: modifiers || [], quantity: itemQuantity, itemStatus: itemStatus || "active", sent: false, voided: false, businessDate, ...taxSnapshot }
       );
 
       res.status(201).json(item);
@@ -5655,7 +5655,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           paymentTransactionId: paymentTransactionId || null, paymentStatus,
           paymentAttemptId: idempotencyKey || undefined,
         }),
-        { checkId, tenderId, tenderName: tender.name, amount, tipAmount: tipAmount || undefined, employeeId, businessDate, paymentTransactionId: paymentTransactionId || null, paymentStatus, paymentAttemptId: idempotencyKey || undefined }
+        { id: pregenPaymentId, checkId, tenderId, tenderName: tender.name, amount, tipAmount: tipAmount || undefined, employeeId, businessDate, paymentTransactionId: paymentTransactionId || null, paymentStatus, paymentAttemptId: idempotencyKey || undefined }
       );
 
       if (paymentTransactionId) {
@@ -5676,7 +5676,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           const rvcForProp = await storage.getRvc(checkForBiz?.rvcId || "");
           const cashTxId = crypto.randomUUID();
           const cashTxPayload = {
-            propertyId: rvcForProp?.propertyId || "", drawerId: resolvedDrawerId!,
+            id: cashTxId, propertyId: rvcForProp?.propertyId || "", drawerId: resolvedDrawerId!,
             assignmentId: resolvedDrawerAssignmentId!, employeeId,
             transactionType: "sale" as const, amount, businessDate: businessDate!, checkId,
           };
@@ -6480,7 +6480,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       await journalWriteAtomic(
         "create", "check_split", sourceCheckId, "POST", `/api/checks/${sourceCheckId}/split`,
-        async (parentEventId) => {
+        async (parentEventId: string) => {
       for (const targetIndex of Array.from(targetIndices)) {
         const splitCheckData = {
           rvcId: sourceCheck.rvcId,
@@ -6495,7 +6495,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         await recordCompoundJournalEntry(
           parentEventId, "create", "check", newCheck.id,
           "POST", `/api/checks/split-new`,
-          splitCheckData
+          { id: newCheck.id, ...splitCheckData }
         );
         newChecks.push({ index: targetIndex, check: newCheck });
       }
@@ -6616,7 +6616,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           await recordCompoundJournalEntry(
             parentEventId, "create", "check_item", newItem.id,
             "POST", `/api/checks/${targetCheck.id}/items/split-share`,
-            splitItemData
+            { id: newItem.id, ...splitItemData }
           );
 
           results.push({
@@ -6649,7 +6649,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       return results;
         },
-        { employeeId, operations }
+        { id: sourceCheckId, employeeId, operations }
       );
 
       const updatedSourceCheck = await storage.getCheck(sourceCheckId);
@@ -7066,7 +7066,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { result: lock } = await journalWriteAtomic(
         "create", "check_lock", id, "POST", `/api/checks/${id}/lock`,
         () => storage.createCheckLock({ checkId: id, workstationId, employeeId, lockMode, expiresAt }),
-        { workstationId, employeeId, lockMode }
+        { id, checkId: id, workstationId, employeeId, lockMode }
       );
 
       res.json({ success: true, lock });
@@ -7458,7 +7458,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           },
           refundItemsData, refundPaymentsData
         ),
-        { originalCheckId, refundType, total: refundTotal.toFixed(2), reason }
+        { id: pregenRefundId, originalCheckId, refundType, total: refundTotal.toFixed(2), reason, refund: { id: pregenRefundId, refundNumber, rvcId, originalCheckId, originalCheckNumber: originalCheck.checkNumber, refundType, subtotal: refundSubtotal.toFixed(2), taxTotal: refundTaxTotal.toFixed(2), total: refundTotal.toFixed(2), reason, processedByEmployeeId, managerApprovalId, businessDate: businessDate || originalCheck.businessDate }, items: refundItemsData, payments: refundPaymentsData }
       );
 
       for (const rp of refundPaymentsData) {
@@ -7472,7 +7472,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               try {
                 const refundCashTxId = crypto.randomUUID();
                 const refundCashTxPayload = {
-                  propertyId: rvcForCash!.propertyId!, drawerId: activeAssignment.drawerId,
+                  id: refundCashTxId, propertyId: rvcForCash!.propertyId!, drawerId: activeAssignment.drawerId,
                   assignmentId: activeAssignment.id, employeeId: processedByEmployeeId,
                   transactionType: "refund" as const,
                   amount: (-parseFloat(rp.amount)).toFixed(2),
@@ -11629,7 +11629,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           id: pregenPunchId, propertyId, employeeId, punchType: "clock_in",
           actualTimestamp: now, businessDate, jobCodeId, notes, source: "pos",
         }),
-        { propertyId, employeeId, punchType: "clock_in", actualTimestamp: now.toISOString(), businessDate, jobCodeId, notes, source: "pos" }
+        { id: pregenPunchId, propertyId, employeeId, punchType: "clock_in", actualTimestamp: now.toISOString(), businessDate, jobCodeId, notes, source: "pos" }
       );
 
       await storage.recalculateTimecard(employeeId, businessDate);
@@ -11687,7 +11687,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           id: pregenOutPunchId, propertyId, employeeId, punchType: "clock_out",
           actualTimestamp: now, businessDate, notes, source: "pos",
         }),
-        { propertyId, employeeId, punchType: "clock_out", actualTimestamp: now.toISOString(), businessDate, notes, source: "pos" }
+        { id: pregenOutPunchId, propertyId, employeeId, punchType: "clock_out", actualTimestamp: now.toISOString(), businessDate, notes, source: "pos" }
       );
 
       await storage.recalculateTimecard(employeeId, businessDate);
@@ -11829,7 +11829,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           punchType: "break_start", actualTimestamp: now, businessDate, source: "pos",
           notes: `${breakType === "meal" ? "Meal" : "Rest"} break (${scheduledMinutes} min)`,
         }),
-        { propertyId, employeeId, jobCodeId: lastPunch.jobCodeId, punchType: "break_start", actualTimestamp: now.toISOString(), businessDate, source: "pos", notes: `${breakType === "meal" ? "Meal" : "Rest"} break (${scheduledMinutes} min)` }
+        { id: pregenBreakStartId, propertyId, employeeId, jobCodeId: lastPunch.jobCodeId, punchType: "break_start", actualTimestamp: now.toISOString(), businessDate, source: "pos", notes: `${breakType === "meal" ? "Meal" : "Rest"} break (${scheduledMinutes} min)` }
       );
 
       // Create break session record
@@ -11887,7 +11887,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           actualTimestamp: now, businessDate, source: "pos",
           notes: `Break ended after ${breakMinutes} minutes`,
         }),
-        { propertyId, employeeId, punchType: "break_end", actualTimestamp: now.toISOString(), businessDate, source: "pos", notes: `Break ended after ${breakMinutes} minutes` }
+        { id: pregenBreakEndId, propertyId, employeeId, punchType: "break_end", actualTimestamp: now.toISOString(), businessDate, source: "pos", notes: `Break ended after ${breakMinutes} minutes` }
       );
 
       // Update break session
@@ -14225,7 +14225,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               id: pregenAutoClockOutId, propertyId, employeeId, punchType: "clock_out",
               actualTimestamp: now, businessDate, notes: "Auto clock-out: Business date change", source: "system",
             }),
-            { propertyId, employeeId, punchType: "clock_out", businessDate }
+            { id: pregenAutoClockOutId, propertyId, employeeId, punchType: "clock_out", businessDate }
           );
 
           // Recalculate timecard
@@ -15967,7 +15967,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           responseCode: result.success ? result.responseCode || null : result.errorCode || null,
           responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
         }),
-        { propertyId, amount, orderId, status: result.success ? "authorized" : "declined" }
+        { id: pregenAuthTxnId, propertyId, amount, orderId, status: result.success ? "authorized" : "declined" }
       );
 
       res.json({
@@ -16173,7 +16173,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           responseCode: result.success ? result.responseCode || null : result.errorCode || null,
           responseMessage: result.success ? result.responseMessage || null : result.errorMessage || null,
         }),
-        { originalTransactionId: transactionId, amount, reason, status: refundTxnStatus }
+        { id: pregenRefundTxnId, originalTransactionId: transactionId, amount, reason, status: refundTxnStatus }
       );
 
       res.json({
@@ -16460,7 +16460,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             workstationId,
             capturedAt: isAuthOnly ? null : new Date(),
           }),
-          { environment: "sandbox", transactionType }
+          { id: testTxnId, environment: "sandbox", transactionType }
         );
 
         if (isDeclineCard) {
@@ -16671,7 +16671,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           tipAmount: tip.toString(), paymentStatus: "completed",
           paymentTransactionId: externalRef, employeeId: employeeId || null,
         }),
-        { checkId, tenderId, totalCharged: total, tipAmount: tip, approvalCode }
+        { id: pregenExtPayId, checkId, tenderId, totalCharged: total, tipAmount: tip, approvalCode }
       );
 
       // Recalculate check totals
@@ -17053,7 +17053,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                           employeeId: session.employeeId || undefined,
                           terminalId: terminal?.terminalId || terminal?.id,
                         }),
-                        { sessionId: session.id }
+                        { id: pollTxnId, sessionId: session.id }
                       );
                       paymentTxId = paymentTx?.id || null;
                       console.log(`[terminal-poll] Created payment_transaction ${paymentTxId} with gateway_transaction_id=${session.processorReference} for session ${session.id}`);
@@ -17396,7 +17396,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               employeeId: session.employeeId || undefined,
               terminalId: terminal?.terminalId || terminal?.id,
             }),
-            { sessionId: req.params.id }
+            { id: txnId, sessionId: req.params.id }
           );
           transaction = txn;
         }
@@ -17421,7 +17421,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               paymentTransactionId: transaction?.id || `TERM:${authCode}:${cardLast4}`,
               employeeId: session.employeeId || undefined,
             }),
-            { checkId: session.checkId, tenderId: session.tenderId }
+            { id: payId, checkId: session.checkId, tenderId: session.tenderId }
           );
           checkPayment = pay;
 
@@ -17608,7 +17608,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               terminalId: terminal?.terminalId || terminal?.id,
               metadata: emvData ? { emvData, signatureData } : undefined,
             }),
-            { sessionId: session.id }
+            { id: cbTxnId, sessionId: session.id }
           );
           transaction = txn;
         }
@@ -17633,7 +17633,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               paymentTransactionId: transaction?.id || `TERM:${authCode}:${cardLast4}`,
               employeeId: session.employeeId || undefined,
             }),
-            { checkId: session.checkId, tenderId: session.tenderId }
+            { id: cbPayId, checkId: session.checkId, tenderId: session.tenderId }
           );
           checkPayment = pay;
 
@@ -19571,7 +19571,7 @@ connect();
               businessDate,
               employeeId: employeeId || null,
             }),
-            { checkId, paymentIntentId }
+            { id: recTxnId, checkId, paymentIntentId }
           );
           paymentTxId = paymentTx?.id || null;
           console.log(`[record-payment] Created payment_transaction ${paymentTxId} with gateway_transaction_id=${paymentIntentId}`);
@@ -19597,7 +19597,7 @@ connect();
           paymentStatus: "completed",
           paymentTransactionId: paymentTxId,
         }),
-        { checkId, tenderId, paymentIntentId }
+        { id: recPayId, checkId, tenderId, paymentIntentId }
       );
 
       if (paymentTxId && checkPayment) {
@@ -19928,7 +19928,7 @@ connect();
       const { result: transaction } = await journalWriteAtomic(
         "create", "cash_transaction", cashTxId, "POST", "/api/cash-transactions",
         () => storage.createCashTransaction(req.body),
-        { propertyId: req.body.propertyId, drawerId: req.body.drawerId, assignmentId: req.body.assignmentId, employeeId: req.body.employeeId, transactionType: req.body.transactionType, amount: req.body.amount, businessDate: req.body.businessDate, checkId: req.body.checkId, notes: req.body.notes, referenceNumber: req.body.referenceNumber }
+        { id: cashTxId, propertyId: req.body.propertyId, drawerId: req.body.drawerId, assignmentId: req.body.assignmentId, employeeId: req.body.employeeId, transactionType: req.body.transactionType, amount: req.body.amount, businessDate: req.body.businessDate, checkId: req.body.checkId, notes: req.body.notes, referenceNumber: req.body.referenceNumber }
       );
       
       if (req.body.assignmentId) {
@@ -20961,7 +20961,7 @@ connect();
           await recalculateCheckTotals(newCheck.id);
           return newCheck;
         },
-        { onlineOrderId: order.id, employeeId }
+        { id: pregenOnlineCheckId, onlineOrderId: order.id, employeeId }
       );
 
       const updatedCheck = await storage.getCheck(check.id);
@@ -21568,7 +21568,7 @@ connect();
       const { result: queueItem } = await journalWriteAtomic(
         "create", "offline_order_queue", queueId, "POST", "/api/offline-queue",
         () => storage.createOfflineOrderQueue(req.body),
-        { localId: req.body.localId }
+        { id: queueId, localId: req.body.localId }
       );
       res.status(201).json(queueItem);
     } catch (error) {
@@ -21629,7 +21629,7 @@ connect();
 
             return newCheck;
           },
-          { offlineQueueId: req.params.id }
+          { id: offlineCheckId, offlineQueueId: req.params.id }
         );
 
         const finalCheck = await storage.getCheck(check.id);
@@ -21868,11 +21868,11 @@ connect();
             await recordCompoundJournalEntry(
               parentEventId, "create", "check_item", created.id,
               "POST", `/api/check-items`,
-              { checkId, menuItemId: item.menuItemId, menuItemName: item.menuItemName }
+              { id: created.id, checkId, menuItemId: item.menuItemId, menuItemName: item.menuItemName }
             );
           }
         },
-        { checkId, customerId, itemCount: validItems.length }
+        { id: checkId, checkId, customerId, itemCount: validItems.length }
       );
 
       await recalculateCheckTotals(checkId);

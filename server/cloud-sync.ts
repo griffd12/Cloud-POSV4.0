@@ -13,8 +13,8 @@ const BATCH_SIZE = 50;
 
 const ENTITY_SYNC_ORDER: Record<string, number> = {
   check: 0,
-  check_item: 1,
-  round: 2,
+  round: 1,
+  check_item: 2,
   kds_ticket: 3,
   kds_ticket_item: 4,
   kds_item: 5,

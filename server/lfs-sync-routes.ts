@@ -151,8 +151,8 @@ export function registerLfsSyncRoutes(app: Express) {
 
 const ENTITY_SYNC_ORDER: Record<string, number> = {
   check: 0,
-  check_item: 1,
-  round: 2,
+  round: 1,
+  check_item: 2,
   kds_ticket: 3,
   kds_ticket_item: 4,
   kds_item: 5,
@@ -1242,6 +1242,21 @@ async function remapCheckIdAsync(payload: Record<string, unknown>): Promise<Reco
   return payload;
 }
 
+async function remapSyncedForeignKeys(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const result = { ...payload };
+  const fkFields = ["roundId", "round_id", "checkPaymentId", "check_payment_id", "paymentTransactionId", "payment_transaction_id", "originalCheckId", "original_check_id"];
+  for (const field of fkFields) {
+    const val = result[field];
+    if (typeof val === "string" && val.length > 0) {
+      const cloudId = await resolveCloudId(val);
+      if (cloudId !== val) {
+        result[field] = cloudId;
+      }
+    }
+  }
+  return result;
+}
+
 const IMMUTABLE_SYNC_FIELDS = new Set([
   "id", "offlineTransactionId", "createdAt", "checkId", "check_id", "updatedAt",
 ]);
@@ -1302,7 +1317,8 @@ async function syncEntity(
       throw new Error(`Unsupported operation for check: ${operationType}`);
     }
     case "check_item": {
-      const remapped = await remapCheckIdAsync(dataWithOfflineId);
+      let remapped = await remapCheckIdAsync(dataWithOfflineId);
+      remapped = await remapSyncedForeignKeys(remapped);
       if (operationType === "create") {
         const { id: localId, ...insertData } = remapped;
         if (!insertData.menuItemName && insertData.menuItemId) {
@@ -1324,10 +1340,11 @@ async function syncEntity(
         const rawId = remapped.id as string;
         const cloudId = await resolveCloudId(rawId);
         const updateData = cleanUpdatePayload(remapped);
-        if (Object.keys(updateData).length === 0) {
+        const remappedUpdate = await remapSyncedForeignKeys(updateData);
+        if (Object.keys(remappedUpdate).length === 0) {
           return { id: cloudId, skipped: true, reason: "empty update payload" };
         }
-        return await storage.updateCheckItem(cloudId, updateData as Parameters<typeof storage.updateCheckItem>[1]);
+        return await storage.updateCheckItem(cloudId, remappedUpdate as Parameters<typeof storage.updateCheckItem>[1]);
       } else if (operationType === "delete") {
         const rawId = remapped.id as string;
         const cloudId = await resolveCloudId(rawId);
@@ -1336,7 +1353,8 @@ async function syncEntity(
       throw new Error(`Unsupported operation for check_item: ${operationType}`);
     }
     case "check_payment": {
-      const remapped = await remapCheckIdAsync(dataWithOfflineId);
+      let remapped = await remapCheckIdAsync(dataWithOfflineId);
+      remapped = await remapSyncedForeignKeys(remapped);
       if (operationType === "create") {
         const { id: localId, ...insertData } = remapped;
         if (!insertData.tenderName && insertData.tenderId) {
@@ -1492,7 +1510,9 @@ async function syncEntity(
     }
     case "cash_transaction": {
       if (operationType === "create") {
-        const { id: localId, ...insertData } = dataWithOfflineId;
+        let remapped = await remapCheckIdAsync(dataWithOfflineId);
+        remapped = await remapSyncedForeignKeys(remapped);
+        const { id: localId, ...insertData } = remapped;
         const created = await storage.createCashTransaction(insertData as Parameters<typeof storage.createCashTransaction>[0]);
         if (typeof localId === "string") {
           idRemapCache.set(localId, created.id);
@@ -1515,7 +1535,8 @@ async function syncEntity(
       throw new Error(`Unsupported operation for inventory_transaction: ${operationType}`);
     }
     case "kds_ticket": {
-      const remapped = await remapCheckIdAsync(dataWithOfflineId);
+      let remapped = await remapCheckIdAsync(dataWithOfflineId);
+      remapped = await remapSyncedForeignKeys(remapped);
       if (operationType === "create") {
         const { id: localId, ...insertData } = remapped;
         if (!insertData.status) insertData.status = "active";
@@ -1585,10 +1606,11 @@ async function syncEntity(
         const rawId = dataWithOfflineId.id as string;
         const cloudId = await resolveCloudId(rawId);
         const updateData = cleanUpdatePayload(dataWithOfflineId);
-        if (Object.keys(updateData).length === 0) {
+        const remappedUpdate = await remapSyncedForeignKeys(updateData);
+        if (Object.keys(remappedUpdate).length === 0) {
           return { id: cloudId, skipped: true, reason: "empty update payload" };
         }
-        return await storage.updatePaymentTransaction(cloudId, updateData as Parameters<typeof storage.updatePaymentTransaction>[1]);
+        return await storage.updatePaymentTransaction(cloudId, remappedUpdate as Parameters<typeof storage.updatePaymentTransaction>[1]);
       }
       throw new Error(`Unsupported operation for payment_transaction: ${operationType}`);
     }

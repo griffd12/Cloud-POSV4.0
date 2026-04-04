@@ -701,13 +701,26 @@ export function registerLfsAdminRoutes(app: Express) {
 
   app.get("/api/lfs/admin/journal/pending", async (_req: Request, res: Response) => {
     try {
-      const { getPendingJournalEntries, getPendingJournalCount } = await import("./transaction-journal");
+      const { getPendingJournalEntries, getPendingJournalCount, getDeadLetterCount } = await import("./transaction-journal");
       const count = await getPendingJournalCount();
+      const deadLettered = await getDeadLetterCount();
       const entries = await getPendingJournalEntries(50);
-      res.json({ entries, count });
+      res.json({ entries, count, deadLettered });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
-      res.status(500).json({ entries: [], count: 0, error: msg });
+      res.status(500).json({ entries: [], count: 0, deadLettered: 0, error: msg });
+    }
+  });
+
+  app.post("/api/lfs/admin/journal/requeue-dead-letters", async (_req: Request, res: Response) => {
+    try {
+      const { requeueDeadLetters } = await import("./transaction-journal");
+      const requeued = await requeueDeadLetters();
+      captureLog(`[admin] Requeued ${requeued} dead-lettered journal entries`);
+      res.json({ ok: true, requeued });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ ok: false, error: msg });
     }
   });
 }
@@ -802,6 +815,7 @@ export function startLfsAdminServer(_mainApp: Express) {
   proxyPost("/api/lfs/admin/check-update");
   proxyGet("/api/lfs/admin/devices");
   proxyGet("/api/lfs/admin/journal/pending");
+  proxyPost("/api/lfs/admin/journal/requeue-dead-letters");
   proxyGet("/api/health");
   proxyGet("/api/lfs/sync/status");
   proxyGet("/api/lfs/sync/latest-version");

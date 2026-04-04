@@ -200,8 +200,40 @@ export async function voidJournalEntry(eventId: string): Promise<void> {
     .where(eq(transactionJournal.eventId, eventId));
 }
 
+export async function requeueDeadLetters(): Promise<number> {
+  const deadLetters = await db
+    .select({ id: transactionJournal.id })
+    .from(transactionJournal)
+    .where(eq(transactionJournal.journalStatus, "dead_letter"));
+
+  if (deadLetters.length === 0) return 0;
+
+  for (const entry of deadLetters) {
+    await db
+      .update(transactionJournal)
+      .set({
+        journalStatus: "completed",
+        synced: false,
+        retryCount: 0,
+        syncError: null,
+      })
+      .where(eq(transactionJournal.id, entry.id));
+  }
+
+  return deadLetters.length;
+}
+
+export async function getDeadLetterCount(): Promise<number> {
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(transactionJournal)
+    .where(eq(transactionJournal.journalStatus, "dead_letter"));
+  return Number(result[0]?.count || 0);
+}
+
 export async function getJournalStats() {
   const pending = await getPendingJournalCount();
+  const deadLetterCount = await getDeadLetterCount();
   const total = await db
     .select({ count: sql<number>`count(*)` })
     .from(transactionJournal);
@@ -214,5 +246,6 @@ export async function getJournalStats() {
     total: Number(total[0]?.count || 0),
     pending,
     synced: Number(synced[0]?.count || 0),
+    deadLettered: deadLetterCount,
   };
 }

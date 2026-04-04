@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Wifi, WifiOff, Key, RefreshCw, Copy, Shield, ArrowUpDown, Clock, AlertTriangle, CheckCircle2, XCircle, Loader2, ServerCrash, Trash2 } from "lucide-react";
+import { Wifi, WifiOff, Key, RefreshCw, Copy, Shield, ArrowUpDown, Clock, AlertTriangle, CheckCircle2, XCircle, Loader2, ServerCrash, Trash2, RotateCcw, FileText } from "lucide-react";
 import { useState } from "react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
@@ -386,6 +386,107 @@ export default function LfsManagementPage() {
           )}
         </CardContent>
       </Card>
+
+      <JournalStatusCard propertyId={selectedPropertyId} />
     </div>
+  );
+}
+
+function JournalStatusCard({ propertyId }: { propertyId: string | null }) {
+  const { toast } = useToast();
+
+  const { data: journalData, isLoading } = useQuery<{ count: number; deadLettered: number; entries: Array<{ id: string; entityType: string; operationType: string; journalStatus: string; syncError?: string; createdAt?: string }> }>({
+    queryKey: ["/api/lfs/admin/journal/pending", propertyId],
+    queryFn: () => apiRequest("GET", "/api/lfs/admin/journal/pending").then(r => r.json()),
+    enabled: !!propertyId,
+    refetchInterval: 10000,
+  });
+
+  const requeueMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/lfs/admin/journal/requeue-dead-letters"),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      toast({ title: "Dead letters requeued", description: `${data.requeued} entries moved back to pending` });
+      queryClient.invalidateQueries({ queryKey: ["/api/lfs/admin/journal/pending"] });
+    },
+    onError: () => {
+      toast({ title: "Failed to requeue", variant: "destructive" });
+    },
+  });
+
+  const deadLettered = journalData?.deadLettered ?? 0;
+  const pending = journalData?.count ?? 0;
+
+  return (
+    <Card data-testid="card-journal-status">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FileText className="h-5 w-5" />
+          Transaction Journal
+        </CardTitle>
+        <CardDescription>Journal entries pending cloud sync and dead-lettered entries</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center gap-4">
+              <Badge variant="secondary" data-testid="badge-pending-count">
+                {pending} pending
+              </Badge>
+              <Badge variant={deadLettered > 0 ? "destructive" : "secondary"} data-testid="badge-dead-letter-count">
+                {deadLettered} dead-lettered
+              </Badge>
+              {deadLettered > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => requeueMutation.mutate()}
+                  disabled={requeueMutation.isPending}
+                  data-testid="button-requeue-dead-letters"
+                >
+                  {requeueMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                  Requeue Dead Letters
+                </Button>
+              )}
+            </div>
+
+            {journalData?.entries && journalData.entries.length > 0 && (
+              <div className="max-h-[300px] overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Entity</TableHead>
+                      <TableHead>Operation</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Error</TableHead>
+                      <TableHead>Time</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {journalData.entries.map((entry) => (
+                      <TableRow key={entry.id} data-testid={`row-journal-${entry.id}`}>
+                        <TableCell className="font-mono text-xs">{entry.entityType}</TableCell>
+                        <TableCell className="text-xs">{entry.operationType}</TableCell>
+                        <TableCell>
+                          <Badge variant={entry.journalStatus === "dead_letter" ? "destructive" : "secondary"} className="text-xs">
+                            {entry.journalStatus}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">{entry.syncError || "—"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{entry.createdAt ? new Date(entry.createdAt).toLocaleTimeString() : "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
