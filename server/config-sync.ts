@@ -168,6 +168,7 @@ export class ConfigSyncService {
     this.isSyncing = true;
 
     try {
+      await this.pollPendingCommands();
       const failedTables: string[] = [];
       for (const table of CONFIG_TABLES) {
         try {
@@ -179,7 +180,6 @@ export class ConfigSyncService {
         }
       }
       await this.initOfflineCheckRangesFromWorkstations();
-      await this.pollPendingCommands();
       this.lastSyncAt = new Date().toISOString();
       this.syncCount++;
       if (failedTables.length > 0) {
@@ -248,6 +248,7 @@ export class ConfigSyncService {
       if (!data.ok || !data.commands?.length) return;
 
       const succeededIds: number[] = [];
+      const clearedPropertyIds = new Set<string>();
       for (const cmd of data.commands) {
         log(`Executing pending command: ${cmd.command} for property ${cmd.propertyId}`, "lfs-sync");
         if (cmd.command === "clear-sales-data") {
@@ -256,12 +257,13 @@ export class ConfigSyncService {
             await storage.clearSalesData(cmd.propertyId);
             try {
               await db.execute(
-                sql`DELETE FROM transaction_journal WHERE synced = true AND property_id = ${cmd.propertyId}`
+                sql`DELETE FROM transaction_journal WHERE property_id = ${cmd.propertyId}`
               );
             } catch (_journalErr) {
               log(`clear-sales-data: journal purge failed (non-critical)`, "lfs-sync");
             }
             succeededIds.push(cmd.id);
+            clearedPropertyIds.add(cmd.propertyId);
             log(`clear-sales-data completed for property ${cmd.propertyId}`, "lfs-sync");
           } catch (cmdErr: unknown) {
             const ce = cmdErr as { message?: string };
@@ -281,6 +283,21 @@ export class ConfigSyncService {
           });
         } catch (_ackErr) {
           log(`Failed to ACK commands on cloud (will re-execute next sync)`, "lfs-sync");
+        }
+      }
+
+      for (const propId of clearedPropertyIds) {
+        try {
+          const clearAckUrl = `${this.config.cloudBaseUrl}/api/lfs/sync/clear-sales-data`;
+          await fetch(clearAckUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-lfs-api-key": this.config.apiKey },
+            body: JSON.stringify({ propertyId: propId }),
+            signal: AbortSignal.timeout(10000),
+          });
+          log(`Notified cloud of LFS clear completion for property ${propId}`, "lfs-sync");
+        } catch (_clearAckErr) {
+          log(`Failed to notify cloud of LFS clear (non-critical, status will update on next direct clear)`, "lfs-sync");
         }
       }
     } catch (e: unknown) {

@@ -148,6 +148,23 @@
           <div class="stat-row"><span class="stat-label">Card Mode</span><span class="stat-value" id="cap-card-mode">—</span></div>
           <div class="stat-row"><span class="stat-label">Store & Forward</span><span class="stat-value" id="cap-saf">—</span></div>
         </div>
+
+        <div class="card">
+          <h2>Clear Sales Data</h2>
+          <div class="stat-row"><span class="stat-label">Last Cloud Clear</span><span class="stat-value" id="last-cloud-clear">—</span></div>
+          <div class="stat-row"><span class="stat-label">LFS Status</span><span class="stat-value" id="lfs-clear-ack-status">—</span></div>
+          <div id="clear-sales-section" style="margin-top:12px">
+            <div id="clear-pin-form" style="display:none">
+              <input type="password" id="clear-pin-input" placeholder="Enter manager PIN" maxlength="10"
+                style="width:100%;padding:8px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg);color:var(--text);margin-bottom:8px" data-testid="input-clear-pin" />
+              <div style="display:flex;gap:8px">
+                <button class="btn" style="background:var(--danger);border-color:var(--danger);flex:1" id="btn-confirm-clear" data-testid="btn-confirm-clear">Confirm Clear</button>
+                <button class="btn" id="btn-cancel-clear" data-testid="btn-cancel-clear" style="flex:1">Cancel</button>
+              </div>
+            </div>
+            <button class="btn" id="btn-show-clear" data-testid="btn-show-clear" style="width:100%;background:var(--danger);border-color:var(--danger)">Clear LFS Sales Data</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -857,6 +874,20 @@
         document.getElementById('pending-saf').textContent = pendingSettlements.count ?? '0';
       }
 
+      try {
+        const clearStatusResp = await apiFetch('/api/lfs/sync/clear-status?propertyId=' + (capabilities?.propertyId || ''));
+        if (clearStatusResp?.ok && clearStatusResp.status) {
+          const cs = clearStatusResp.status;
+          document.getElementById('last-cloud-clear').textContent = cs.clearedAt ? new Date(cs.clearedAt).toLocaleString() : '—';
+          document.getElementById('lfs-clear-ack-status').innerHTML = cs.lfsAcknowledged
+            ? badge('Cleared', 'success')
+            : badge('Pending', 'warning');
+        } else {
+          document.getElementById('last-cloud-clear').textContent = 'None';
+          document.getElementById('lfs-clear-ack-status').textContent = '—';
+        }
+      } catch (_) {}
+
       const updateStatus = await apiFetch('/api/lfs/admin/check-update', { method: 'POST' });
       if (updateStatus) {
         document.getElementById('update-current-version').textContent = updateStatus.currentVersion || '—';
@@ -1036,6 +1067,43 @@
         }
       } catch { showToast('Requeue request failed', 'error'); }
       btn.disabled = false;
+      setTimeout(refreshOverview, 2000);
+    });
+
+    document.getElementById('btn-show-clear').addEventListener('click', () => {
+      document.getElementById('clear-pin-form').style.display = '';
+      document.getElementById('btn-show-clear').style.display = 'none';
+      document.getElementById('clear-pin-input').value = '';
+      document.getElementById('clear-pin-input').focus();
+    });
+
+    document.getElementById('btn-cancel-clear').addEventListener('click', () => {
+      document.getElementById('clear-pin-form').style.display = 'none';
+      document.getElementById('btn-show-clear').style.display = '';
+    });
+
+    document.getElementById('btn-confirm-clear').addEventListener('click', async () => {
+      const pin = document.getElementById('clear-pin-input').value;
+      if (!pin) { showToast('Enter a manager PIN', 'error'); return; }
+      const btn = document.getElementById('btn-confirm-clear');
+      btn.disabled = true;
+      btn.textContent = 'Clearing...';
+      try {
+        const res = await apiFetch('/api/lfs/sync/clear-sales-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin }),
+        });
+        if (res?.ok) {
+          showToast('Sales data cleared successfully');
+        } else {
+          showToast(res?.error || 'Clear failed', 'error');
+        }
+      } catch { showToast('Clear request failed', 'error'); }
+      btn.disabled = false;
+      btn.textContent = 'Confirm Clear';
+      document.getElementById('clear-pin-form').style.display = 'none';
+      document.getElementById('btn-show-clear').style.display = '';
       setTimeout(refreshOverview, 2000);
     });
 

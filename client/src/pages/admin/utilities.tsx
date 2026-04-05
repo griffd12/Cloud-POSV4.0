@@ -132,6 +132,17 @@ export default function UtilitiesPage() {
 
   const selectedProperty = properties?.find(p => p.id === selectedPropertyId);
 
+  const { data: clearStatus, refetch: refetchClearStatus } = useQuery<{ ok: boolean; status: { clearedAt: string | null; lfsAcknowledged: boolean; lfsAckAt: string | null } | null }>({
+    queryKey: ["/api/admin/clear-sales-status", selectedPropertyId],
+    enabled: !!selectedPropertyId,
+    queryFn: async () => {
+      const res = await failoverFetch(`/api/admin/clear-sales-status/${selectedPropertyId}`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to fetch clear status");
+      return res.json();
+    },
+    refetchInterval: 10000,
+  });
+
   const clearMutation = useMutation({
     mutationFn: async (data: { pin: string; confirmText: string; propertyId: string }) => {
       const response = await apiRequest("POST", "/api/admin/clear-sales-data", data);
@@ -144,6 +155,7 @@ export default function UtilitiesPage() {
       setConfirmText("");
       setAcknowledged(false);
       refetchSummary();
+      refetchClearStatus();
       queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/checks"] });
       toast({
@@ -257,6 +269,29 @@ export default function UtilitiesPage() {
                 <div className="font-medium text-sm text-muted-foreground mb-2">Selected Property</div>
                 <div className="text-lg font-semibold">{selectedProperty?.name}</div>
               </div>
+
+              {clearStatus?.status && (
+                <div className="p-3 rounded-md border" data-testid="lfs-clear-status">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-medium">LFS Clear Status</div>
+                    <div className="flex items-center gap-2">
+                      {clearStatus.status.lfsAcknowledged ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" data-testid="badge-lfs-ack">
+                          LFS Cleared
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" data-testid="badge-lfs-pending">
+                          Waiting for LFS
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Cloud cleared: {new Date(clearStatus.status.clearedAt!).toLocaleString()}
+                    {clearStatus.status.lfsAckAt && ` — LFS confirmed: ${new Date(clearStatus.status.lfsAckAt).toLocaleString()}`}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <div className="text-center p-4 bg-muted rounded-md">

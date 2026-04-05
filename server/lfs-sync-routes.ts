@@ -673,9 +673,23 @@ function registerLfsLocalRoutes(app: Express) {
       if (!propertyId) {
         return res.status(400).json({ error: "propertyId is required" });
       }
-      const apiKey = req.headers["x-lfs-api-key"];
+      const apiKey = req.headers["x-lfs-api-key"] || req.headers["x-lfs-admin-key"];
       const expectedKey = process.env.LFS_API_KEY;
-      if (expectedKey && apiKey !== expectedKey) {
+      const pin = req.body?.pin;
+      if (pin) {
+        const employee = await storage.getEmployeeByPin(pin);
+        if (!employee) {
+          return res.status(401).json({ error: "Invalid PIN" });
+        }
+        if (employee.roleId) {
+          const privileges = await storage.getRolePrivileges(employee.roleId);
+          if (!privileges.includes("admin_access")) {
+            return res.status(403).json({ error: "You do not have admin access privileges" });
+          }
+        } else {
+          return res.status(403).json({ error: "Employee has no assigned role" });
+        }
+      } else if (expectedKey && apiKey !== expectedKey) {
         return res.status(401).json({ error: "Unauthorized" });
       }
       const result = await storage.clearSalesData(propertyId);
@@ -683,16 +697,43 @@ function registerLfsLocalRoutes(app: Express) {
       const { sql: sqlDrizzle } = await import("drizzle-orm");
       try {
         await dbRef.execute(
-          sqlDrizzle`DELETE FROM transaction_journal WHERE synced = true AND property_id = ${propertyId}`
+          sqlDrizzle`DELETE FROM transaction_journal WHERE property_id = ${propertyId}`
         );
       } catch (journalErr) {
-        console.error("[LFS-Local] Failed to purge synced journal entries:", journalErr);
+        console.error("[LFS-Local] Failed to purge journal entries:", journalErr);
       }
       console.log(`[LFS-Local] clear-sales-data completed for property ${propertyId}: ${result.deleted} records deleted`);
       res.json({ ok: true, deleted: result.deleted, propertyId });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       console.error("[LFS-Local] clear-sales-data failed:", msg);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.get("/api/lfs/sync/clear-status", async (req: Request, res: Response) => {
+    try {
+      const propertyId = (req.query.propertyId as string) || process.env.LFS_PROPERTY_ID;
+      if (!propertyId) {
+        return res.status(400).json({ error: "propertyId is required" });
+      }
+      const cloudUrl = process.env.CLOUD_URL || process.env.LFS_CLOUD_URL;
+      const apiKey = process.env.LFS_API_KEY;
+      if (cloudUrl && apiKey) {
+        try {
+          const resp = await fetch(`${cloudUrl}/api/lfs/sync/clear-status?propertyId=${propertyId}`, {
+            headers: { "x-lfs-api-key": apiKey },
+            signal: AbortSignal.timeout(5000),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            return res.json(data);
+          }
+        } catch (_proxyErr) {}
+      }
+      res.json({ ok: true, status: null });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
       res.status(500).json({ error: msg });
     }
   });
@@ -757,8 +798,174 @@ async function recordLfsSyncActivity(req: Request, syncType: string, direction: 
   }
 }
 
+const salesClearFence = new Map<string, string>();
+
+async function ensureSalesClearFenceTable(): Promise<void> {
+  try {
+    const { db: dbRef } = await import("./db");
+    const { sql: sqlDrizzle } = await import("drizzle-orm");
+    await dbRef.execute(sqlDrizzle`
+      CREATE TABLE IF NOT EXISTS sales_clear_fence (
+        property_id TEXT PRIMARY KEY,
+        cleared_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        cleared_by TEXT,
+        lfs_acknowledged BOOLEAN DEFAULT FALSE,
+        lfs_ack_at TIMESTAMP
+      )
+    `);
+    const rows = await dbRef.execute(sqlDrizzle`SELECT property_id, cleared_at FROM sales_clear_fence`);
+    for (const row of (rows.rows || []) as Record<string, unknown>[]) {
+      salesClearFence.set(row.property_id as string, (row.cleared_at as Date).toISOString());
+    }
+  } catch (e) {
+    console.error("[LFS] Failed to create sales_clear_fence table:", e);
+  }
+}
+
+export async function recordSalesClear(propertyId: string, clearedBy?: string): Promise<void> {
+  try {
+    const { db: dbRef } = await import("./db");
+    const { sql: sqlDrizzle } = await import("drizzle-orm");
+    await ensureSalesClearFenceTable();
+    const now = new Date().toISOString();
+    await dbRef.execute(
+      sqlDrizzle`INSERT INTO sales_clear_fence (property_id, cleared_at, cleared_by, lfs_acknowledged)
+        VALUES (${propertyId}, NOW(), ${clearedBy || null}, FALSE)
+        ON CONFLICT (property_id) DO UPDATE SET cleared_at = NOW(), cleared_by = ${clearedBy || null}, lfs_acknowledged = FALSE, lfs_ack_at = NULL`
+    );
+    salesClearFence.set(propertyId, now);
+  } catch (e) {
+    console.error("[LFS] Failed to record sales clear fence:", e);
+  }
+}
+
+export async function ackSalesClear(propertyId: string): Promise<void> {
+  try {
+    const { db: dbRef } = await import("./db");
+    const { sql: sqlDrizzle } = await import("drizzle-orm");
+    await dbRef.execute(
+      sqlDrizzle`UPDATE sales_clear_fence SET lfs_acknowledged = TRUE, lfs_ack_at = NOW() WHERE property_id = ${propertyId}`
+    );
+  } catch (e) {
+    console.error("[LFS] Failed to ack sales clear:", e);
+  }
+}
+
+export async function getSalesClearStatus(propertyId: string): Promise<{ clearedAt: string | null; lfsAcknowledged: boolean; lfsAckAt: string | null } | null> {
+  try {
+    const { db: dbRef } = await import("./db");
+    const { sql: sqlDrizzle } = await import("drizzle-orm");
+    await ensureSalesClearFenceTable();
+    const result = await dbRef.execute(
+      sqlDrizzle`SELECT cleared_at, lfs_acknowledged, lfs_ack_at FROM sales_clear_fence WHERE property_id = ${propertyId}`
+    );
+    if (result.rows && result.rows.length > 0) {
+      const row = result.rows[0] as Record<string, unknown>;
+      return {
+        clearedAt: row.cleared_at ? (row.cleared_at as Date).toISOString() : null,
+        lfsAcknowledged: row.lfs_acknowledged as boolean,
+        lfsAckAt: row.lfs_ack_at ? (row.lfs_ack_at as Date).toISOString() : null,
+      };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function isTransactionBeforeClearFence(propertyId: string | undefined, createdAt: string | undefined): boolean {
+  if (!propertyId || !createdAt) return false;
+  const fenceTime = salesClearFence.get(propertyId);
+  if (!fenceTime) return false;
+  try {
+    return new Date(createdAt).getTime() < new Date(fenceTime).getTime();
+  } catch {
+    return false;
+  }
+}
+
 function registerLfsCloudRoutes(app: Express) {
   ensureCloudRemapTable().then(() => { remapTableReady = true; console.log("[LFS Sync] lfs_id_remap table ready"); }).catch((e) => { console.error("[LFS Sync] Failed to ensure remap table:", e); });
+  ensureSalesClearFenceTable().catch(() => {});
+
+  app.get("/api/lfs/sync/pending-commands", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
+      const propertyId = scopedPropertyId || (req.query.propertyId as string);
+      if (!propertyId) {
+        return res.status(400).json({ error: "propertyId is required" });
+      }
+      const commands = await fetchPendingLfsCommands(propertyId);
+      res.json({ ok: true, commands });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.post("/api/lfs/sync/ack-commands", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
+      const propertyId = scopedPropertyId || req.body?.propertyId;
+      if (!propertyId) {
+        return res.status(400).json({ error: "propertyId is required" });
+      }
+      const commandIds = req.body?.commandIds as number[] | undefined;
+      if (!commandIds || !Array.isArray(commandIds) || commandIds.length === 0) {
+        return res.status(400).json({ error: "commandIds array is required" });
+      }
+      await ackLfsCommands(commandIds, propertyId);
+      res.json({ ok: true, acknowledged: commandIds.length });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.get("/api/lfs/sync/clear-status", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
+      const propertyId = scopedPropertyId || (req.query.propertyId as string);
+      if (!propertyId) {
+        return res.status(400).json({ error: "propertyId is required" });
+      }
+      const status = await getSalesClearStatus(propertyId);
+      res.json({ ok: true, status });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.get("/api/lfs/sync/latest-version", requireLfsApiKey, async (_req: Request, res: Response) => {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
+      const version = pkg.version || "1.0.0";
+      const updateUrl = process.env.LFS_UPDATE_DOWNLOAD_URL || null;
+      const checksum = process.env.LFS_UPDATE_CHECKSUM || null;
+      const releaseNotes = process.env.LFS_UPDATE_RELEASE_NOTES || null;
+      res.json({ version, downloadUrl: updateUrl, checksum, releaseNotes });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.get("/api/lfs/sync/pending-settlements", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
+      const propertyId = scopedPropertyId;
+      const payments = await storage.getPaymentsByStatus("pending_settlement", propertyId || undefined);
+      res.json({ count: payments.length, payments });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
 
   app.get("/api/lfs/sync/:tableName", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
@@ -789,6 +996,11 @@ function registerLfsCloudRoutes(app: Express) {
       const entry = req.body;
       if (!entry || !(entry.entity_type || entry.entityType) || !entry.payload) {
         return res.status(400).json({ error: "Missing required fields: entity_type and payload" });
+      }
+
+      const txCreatedAt = entry.created_at || entry.createdAt;
+      if (isTransactionBeforeClearFence(scopedPropertyId || undefined, txCreatedAt)) {
+        return res.json({ ok: true, result: { skipped: true, reason: "transaction predates sales clear — discarded" } });
       }
 
       const entityType = entry.entity_type || entry.entityType;
@@ -840,6 +1052,12 @@ function registerLfsCloudRoutes(app: Express) {
       const results = [];
       for (const entry of sorted) {
         try {
+          const txCreatedAt = entry.created_at || entry.createdAt;
+          if (isTransactionBeforeClearFence(scopedPropertyId || undefined, txCreatedAt)) {
+            results.push({ id: entry.id, ok: true, result: { skipped: true, reason: "transaction predates sales clear" } });
+            continue;
+          }
+
           const entityType = entry.entity_type || entry.entityType;
           const operationType = entry.operation_type || entry.operationType;
           const rawPayload = typeof entry.payload === "string" ? JSON.parse(entry.payload) : entry.payload;
@@ -886,38 +1104,6 @@ function registerLfsCloudRoutes(app: Express) {
     res.json({ ok: true });
   });
 
-  app.get("/api/lfs/sync/latest-version", requireLfsApiKey, async (_req: Request, res: Response) => {
-    try {
-      const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
-      const version = pkg.version || "1.0.0";
-      const updateUrl = process.env.LFS_UPDATE_DOWNLOAD_URL || null;
-      const checksum = process.env.LFS_UPDATE_CHECKSUM || null;
-      const releaseNotes = process.env.LFS_UPDATE_RELEASE_NOTES || null;
-
-      res.json({
-        version,
-        downloadUrl: updateUrl,
-        checksum,
-        releaseNotes,
-      });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Unknown error";
-      res.status(500).json({ error: msg });
-    }
-  });
-
-  app.get("/api/lfs/sync/pending-settlements", requireLfsApiKey, async (req: Request, res: Response) => {
-    try {
-      const scopedPropertyId = enforceLfsPropertyScope(req, res);
-      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
-      const propertyId = scopedPropertyId;
-      const payments = await storage.getPaymentsByStatus("pending_settlement", propertyId || undefined);
-      res.json({ count: payments.length, payments });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Unknown error";
-      res.status(500).json({ error: msg });
-    }
-  });
 
   app.post("/api/lfs/sync/verify-processor-settlement", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
@@ -1137,11 +1323,12 @@ function registerLfsCloudRoutes(app: Express) {
       const { sql: sqlDrizzle } = await import("drizzle-orm");
       try {
         await dbRef.execute(
-          sqlDrizzle`DELETE FROM transaction_journal WHERE synced = true AND property_id = ${propertyId}`
+          sqlDrizzle`DELETE FROM transaction_journal WHERE property_id = ${propertyId}`
         );
       } catch (journalErr) {
-        console.error("[LFS] Failed to purge synced journal entries:", journalErr);
+        console.error("[LFS] Failed to purge journal entries:", journalErr);
       }
+      await ackSalesClear(propertyId);
       recordLfsSyncActivity(req, "clear-sales-data", "down", 1, "success");
       res.json({ ok: true, deleted: result.deleted, propertyId });
     } catch (e: unknown) {
@@ -1151,41 +1338,6 @@ function registerLfsCloudRoutes(app: Express) {
     }
   });
 
-  app.get("/api/lfs/sync/pending-commands", requireLfsApiKey, async (req: Request, res: Response) => {
-    try {
-      const scopedPropertyId = enforceLfsPropertyScope(req, res);
-      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
-      const propertyId = scopedPropertyId || (req.query.propertyId as string);
-      if (!propertyId) {
-        return res.status(400).json({ error: "propertyId is required" });
-      }
-      const commands = await fetchPendingLfsCommands(propertyId);
-      res.json({ ok: true, commands });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Unknown error";
-      res.status(500).json({ error: msg });
-    }
-  });
-
-  app.post("/api/lfs/sync/ack-commands", requireLfsApiKey, async (req: Request, res: Response) => {
-    try {
-      const scopedPropertyId = enforceLfsPropertyScope(req, res);
-      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
-      const propertyId = scopedPropertyId || req.body?.propertyId;
-      if (!propertyId) {
-        return res.status(400).json({ error: "propertyId is required" });
-      }
-      const commandIds = req.body?.commandIds as number[] | undefined;
-      if (!commandIds || !Array.isArray(commandIds) || commandIds.length === 0) {
-        return res.status(400).json({ error: "commandIds array is required" });
-      }
-      await ackLfsCommands(commandIds, propertyId);
-      res.json({ ok: true, acknowledged: commandIds.length });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Unknown error";
-      res.status(500).json({ error: msg });
-    }
-  });
 }
 
 async function storeDurableRemap(localId: string, cloudId: string): Promise<void> {

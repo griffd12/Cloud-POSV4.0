@@ -7843,6 +7843,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Get summary before deletion for audit log
       const beforeSummary = await storage.getSalesDataSummary(propertyId);
       
+      // Record the sync fence so stale LFS transactions are rejected
+      try {
+        const { recordSalesClear } = await import("./lfs-sync-routes");
+        await recordSalesClear(propertyId, employee.name || employeeId);
+      } catch (_fenceErr) {
+        console.warn("[clear-sales-data] Failed to record sales clear fence (non-critical)");
+      }
+      
       // Perform the deletion (wrapped in transaction inside storage method)
       const result = await storage.clearSalesData(propertyId);
       
@@ -7914,6 +7922,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error: any) {
       console.error("Sales reset error:", error);
       res.status(500).json({ message: error.message || "Failed to clear sales data" });
+    }
+  });
+
+  app.get("/api/admin/clear-sales-status/:propertyId", async (req, res) => {
+    try {
+      const { propertyId } = req.params;
+      const { getSalesClearStatus } = await import("./lfs-sync-routes");
+      const status = await getSalesClearStatus(propertyId);
+      res.json({ ok: true, status });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get clear status" });
     }
   });
 

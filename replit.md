@@ -56,6 +56,10 @@ The same Express codebase runs against local PostgreSQL (LFS) or cloud PostgreSQ
 - **Connect-to-Server Protocol Detection**: The server setup page auto-detects private IPs (10.x, 172.16-31.x, 192.168.x, 127.x, localhost) and defaults to `http://`. For public URLs without protocol, tries `https://` first, falls back to `http://`.
 - **Offline Payments (Store-and-Forward)**: LFS processes payments locally for SAF-capable terminals, recording them as `pending_settlement`. Payments are later reconciled with the cloud via server-to-server calls.
 - **Transaction Journal Coverage**: Refunds, time punches, cash transactions, inventory transactions, and audit logs are journaled in the `transaction_journal` PostgreSQL table for cloud sync on reconnection. Cloud-side `syncEntity()` handles all journaled entity types.
+- **Sales Clear Fence**: `sales_clear_fence` table records per-property `cleared_at` timestamps. Cloud `transaction-up` and `batch-up` reject entries older than the fence. LFS acknowledgment tracked via `lfs_acknowledged`/`lfs_ack_at`. EMC Utilities page shows LFS clear status with auto-refresh.
+- **LFS Sync Route Order**: All specific `GET /api/lfs/sync/*` routes (`pending-commands`, `ack-commands`, `clear-status`, `latest-version`, `pending-settlements`) MUST be registered BEFORE the wildcard `GET /api/lfs/sync/:tableName` handler. Express matches first-registered route.
+- **LFS Sync Cycle Order**: `pollPendingCommands()` runs BEFORE config table sync loop in `config-sync.ts` so clear commands are processed before stale transaction uploads.
+- **Journal Purge on Clear**: All three clear-sales-data paths (LFS-local, cloud, config-sync poll) delete ALL journal entries for the property (no `synced = true` filter).
 - **LFS Reporting**: In local mode, all reporting queries run against the local PostgreSQL database using standard Drizzle ORM — no compatibility layer needed.
 - **React Query networkMode**: Set to `'always'` (not `'online'`) so requests to LFS work even when browser detects no internet.
 - **KDS WebSocket Failover**: KDS WebSocket URL uses `connectionManager.getWsUrl()` to route to LFS when offline.
