@@ -7900,6 +7900,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             });
             if (lfsRes.ok) {
               console.log(`[clear-sales-data] LFS notified successfully for property ${propertyId}`);
+              try {
+                const { ackSalesClear } = await import("./lfs-sync-routes");
+                await ackSalesClear(propertyId);
+                console.log(`[clear-sales-data] LFS ack recorded for property ${propertyId}`);
+              } catch (_ackErr) {
+                console.warn(`[clear-sales-data] Failed to record LFS ack (non-critical)`);
+              }
             } else {
               console.warn(`[clear-sales-data] LFS returned ${lfsRes.status} — queuing for next sync`);
               const { queueLfsCommand } = await import("./lfs-sync-routes");
