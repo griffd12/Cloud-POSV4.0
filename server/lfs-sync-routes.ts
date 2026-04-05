@@ -1015,7 +1015,8 @@ function registerLfsCloudRoutes(app: Express) {
       }
 
       const txCreatedAt = entry.created_at || entry.createdAt;
-      if (isTransactionBeforeClearFence(scopedPropertyId || undefined, txCreatedAt)) {
+      const fencePropertyId = scopedPropertyId || entry.property_id || entry.propertyId || entry.payload?.property_id || entry.payload?.propertyId;
+      if (isTransactionBeforeClearFence(fencePropertyId || undefined, txCreatedAt)) {
         return res.json({ ok: true, result: { skipped: true, reason: "transaction predates sales clear — discarded" } });
       }
 
@@ -1069,7 +1070,8 @@ function registerLfsCloudRoutes(app: Express) {
       for (const entry of sorted) {
         try {
           const txCreatedAt = entry.created_at || entry.createdAt;
-          if (isTransactionBeforeClearFence(scopedPropertyId || undefined, txCreatedAt)) {
+          const entryPropertyId = scopedPropertyId || entry.property_id || entry.propertyId || entry.payload?.property_id || entry.payload?.propertyId;
+          if (isTransactionBeforeClearFence(entryPropertyId || undefined, txCreatedAt)) {
             results.push({ id: entry.id, ok: true, result: { skipped: true, reason: "transaction predates sales clear" } });
             continue;
           }

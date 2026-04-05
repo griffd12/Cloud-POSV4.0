@@ -7843,16 +7843,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Get summary before deletion for audit log
       const beforeSummary = await storage.getSalesDataSummary(propertyId);
       
-      // Record the sync fence so stale LFS transactions are rejected
+      // Perform the deletion (wrapped in transaction inside storage method)
+      const result = await storage.clearSalesData(propertyId);
+      
+      // Record the sync fence AFTER successful clear so stale LFS transactions are rejected
       try {
         const { recordSalesClear } = await import("./lfs-sync-routes");
         await recordSalesClear(propertyId, employee.name || employeeId);
       } catch (_fenceErr) {
         console.warn("[clear-sales-data] Failed to record sales clear fence (non-critical)");
       }
-      
-      // Perform the deletion (wrapped in transaction inside storage method)
-      const result = await storage.clearSalesData(propertyId);
       
       // Notify connected POS clients to refresh their state
       broadcastPosEvent({
