@@ -288,7 +288,7 @@ export class ConfigSyncService {
 
       for (const propId of clearedPropertyIds) {
         try {
-          const clearAckUrl = `${this.config.cloudBaseUrl}/api/lfs/sync/clear-sales-data`;
+          const clearAckUrl = `${this.config.cloudBaseUrl}/api/lfs/sync/ack-clear-sales`;
           await fetch(clearAckUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-lfs-api-key": this.config.apiKey },
@@ -297,7 +297,7 @@ export class ConfigSyncService {
           });
           log(`Notified cloud of LFS clear completion for property ${propId}`, "lfs-sync");
         } catch (_clearAckErr) {
-          log(`Failed to notify cloud of LFS clear (non-critical, status will update on next direct clear)`, "lfs-sync");
+          log(`Failed to notify cloud of LFS clear ack (non-critical, status will update on next sync)`, "lfs-sync");
         }
       }
     } catch (e: unknown) {

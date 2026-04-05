@@ -924,6 +924,22 @@ function registerLfsCloudRoutes(app: Express) {
     }
   });
 
+  app.post("/api/lfs/sync/ack-clear-sales", requireLfsApiKey, async (req: Request, res: Response) => {
+    try {
+      const scopedPropertyId = enforceLfsPropertyScope(req, res);
+      if (scopedPropertyId === null && (req as LfsAuthenticatedRequest).lfsPropertyId) return;
+      const propertyId = scopedPropertyId || req.body?.propertyId;
+      if (!propertyId) {
+        return res.status(400).json({ error: "propertyId is required" });
+      }
+      await ackSalesClear(propertyId);
+      res.json({ ok: true, acknowledged: true });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      res.status(500).json({ error: msg });
+    }
+  });
+
   app.get("/api/lfs/sync/clear-status", requireLfsApiKey, async (req: Request, res: Response) => {
     try {
       const scopedPropertyId = enforceLfsPropertyScope(req, res);
