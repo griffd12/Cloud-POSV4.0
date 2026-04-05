@@ -7934,6 +7934,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/admin/clear-sales-status/:propertyId", async (req, res) => {
     try {
+      const emcSession = req.headers["x-emc-session"] as string | undefined;
+      if (!emcSession) {
+        return res.status(401).json({ message: "EMC session required" });
+      }
+      const session = await storage.getEmcSessionByToken(emcSession);
+      if (!session) {
+        return res.status(401).json({ message: "Invalid or expired EMC session" });
+      }
       const { propertyId } = req.params;
       const { getSalesClearStatus } = await import("./lfs-sync-routes");
       const status = await getSalesClearStatus(propertyId);

@@ -152,6 +152,7 @@
         <div class="card">
           <h2>Clear Sales Data</h2>
           <div class="stat-row"><span class="stat-label">Last Cloud Clear</span><span class="stat-value" id="last-cloud-clear">—</span></div>
+          <div class="stat-row"><span class="stat-label">LFS Cleared At</span><span class="stat-value" id="lfs-clear-ack-time">—</span></div>
           <div class="stat-row"><span class="stat-label">LFS Status</span><span class="stat-value" id="lfs-clear-ack-status">—</span></div>
           <div id="clear-sales-section" style="margin-top:12px">
             <div id="clear-pin-form" style="display:none">
@@ -879,11 +880,13 @@
         if (clearStatusResp?.ok && clearStatusResp.status) {
           const cs = clearStatusResp.status;
           document.getElementById('last-cloud-clear').textContent = cs.clearedAt ? new Date(cs.clearedAt).toLocaleString() : '—';
+          document.getElementById('lfs-clear-ack-time').textContent = cs.lfsAckAt ? new Date(cs.lfsAckAt).toLocaleString() : '—';
           document.getElementById('lfs-clear-ack-status').innerHTML = cs.lfsAcknowledged
             ? badge('Cleared', 'success')
             : badge('Pending', 'warning');
         } else {
           document.getElementById('last-cloud-clear').textContent = 'None';
+          document.getElementById('lfs-clear-ack-time').textContent = '—';
           document.getElementById('lfs-clear-ack-status').textContent = '—';
         }
       } catch (_) {}
